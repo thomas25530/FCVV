@@ -41,16 +41,27 @@ jobs:
       run: |
         toolchain create FCVV .
 
-    - name: Configurer l'icône de l'application
+    - name: Détecter le dossier Xcode et configurer l'icône
       run: |
-        if [ -f "assets/logo_apk_fcvv.png" ]; then
-          toolchain icon FCVV assets/logo_apk_fcvv.png
+        # On cherche un dossier qui contient un fichier .xcodeproj
+        XCODEDIR=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1 | cut -d'/' -f2)
+        XCODENAME=$(basename "$XCODEDIR" .xcodeproj)
+        
+        echo "Dossier Xcode détecté : $XCODEDIR"
+        echo "Nom du projet détecté : $XCODENAME"
+        
+        # Si une icône existe, on l'applique en utilisant le vrai nom détecté
+        if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODENAME" ]; then
+          toolchain icon "$XCODENAME" assets/logo_apk_fcvv.png
         else
-          echo "Attention : assets/logo_apk_fcvv.png introuvable."
+          echo "Icône manquante ou projet introuvable."
         fi
 
     - name: Archiver le projet Xcode généré
       uses: actions/upload-artifact@v4
       with:
         name: FCVV-iOS-Xcode-Project
-        path: FCVV-ios/
+        # On sauvegarde tous les dossiers de projet iOS générés pour être sûrs
+        path: |
+          *-ios/
+          *.xcodeproj/
