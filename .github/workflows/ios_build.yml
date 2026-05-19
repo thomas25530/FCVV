@@ -44,7 +44,7 @@ jobs:
     - name: Configurer l'icône de l'application
       run: |
         if [ -f "assets/logo_apk_fcvv.png" ]; then
-          toolchain icon fcvv assets/logo_apk_fcvv.png
+          toolchain icon FCVV assets/logo_apk_fcvv.png
         else
           echo "Attention : assets/logo_apk_fcvv.png introuvable."
         fi
@@ -53,4 +53,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: FCVV-iOS-Xcode-Project
-        path: fcvv-ios/
+        path: FCVV-ios/
