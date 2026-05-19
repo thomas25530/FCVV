@@ -1,0 +1,16 @@
+eclipse.preferences.version=1
+encoding//core/tournoi_logic.py=utf-8
+encoding//ui/screens/about.py=utf-8
+encoding//ui/screens/agenda.py=utf-8
+encoding//ui/screens/classement.py=utf-8
+encoding//ui/screens/effectif.py=utf-8
+encoding//ui/screens/home.py=utf-8
+encoding//ui/screens/info.py=utf-8
+encoding//ui/screens/inscription.py=utf-8
+encoding//ui/screens/presentation.py=utf-8
+encoding//ui/screens/restauration.py=utf-8
+encoding//ui/screens/resultat.py=utf-8
+encoding//ui/screens/settings.py=utf-8
+encoding//ui/screens/soirees.py=utf-8
+encoding/constants.py=utf-8
+encoding/main.py=utf-8
