@@ -28,4 +28,11 @@ bin/
 save/
 *.json
 *.yaml
-*.yml
+
+apk/
+backup/
+*.apk
+*.zip
+.settings/
+.project
+.pydevproject

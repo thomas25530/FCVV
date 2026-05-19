@@ -1,0 +1,3 @@
+name: Build iOS App 
+on: [push, workflow_dispatch] 
+jobs: 
