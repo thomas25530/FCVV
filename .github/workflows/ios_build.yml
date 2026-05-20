@@ -31,33 +31,36 @@ jobs:
         pip install pillow
         pip install requests urllib3 charset-normalizer idna certifi pyyaml chardet plyer setuptools
 
-    - name: Compiler les recettes Kivy-ios
+    - name: Gestion du Cache pour la Toolchain Kivy
+      id: cache-kivy-ios
+      uses: actions/cache@v4
+      with:
+        # On sauvegarde le dossier secret où kivy-ios compile Python, Kivy et OpenSSL
+        path: ~/.kivy-ios
+        # Clé unique basée sur les recettes compilées
+        key: ${{ runner.os }}-kivy-ios-v1-python3-kivy-openssl-pillow
+
+    - name: Compiler les recettes Kivy-ios (uniquement si pas de cache)
+      if: steps.cache-kivy-ios.outputs.cache-hit != 'true'
       run: |
         toolchain build python3 kivy openssl pillow
 
     - name: Préparer un dossier source propre pour iOS
       run: |
-        # On crée un dossier temporaire pour isoler uniquement le code Python
         mkdir ios_src
-        
-        # Copie du code principal et des dossiers de l'application
         cp main.py ios_src/
         cp -r ui ios_src/
-        
-        # Copie facultative des autres ressources si elles existent
         if [ -d "assets" ]; then cp -r assets ios_src/; fi
         if [ -f "pictures.kv" ]; then cp pictures.kv ios_src/; fi
         if [ -d "images" ]; then cp -r images ios_src/; fi
 
     - name: Créer le projet Xcode
       run: |
-        # On crée le projet Xcode en ciblant uniquement le dossier propre
         toolchain create FCVV ./ios_src
 
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
         XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-        # On extrait le nom du dossier (ex: fcvv-ios) au lieu du nom du projet
         XCODEDIR=$(basename $(dirname "$XCODEPROJ_PATH"))
         
         echo "Chemin trouvé : $XCODEPROJ_PATH"
