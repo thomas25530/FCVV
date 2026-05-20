@@ -35,22 +35,37 @@ jobs:
       run: |
         toolchain build python3 kivy openssl pillow
 
+    - name: Préparer un dossier source propre pour iOS
+      run: |
+        # On crée un dossier temporaire pour isoler uniquement le code Python
+        mkdir ios_src
+        
+        # Copie du code principal et des dossiers de l'application
+        cp main.py ios_src/
+        cp -r ui ios_src/
+        
+        # Copie facultative des autres ressources si elles existent
+        if [ -d "assets" ]; then cp -r assets ios_src/; fi
+        if [ -f "pictures.kv" ]; then cp pictures.kv ios_src/; fi
+        if [ -d "images" ]; then cp -r images ios_src/; fi
+
     - name: Créer le projet Xcode
       run: |
-        toolchain create FCVV .
+        # On crée le projet Xcode en ciblant uniquement le dossier propre
+        toolchain create FCVV ./ios_src
 
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
-        XCODEDIR=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1 | cut -d'/' -f2)
-        XCODENAME=$(basename "$XCODEDIR" .xcodeproj)
+        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+        XCODENAME=$(basename "$XCODEPROJ_PATH" .xcodeproj)
         
-        echo "Dossier Xcode détecté : $XCODEDIR"
-        echo "Nom du projet détecté : $XCODENAME"
+        echo "Projet trouvé : $XCODEPROJ_PATH"
+        echo "Nom de l'application : $XCODENAME"
         
         if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODENAME" ]; then
           toolchain icon "$XCODENAME" assets/logo_apk_fcvv.png
         else
-          echo "Icône manquante ou projet introuvable."
+          echo "Icône manquante ou projet introuvable, configuration ignorée."
         fi
 
     - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
@@ -58,9 +73,8 @@ jobs:
         XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
         XCODENAME=$(basename "$XCODEPROJ_PATH" .xcodeproj)
         
-        echo "Compilation de $XCODENAME..."
+        echo "Compilation de $XCODENAME pour le simulateur..."
         
-        # On retire CONFIGURATION_BUILD_DIR pour laisser Xcode travailler dans ses dossiers natifs
         xcodebuild -project "$XCODEPROJ_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
@@ -72,5 +86,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: FCVV-iOS-Simulator-App
-        # Xcode range le .app dans son dossier "DerivedData" secret, on va le chercher là-bas
         path: /Users/runner/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphonesimulator/*.app
