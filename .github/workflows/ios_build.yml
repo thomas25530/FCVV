@@ -29,8 +29,6 @@ jobs:
         pip install "Cython>=3.0.0,<3.1.0"
         pip install "kivy-ios>=1.3.0"
         pip install pillow
-        # On installe tes modules requis sur l'environnement de build 
-        # pour que la toolchain puisse les analyser et les packager
         pip install requests urllib3 charset-normalizer idna certifi pyyaml chardet plyer setuptools
 
     - name: Compiler les recettes Kivy-ios
@@ -43,25 +41,34 @@ jobs:
 
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
-        # On cherche un dossier qui contient un fichier .xcodeproj
         XCODEDIR=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1 | cut -d'/' -f2)
         XCODENAME=$(basename "$XCODEDIR" .xcodeproj)
         
         echo "Dossier Xcode détecté : $XCODEDIR"
         echo "Nom du projet détecté : $XCODENAME"
         
-        # Si une icône existe, on l'applique en utilisant le vrai nom détecté
         if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODENAME" ]; then
           toolchain icon "$XCODENAME" assets/logo_apk_fcvv.png
         else
           echo "Icône manquante ou projet introuvable."
         fi
 
-    - name: Archiver le projet Xcode généré
+    - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
+      run: |
+        XCODEDIR=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1 | cut -d'/' -f2)
+        XCODENAME=$(basename "$XCODEDIR" .xcodeproj)
+        
+        echo "Compilation de $XCODENAME pour le simulateur..."
+        
+        xcodebuild -project "$XCODEDIR/$XCODENAME.xcodeproj" \
+                   -scheme "$XCODENAME" \
+                   -configuration Debug \
+                   -sdk iphonesimulator \
+                   CODE_SIGNING_ALLOWED=NO \
+                   CONFIGURATION_BUILD_DIR=../build-output
+
+    - name: Archiver l'application .app finale
       uses: actions/upload-artifact@v4
       with:
-        name: FCVV-iOS-Xcode-Project
-        # On sauvegarde tous les dossiers de projet iOS générés pour être sûrs
-        path: |
-          *-ios/
-          *.xcodeproj/
+        name: FCVV-iOS-Simulator-App
+        path: build-output/*.app
