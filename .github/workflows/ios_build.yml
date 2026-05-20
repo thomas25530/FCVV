@@ -57,15 +57,16 @@ jobs:
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
         XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-        XCODENAME=$(basename "$XCODEPROJ_PATH" .xcodeproj)
+        # On extrait le nom du dossier (ex: fcvv-ios) au lieu du nom du projet
+        XCODEDIR=$(basename $(dirname "$XCODEPROJ_PATH"))
         
-        echo "Projet trouvé : $XCODEPROJ_PATH"
-        echo "Nom de l'application : $XCODENAME"
+        echo "Chemin trouvé : $XCODEPROJ_PATH"
+        echo "Dossier cible pour l'icône : $XCODEDIR"
         
-        if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODENAME" ]; then
-          toolchain icon "$XCODENAME" assets/logo_apk_fcvv.png
+        if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODEDIR" ]; then
+          toolchain icon "$XCODEDIR" assets/logo_apk_fcvv.png
         else
-          echo "Icône manquante ou projet introuvable, configuration ignorée."
+          echo "Icône manquante ou dossier introuvable, configuration ignorée."
         fi
 
     - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
