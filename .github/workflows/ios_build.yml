@@ -55,17 +55,22 @@ jobs:
 
     - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
       run: |
-        # On trouve directement le fichier .xcodeproj peu importe son nom ou ses majuscules
         XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
         XCODENAME=$(basename "$XCODEPROJ_PATH" .xcodeproj)
         
-        echo "Chemin du projet trouvé : $XCODEPROJ_PATH"
-        echo "Nom du scheme : $XCODENAME"
+        echo "Compilation de $XCODENAME..."
         
-        # Lancement de la compilation avec les bons chemins absolus/relatifs
+        # On retire CONFIGURATION_BUILD_DIR pour laisser Xcode travailler dans ses dossiers natifs
         xcodebuild -project "$XCODEPROJ_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
                    -sdk iphonesimulator \
                    CODE_SIGNING_ALLOWED=NO \
-                   CONFIGURATION_BUILD_DIR=./build-output
+                   IPHONEOS_DEPLOYMENT_TARGET=13.0
+                   
+    - name: Archiver l'application .app finale
+      uses: actions/upload-artifact@v4
+      with:
+        name: FCVV-iOS-Simulator-App
+        # Xcode range le .app dans son dossier "DerivedData" secret, on va le chercher là-bas
+        path: /Users/runner/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphonesimulator/*.app
