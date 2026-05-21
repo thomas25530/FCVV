@@ -413,7 +413,7 @@ class SoireesScreen(Screen):
         refresh_seconds = minutes * 60
         # 3. On programme le nouvel intervalle
         self.auto_refresh_event = Clock.schedule_interval(self.auto_update, refresh_seconds)
-        print(f"[TIMER] Prochain rafraîchissement dans {minutes} min")
+        print(f"[TIMER] Prochain rafraichissement dans {minutes} min")
         
     def update_refresh_timestamp(self, dt=None):
         """ Calcule l'heure de la mise à jour réelle """
@@ -662,7 +662,7 @@ class SoireesScreen(Screen):
                 self.finalize_ui_update(t_logic, nom_pur)
                 return
             except Exception as e:
-                print(f"[FAST-LOAD] Erreur lecture cache, passage au réseau: {e}")
+                print(f"[FAST-LOAD] Erreur lecture cache, passage au reseau: {e}")
 
         # --- 3. SI RÉSEAU OU FORCE ---
         self.label_titre_centre.text = f"[color=ffff00]{_('loading')}...[/color]"
@@ -753,7 +753,7 @@ class SoireesScreen(Screen):
         
         # --- ÉTAPE 2 : RÉCUPÉRATION DISTANTE ---
         if force_download or not os.path.exists(local_path):
-            print(f"[NETWORK] Vérification/Téléchargement : {filename}")
+            print(f"[NETWORK] Verification/Telechargement : {filename}")
             direct_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             try:
                 # CORRECTION iOS : certifi est requis pour assurer la chaîne SSL sur iOS/Android de manière homogène
@@ -1198,7 +1198,7 @@ class SoireesScreen(Screen):
         container = self.classement_layout
         container.clear_widgets()
         
-        print("[UI] Classement modifié : reconstruction...")
+        print("[UI] Classement modifie : reconstruction...")
 
         container = self.classement_layout
         container.clear_widgets()

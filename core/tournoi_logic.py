@@ -137,7 +137,7 @@ class TournoiLogic:
                     try:
                         self.creer_phases_finales()
                     except Exception as e:
-                        print(f"[ERREUR] Création phases finales : {e}")
+                        print(f"[ERREUR] Creation phases finales : {e}")
 
         # 7. Chargement Sauvegarde (Uniquement si pas d'appel par from_json)
         if self.config:
@@ -166,7 +166,7 @@ class TournoiLogic:
             self.total_goals = self.get_total_goals()
             return True
         except Exception as e:
-            print(f"[ERREUR] Échec chargement sauvegarde : {e}")
+            print(f"[ERREUR] echec chargement sauvegarde : {e}")
             return False
         
     @classmethod
