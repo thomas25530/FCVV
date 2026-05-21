@@ -740,7 +740,6 @@ class MyApp(App):
         # On crée une copie locale de travail pour éviter les conflits de Thread
         local_config = {"tournoi": {}, "fcvv": {}}
         if hasattr(self, 'app_config'):
-            # On duplique proprement pour travailler en tâche de fond
             local_config = dict(self.app_config)
 
         # 1. Chargement du cache local
@@ -749,14 +748,13 @@ class MyApp(App):
             cache_path = os.path.join(data_dir, filename)
             if os.path.exists(cache_path):
                 try:
-                    with open(cache_path, "r", encoding='utf-8') as f:
+                    with open(cache_path, "rb") as f: # Ouverture en mode binaire 'rb'
                         local_config[key] = yaml.safe_load(f) or {}
                         cache_loaded = True
                 except Exception as e: 
                     print(f"Erreur lecture cache {filename}: {e}")
 
         if cache_loaded:
-            # On applique d'abord la config au thread principal de manière sécurisée
             Clock.schedule_once(lambda dt: setattr(self, 'app_config', local_config), 0)
             self.download_news_images()
             Clock.schedule_once(self._update_home_screen, 0)
@@ -782,7 +780,8 @@ class MyApp(App):
                     if new_hash != old_hash:
                         with open(cache_path, "wb") as f:
                             f.write(new_content)
-                        local_config[key] = yaml.safe_load(new_content.decode('utf-8')) or {}
+                        # SOLUTION ICI : On passe directement le contenu binaire à safe_load
+                        local_config[key] = yaml.safe_load(new_content) or {}
                         config_changed = True
                         print(f"[CONFIG] {filename} mis à jour ou restauré.")
             except Exception as e:
@@ -790,7 +789,6 @@ class MyApp(App):
 
         # 3. Finalisation et injection finale sécurisée
         if config_changed:
-            # Met à jour la variable globale sur le thread principal de Kivy
             Clock.schedule_once(lambda dt: setattr(self, 'app_config', local_config), 0)
             self.download_news_images()
             
