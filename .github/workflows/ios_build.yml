@@ -47,15 +47,25 @@ jobs:
 
     - name: Préparer un dossier source propre pour iOS
       run: |
+        # On crée un dossier temporaire pour isoler uniquement le code Python
         mkdir ios_src
+        
+        # Copie du code principal et des dossiers de l'application
         cp main.py ios_src/
         cp -r ui ios_src/
+        
+        # Copie des autres ressources si elles existent
         if [ -d "assets" ]; then cp -r assets ios_src/; fi
         if [ -f "pictures.kv" ]; then cp pictures.kv ios_src/; fi
         if [ -d "images" ]; then cp -r images ios_src/; fi
 
+        # Installation des paquets pure-Python directement dans le dossier de l'app
+        # (Sauf pillow et certifi qui sont déjà gérés nativement par la toolchain)
+        pip install --target=./ios_src requests urllib3 charset-normalizer idna pyyaml chardet plyer
+
     - name: Créer le projet Xcode
       run: |
+        # On crée le projet Xcode en ciblant le dossier contenant le code et ses modules
         toolchain create FCVV ./ios_src
 
     - name: Détecter le dossier Xcode et configurer l'icône
