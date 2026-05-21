@@ -35,9 +35,7 @@ jobs:
       id: cache-kivy-ios
       uses: actions/cache@v4
       with:
-        # On sauvegarde le dossier secret où kivy-ios compile Python, Kivy et OpenSSL
         path: ~/.kivy-ios
-        # Clé unique basée sur les recettes compilées
         key: ${{ runner.os }}-kivy-ios-v1-python3-kivy-openssl-pillow
 
     - name: Compiler les recettes Kivy-ios (uniquement si pas de cache)
@@ -47,25 +45,23 @@ jobs:
 
     - name: Préparer un dossier source propre pour iOS
       run: |
-        # On crée un dossier temporaire pour isoler uniquement le code Python
+        # 1. Création du conteneur de l'app
         mkdir ios_src
         
-        # Copie du code principal et des dossiers de l'application
+        # 2. Copie stricte des fichiers requis à la racine
         cp main.py ios_src/
-        cp -r ui ios_src/
+        cp constants.py ios_src/
         
-        # Copie des autres ressources si elles existent
+        # 3. Copie stricte des dossiers requis
+        if [ -d "ui" ]; then cp -r ui ios_src/; fi
+        if [ -d "core" ]; then cp -r core ios_src/; fi
         if [ -d "assets" ]; then cp -r assets ios_src/; fi
-        if [ -f "pictures.kv" ]; then cp pictures.kv ios_src/; fi
-        if [ -d "images" ]; then cp -r images ios_src/; fi
 
-        # Installation des paquets pure-Python directement dans le dossier de l'app
-        # (Sauf pillow et certifi qui sont déjà gérés nativement par la toolchain)
+        # 4. Installation des dépendances externes requises par le code
         pip install --target=./ios_src requests urllib3 charset-normalizer idna pyyaml chardet plyer
 
     - name: Créer le projet Xcode
       run: |
-        # On crée le projet Xcode en ciblant le dossier contenant le code et ses modules
         toolchain create FCVV ./ios_src
 
     - name: Détecter le dossier Xcode et configurer l'icône
@@ -79,7 +75,7 @@ jobs:
         if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODEDIR" ]; then
           toolchain icon "$XCODEDIR" assets/logo_apk_fcvv.png
         else
-          echo "Icône manquante ou dossier introuvable, configuration ignorée."
+          echo "Icône manquante ou dossier introuvable, configuration iqnorée."
         fi
 
     - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
