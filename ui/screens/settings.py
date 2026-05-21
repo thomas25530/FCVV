@@ -411,7 +411,7 @@ class SettingsScreen(Screen):
             instance.text = f"Vidé ({files_deleted} f.)"
             self.update_cache_display()
         else:
-            instance.text = "Déjà vide"
+            instance.text = "Déja vide"
             
         Clock.schedule_once(lambda dt: self._reset_btn_ui(instance, self.app_tr("cache")), 2)
 

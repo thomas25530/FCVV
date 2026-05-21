@@ -646,7 +646,7 @@ class MyApp(App):
             local_path = os.path.join(self.user_data_dir, filename)
             if not os.path.exists(local_path):
                 try:
-                    print(f"[IMAGES] Téléchargement : {filename}")
+                    print(f"[IMAGES] Telechargement : {filename}")
                     try:
                         r = requests.get(image_url, timeout=10, verify=ca_bundle)
                     except:
@@ -664,7 +664,7 @@ class MyApp(App):
                 item["image"] = local_path
                 
     def cleanup_unused_images(self):
-        print("[CLEANUP] Vérification des images inutilisées...")
+        print("[CLEANUP] Verification des images inutilisees...")
         try:
             needed_images = set()
             
@@ -690,7 +690,7 @@ class MyApp(App):
             # --- SÉCURITÉ CRITIQUE ---
             # Si on ne trouve aucune image nécessaire, on arrête tout pour éviter de vider le dossier
             if not needed_images:
-                print("[CLEANUP] Alerte : Aucune image trouvée dans la config. Annulation par sécurité.")
+                print("[CLEANUP] Alerte : Aucune image trouvee dans la config. Annulation par securite.")
                 return
     
             data_dir = self.user_data_dir
@@ -709,13 +709,13 @@ class MyApp(App):
                         try:
                             # Petite pause pour laisser le système relâcher le fichier si besoin
                             os.remove(file_path)
-                            print(f"[CLEANUP] Supprimé : {filename}")
+                            print(f"[CLEANUP] Supprime : {filename}")
                             deleted_count += 1
                         except Exception as e:
                             # Arrive si l'image est actuellement affichée à l'écran (Kivy la verrouille)
                             print(f"[CLEANUP SKIP] Impossible de supprimer {filename} (en cours d'utilisation)")
             
-            print(f"[CLEANUP] Terminé. {deleted_count} image(s) supprimée(s).")
+            print(f"[CLEANUP] Termine. {deleted_count} image(s) supprimee(s).")
     
         except Exception as e:
             print(f"[CLEANUP ERROR] {e}")
@@ -735,7 +735,7 @@ class MyApp(App):
         files_exist = [os.path.exists(os.path.join(data_dir, f)) for f, _, _ in configs_to_process]
         is_first_run = not any(files_exist) 
         if is_first_run:
-            print("[CONFIG] Premier démarrage détecté : le nettoyage sera désactivé pour cette session.")
+            print("[CONFIG] Premier demarrage detecte : le nettoyage sera desactive pour cette session.")
 
         # On crée une copie locale de travail pour éviter les conflits de Thread
         local_config = {"tournoi": {}, "fcvv": {}}
@@ -783,7 +783,7 @@ class MyApp(App):
                         # SOLUTION ICI : On passe directement le contenu binaire à safe_load
                         local_config[key] = yaml.safe_load(new_content) or {}
                         config_changed = True
-                        print(f"[CONFIG] {filename} mis à jour ou restauré.")
+                        print(f"[CONFIG] {filename} mis a jour ou restaure.")
             except Exception as e:
                 print(f"[CONFIG ERROR] {filename}: {e}")
 
@@ -832,7 +832,7 @@ class MyApp(App):
                 if y.isdigit():
                     valid_years.append(int(y))
             if not valid_years:
-                print("[PRELOAD] Aucune année numérique trouvée.")
+                print("[PRELOAD] Aucune annee numerique trouvee.")
                 return
             # Trouver l'année la plus élevée (ex: 2026)
             latest_year_str = str(max(valid_years))
@@ -858,14 +858,14 @@ class MyApp(App):
                 if "id=" in url_raw:
                     file_id = url_raw.split("id=")[-1].split("&")[0]
                 else:
-                    print("[PRELOAD] URL invalide (pas d'ID trouvé)")
+                    print("[PRELOAD] URL invalide (pas d'ID trouve)")
                     return
                 ext = "json" if target.get("type") == "save" else "yaml"
                 filename = f"tournoi_{file_id}.{ext}"
                 local_path = os.path.join(self.user_data_dir, filename)
                 # 4. Téléchargement avec Fallback SSL
                 if not os.path.exists(local_path):
-                    print(f"[PRELOAD] Téléchargement de {nom_cible}...")
+                    print(f"[PRELOAD] Telechargement de {nom_cible}...")
                     download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
                     try:
                         # Tentative A : Avec Certifi
@@ -877,7 +877,7 @@ class MyApp(App):
                     if r.status_code == 200:
                         with open(local_path, "wb") as f:
                             f.write(r.content)
-                        print(f"[PRELOAD] Succès : {filename}")
+                        print(f"[PRELOAD] Succes : {filename}")
                 else:
                     print(f"[PRELOAD] Cache OK : {nom_cible}")
         except Exception as e:

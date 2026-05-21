@@ -94,7 +94,7 @@ class ResultatScreen(Screen):
         """Déclenche le refresh si on tire vers le bas"""
         if value > 1.08 and not self._is_refreshing:
             self._is_refreshing = True
-            print("[RESULTATS] Refresh manuel lancé")
+            print("[RESULTATS] Refresh manuel lance")
             app = App.get_running_app()
             if hasattr(app, 'load_remote_config'):
                 threading.Thread(target=self._bg_refresh, args=(app,), daemon=True).start()

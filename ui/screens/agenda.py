@@ -109,7 +109,7 @@ class AgendaScreen(Screen):
         if value > 1.05: 
             if not hasattr(self, '_is_refreshing') or not self._is_refreshing:
                 self._is_refreshing = True
-                print("[AGENDA] Pull-to-refresh détecté !")
+                print("[AGENDA] Pull-to-refresh detecte !")
                 self.manual_refresh()
     
     def manual_refresh(self):
@@ -149,7 +149,7 @@ class AgendaScreen(Screen):
             print("[AGENDA] Hash identique, pas de reconstruction.")
             return False
 
-        print("[AGENDA] Changement détecté ou premier chargement : Reconstruction...")
+        print("[AGENDA] Changement detecte ou premier chargement : Reconstruction...")
         self.last_config_hash = current_hash
 
         # 4. RECONSTRUCTION DE L'INTERFACE

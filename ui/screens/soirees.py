@@ -367,7 +367,7 @@ class SoireesScreen(Screen):
     
     def start_background_service(self):
         # Désactivé : on ne lance plus le service Java
-        print("[SERVICE] Démarrage ignoré (Service supprimé)")
+        print("[SERVICE] Demarrage ignore (Service supprime)")
         return
     
     def get_app_storage_path(self):
@@ -395,7 +395,7 @@ class SoireesScreen(Screen):
         if hasattr(self, 'auto_refresh_event') and self.auto_refresh_event:
             self.auto_refresh_event.cancel()
             self.auto_refresh_event = None
-            print("[AUTO-UPDATE] Arrêté")
+            print("[AUTO-UPDATE] Arrete")
             
     def setup_auto_refresh(self, *args):
         """ (Re)démarre le timer avec la valeur actuelle des réglages """
@@ -519,7 +519,7 @@ class SoireesScreen(Screen):
             # --- 5. ARRÊTER L'ANIMATION ---
             # On laisse l'animation tourner au moins 1.5s pour le feedback visuel
             Clock.schedule_once(lambda dt: self._stop_auto_rotate(target_btn), 1.5)
-            print(f"[AUTO-UPDATE] Config et Scores actualisés à {datetime.now().strftime('%H:%M')}")
+            print(f"[AUTO-UPDATE] Config et Scores actualises a {datetime.now().strftime('%H:%M')}")
 
         # On lance tout le processus dans un thread séparé pour ne pas freezer l'app
         threading.Thread(target=perform_background_update, daemon=True).start()
@@ -716,7 +716,7 @@ class SoireesScreen(Screen):
                     self.build_classement_view()
                     
             except Exception as e:
-                print(f"[FLUID-UPDATE] Erreur, repli sur reconstruction complète: {e}")
+                print(f"[FLUID-UPDATE] Erreur, repli sur reconstruction complete: {e}")
                 self._do_rebuild(t_logic)
         else:
             # Structure différente ou premier chargement : reconstruction totale
@@ -726,7 +726,7 @@ class SoireesScreen(Screen):
 
     def _reconstruct_ui(self, t_logic):
         """ Centralise la reconstruction pour éviter la répétition """
-        print("[UI] Reconstruction complète du tableau")
+        print("[UI] Reconstruction complete du tableau")
         self._last_matchs_hash = None 
         self.score_widgets = {}       
         self.matchs_layout.clear_widgets() # Optionnel mais propre
@@ -764,15 +764,15 @@ class SoireesScreen(Screen):
                 remote_hash = hashlib.md5(remote_bytes).hexdigest()
                 
                 if remote_hash == local_hash:
-                    print(f"[NETWORK] Hash identique ({remote_hash[:8]}). Pas d'écriture disque.")
+                    print(f"[NETWORK] Hash identique ({remote_hash[:8]}). Pas d'ecriture disque.")
                     final_bytes = local_bytes 
                 else:
-                    print(f"[NETWORK] Nouveau contenu ! Mise à jour du fichier local.")
+                    print(f"[NETWORK] Nouveau contenu ! Mise a jour du fichier local.")
                     with open(local_path, "wb") as f:
                         f.write(remote_bytes)
                     final_bytes = remote_bytes
             except Exception as e:
-                print(f"[NETWORK] Échec : {e}")
+                print(f"[NETWORK] Echec : {e}")
                 final_bytes = local_bytes # Repli sur le cache local
         else:
             print(f"[CACHE] Chargement direct du cache local.")

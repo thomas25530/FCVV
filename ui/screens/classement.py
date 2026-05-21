@@ -92,7 +92,7 @@ class ClassementScreen(Screen):
         """Déclenche le rafraîchissement si on tire le tableau vers le bas"""
         if value > 1.05 and not self._is_refreshing:
             self._is_refreshing = True
-            print("[CLASSEMENT] Pull-to-refresh détecté")
+            print("[CLASSEMENT] Pull-to-refresh detecte")
             app = App.get_running_app()
             if hasattr(app, 'load_remote_config'):
                 threading.Thread(target=self._bg_refresh, args=(app,), daemon=True).start()
