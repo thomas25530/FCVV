@@ -48,16 +48,19 @@ jobs:
         # 1. Création du conteneur de l'app
         mkdir ios_src
         
-        # 2. Copie stricte des fichiers requis à la racine
+        # 2. Copie stricte des fichiers de code à la racine
         cp main.py ios_src/
         cp constants.py ios_src/
         
-        # 3. Copie stricte des dossiers requis
+        # 3. Alignement avec buildozer.spec : Copie de tous les fichiers de données à la racine (*.kv, *.json, *.yaml, *.txt)
+        cp *.kv *.json *.yaml *.txt ios_src/ 2>/dev/null || true
+        
+        # 4. Copie stricte des dossiers requis
         if [ -d "ui" ]; then cp -r ui ios_src/; fi
         if [ -d "core" ]; then cp -r core ios_src/; fi
         if [ -d "assets" ]; then cp -r assets ios_src/; fi
 
-        # 4. Installation des dépendances externes requises par le code
+        # 5. Installation des dépendances externes requises par le code
         pip install --target=./ios_src requests urllib3 charset-normalizer idna pyyaml chardet plyer
 
     - name: Créer le projet Xcode
@@ -75,7 +78,20 @@ jobs:
         if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODEDIR" ]; then
           toolchain icon "$XCODEDIR" assets/logo_apk_fcvv.png
         else
-          echo "Icône manquante ou dossier introuvable, configuration iqnorée."
+          echo "Icône manquante ou dossier introuvable, configuration ignorée."
+        fi
+
+    - name: Configurer l'orientation en mode Portrait (comme sur Android)
+      run: |
+        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+        INFOPLIST_PATH="$(dirname "$XCODEPROJ_PATH")/fcvv-Info.plist"
+        
+        if [ -f "$INFOPLIST_PATH" ]; then
+          echo "Configuration de l'orientation Portrait unique dans $INFOPLIST_PATH..."
+          # Supprime les orientations paysage pour ne garder que Portrait
+          plutil -replace UISupportedInterfaceOrientations -array UIInterfaceOrientationPortrait "$INFOPLIST_PATH"
+        else
+          echo "Fichier Info.plist introuvable, utilisation des orientations par défaut."
         fi
 
     - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
