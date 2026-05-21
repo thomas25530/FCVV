@@ -225,7 +225,7 @@ class SoireesScreen(Screen):
         # =========================================================
         # 4. ZONE DE CONTENU (SCROLLVIEW)
         # =========================================================
-        self.scroll = ScrollView(do_scroll_x=False)
+        self.scroll = ScrollView(do_scroll_x=False, bar_width=0)
         # On crée un layout qui servira aux deux fonctions de rendu
         self.content_container = BoxLayout(orientation='vertical', size_hint_y=None, padding=[0, dp(5), 0, dp(5)], spacing=dp(2))
         self.content_container.bind(minimum_height=self.content_container.setter('height'))

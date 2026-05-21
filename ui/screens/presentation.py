@@ -63,7 +63,7 @@ class PresentationScreen(Screen):
         self.main_layout.add_widget(self.tab_bar)
 
         # 2. CONTENEUR DE CONTENU
-        self.scroll = ScrollView(do_scroll_x=False)
+        self.scroll = ScrollView(do_scroll_x=False, bar_width=0)
         self.content_layout = BoxLayout(orientation='vertical', padding=[dp(20), dp(10)], spacing=dp(15), size_hint_y=None)
         self.content_layout.bind(minimum_height=self.content_layout.setter('height'))
         

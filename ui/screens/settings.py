@@ -61,7 +61,7 @@ class SettingsScreen(Screen):
             self.rect = Rectangle(pos=self.pos, size=self.size)
         self.bind(pos=self._update_rect, size=self._update_rect)
 
-        self.scroll = ScrollView(do_scroll_x=False)
+        self.scroll = ScrollView(do_scroll_x=False, bar_width=0)
         self.add_widget(self.scroll)
         self.refresh_settings_layout()
 

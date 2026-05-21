@@ -72,7 +72,7 @@ class ResultatScreen(Screen):
             self.rect_bg = RoundedRectangle(pos=self.layout.pos, size=self.layout.size)
         self.layout.bind(pos=self._update_bg, size=self._update_bg)
 
-        self.scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
+        self.scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, bar_width=0)
         self.container = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10), padding=dp(15))
         self.container.bind(minimum_height=self.container.setter('height'))
 

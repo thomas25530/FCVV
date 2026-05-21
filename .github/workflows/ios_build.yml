@@ -88,8 +88,13 @@ jobs:
         
         if [ -f "$INFOPLIST_PATH" ]; then
           echo "Configuration de l'orientation Portrait unique dans $INFOPLIST_PATH..."
-          # Supprime les orientations paysage pour ne garder que Portrait
-          plutil -replace UISupportedInterfaceOrientations -array UIInterfaceOrientationPortrait "$INFOPLIST_PATH"
+          
+          # 1. On vide le tableau des orientations existantes
+          plutil -remove UISupportedInterfaceOrientations "$INFOPLIST_PATH" 2>/dev/null || true
+          
+          # 2. On recrée le tableau avec uniquement la valeur Portrait
+          plutil -insert UISupportedInterfaceOrientations -array "$INFOPLIST_PATH"
+          plutil -insert UISupportedInterfaceOrientations.0 -string "UIInterfaceOrientationPortrait" "$INFOPLIST_PATH"
         else
           echo "Fichier Info.plist introuvable, utilisation des orientations par défaut."
         fi

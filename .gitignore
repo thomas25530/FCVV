@@ -34,6 +34,7 @@ save/
 *.txt
 
 apk/
+ios/
 backup/
 *.apk
 *.zip
