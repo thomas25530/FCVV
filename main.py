@@ -576,6 +576,7 @@ class MyApp(App):
         return os.path.join(self.user_data_dir, 'fcvv.ini')
 
     def build(self):
+        customize_android_bars()
         # Assure-toi que RootLayout est bien défini ou importé dans ton fichier
         return RootLayout()
 
@@ -587,7 +588,7 @@ class MyApp(App):
             except Exception as e:
                 print(f"Erreur dossier: {e}")
         # 2. UI et Evénements
-        Clock.schedule_once(lambda dt: customize_android_bars(), 0)
+        #Clock.schedule_once(lambda dt: customize_android_bars(), 0)
         Window.bind(on_keyboard=self.on_back_button)
         # 3. Gestion Android 13+
         if platform == 'android':

@@ -113,9 +113,21 @@ jobs:
                    -arch arm64 \
                    CODE_SIGNING_ALLOWED=NO \
                    IPHONEOS_DEPLOYMENT_TARGET=13.0
-                   
-    - name: Archiver l'application .app finale
+
+    - name: Localiser et compresser le fichier .app pour Appetize
+      run: |
+        # 1. On trouve où Xcode a caché le fichier .app construit
+        APP_PATH=$(find /Users/runner/Library/Developer/Xcode/DerivedData -name "*.app" -type d | head -n 1)
+        echo "Application trouvée à l'emplacement : $APP_PATH"
+        
+        # 2. On se déplace dans le dossier parent pour zipper proprement uniquement le .app
+        cd "$(dirname "$APP_PATH")"
+        zip -r "$GITHUB_WORKSPACE/fcvv.zip" "$(basename "$APP_PATH")"
+        
+        echo "Fichier fcvv.zip créé avec succès à la racine du projet."
+
+    - name: Archiver le fichier zip final pour le téléchargement
       uses: actions/upload-artifact@v4
       with:
-        name: FCVV-iOS-Simulator-App
-        path: /Users/runner/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphonesimulator/*.app
+        name: fcvv.app.zip
+        path: fcvv.zip
