@@ -63,16 +63,11 @@ jobs:
         # 5. Installation des dépendances externes requises par le code
         pip install --target=./ios_src requests urllib3 charset-normalizer idna pyyaml chardet plyer
 
-    - name: Copier le fichier de configuration Firebase
+    - name: Créer le fichier de configuration Firebase
       run: |
-        # Assure-toi que ton fichier est bien dans assets/
-        if [ -f "assets/GoogleService-Info.plist" ]; then
-          cp assets/GoogleService-Info.plist ios_src/
-          echo "Configuration Firebase copiée."
-        else
-          echo "ERREUR : GoogleService-Info.plist manquant dans assets/"
-          exit 1
-        fi
+        # Création du fichier iOS à partir du secret GitHub
+        echo "${{ secrets.FIREBASE_IOS_CONFIG }}" > ios_src/GoogleService-Info.plist
+        echo "Configuration Firebase iOS générée."
  
     - name: Créer le projet Xcode et installer Firebase
       run: |
