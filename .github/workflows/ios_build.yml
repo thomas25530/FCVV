@@ -41,7 +41,7 @@ jobs:
     - name: Compiler les recettes Kivy-ios (uniquement si pas de cache)
       if: steps.cache-kivy-ios.outputs.cache-hit != 'true'
       run: |
-        toolchain build python3 kivy openssl pillow firebase
+        toolchain build python3 kivy openssl pillow
 
     - name: Préparer un dossier source propre pour iOS
       run: |
@@ -74,9 +74,18 @@ jobs:
           exit 1
         fi
  
-    - name: Créer le projet Xcode
+    - name: Créer le projet Xcode et installer Firebase
       run: |
+        # 1. Création du projet
         toolchain create FCVV ./ios_src --bundle-id org.fcvv.fcvv
+        
+        # 2. Copie du Podfile dans le dossier généré
+        cp Podfile ios_src/
+        
+        # 3. Installation des pods (Firebase)
+        cd ios_src
+        pod install
+        ls -R ios_src
 
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
@@ -122,14 +131,15 @@ jobs:
         
         echo "Capacités de notifications ajoutées au Info.plist."
 
-    - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
+    - name: Compiler le projet Xcode pour Simulateur
       run: |
-        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-        XCODENAME=$(basename "$XCODEPROJ_PATH" .xcodeproj)
+        # On utilise maintenant le .xcworkspace généré par CocoaPods
+        XCODEWORKSPACE_PATH=$(find . -maxdepth 2 -name "*.xcworkspace" | head -n 1)
+        XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
         
-        echo "Compilation de $XCODENAME pour le simulateur..."
+        echo "Compilation du workspace $XCODENAME..."
         
-        xcodebuild -project "$XCODEPROJ_PATH" \
+        xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
                    -sdk iphonesimulator \
