@@ -29,13 +29,14 @@ bin/
 .idea/
 .vscode/
 save/
-*.json
 *.yaml
 *.txt
 
-apk/
-ios/
-backup/
+1_apk/
+3_ios/
+2_backup/
+5_release/
+fcvv_api/
 *.apk
 *.zip
 .settings/

@@ -10,7 +10,6 @@ from kivy.graphics import Color, Rectangle
 from kivy.utils import get_color_from_hex
 from kivy.uix.label import Label # Assure-être d'avoir cet import
 from kivy.graphics import Rotate, PushMatrix, PopMatrix
-from kivy.uix.screenmanager import Screen
 from kivy.animation import Animation
 from kivy.clock import Clock
 from kivy.metrics import Metrics, dp
@@ -20,14 +19,37 @@ from kivy.uix.scrollview import ScrollView
 
 import threading
 import ssl
-import os, requests, yaml, hashlib
-import json
-import time
-import urllib3
+import os, hashlib
+#import urllib3
+from datetime import datetime, timedelta
+
+from constants import LANGUAGES
 
 from kivy.utils import platform
 
-from constants import LANGUAGES
+# Bloc conditionnel pour éviter l'erreur "Unable to find JAVA_HOME" sur Windows
+if platform == 'android':
+    from jnius import autoclass, PythonJavaClass, java_method
+
+    class OnCompleteListener(PythonJavaClass):
+        __javainterfaces__ = ['com/google/android/gms/tasks/OnCompleteListener']
+        
+        def __init__(self, callback=None):
+            super().__init__()
+            self.callback = callback
+
+        @java_method('(Lcom/google/android/gms/tasks/Task;)V')
+        def onComplete(self, task):
+            if task.isSuccessful():
+                token = task.getResult()
+                print(f"[FCM SUCCESS] Token recupere : {token}")
+            else:
+                print("[FCM ERROR] Echec de la recuperation du token")
+else:
+    # Simule la classe pour ne pas casser le code sur Windows
+    class OnCompleteListener:
+        def __init__(self, callback=None):
+            pass
 
 # Ajoute ceci juste après :
 if platform == 'android':
@@ -38,7 +60,6 @@ else:
         return func
 
 is_mobile = (platform == 'android' or platform == 'ios')
-#debug_APK= False
 
 if is_mobile:
     Metrics.density = 2  # force un scaling type mobile
@@ -62,25 +83,11 @@ if not is_mobile:
         # En cas d'échec critique sur de vieilles machines/OS
         ssl._create_default_https_context = ssl._create_unverified_context
 
-# Tes imports de screens
-from ui.screens.home import HomeScreen
-from ui.screens.presentation import PresentationScreen
-from ui.screens.soirees import SoireesScreen
-from ui.screens.restauration import RestaurationScreen
-from ui.screens.info import InfoScreen
-from ui.screens.settings import SettingsScreen
-from ui.screens.about import AboutScreen
-
-from ui.screens.agenda import AgendaScreen
-from ui.screens.resultat import ResultatScreen
-from ui.screens.classement import ClassementScreen
-from ui.screens.effectif import EffectifScreen
-from ui.screens.inscription import InscriptionsScreen
 
 def _(key):
     app = App.get_running_app()
     # Langue par défaut
-    lang = 'Français'
+    lang = 'Francais'
     if app and hasattr(app, 'config'):
         try:
             lang = app.config.get('User', 'langue')
@@ -88,12 +95,13 @@ def _(key):
             pass
             
     # On récupère le dictionnaire de la langue choisie
-    dict_lang = LANGUAGES.get(lang, LANGUAGES['Français'])
+    dict_lang = LANGUAGES.get(lang, LANGUAGES['Francais'])
     # On renvoie la traduction, ou la clé brute si elle n'existe pas
     return dict_lang.get(key, key)
 
 YELLOW = "#F7EC3F"
 BLUE = "#1E3A8A"
+
 config_file_Id_tournoi = "14V5epxHOUIqBDHPOQpTtAIaRRyKeFRLw"
 config_file_Id_fcvv = "161ngxPQz66QumHjG_us6qqyAtA0GPX2x"
 
@@ -202,7 +210,6 @@ class SubMenuItem(ButtonBehavior, BoxLayout):
     def on_release(self):
         # On remet l'opacité à 1 (ou l'opacité cible de l'animation de l'accordéon)
         self.opacity = 1
-        
         # ACTION : On change d'écran
         app = App.get_running_app()
         # app.root est l'instance de ton RootLayout
@@ -242,12 +249,20 @@ class AccordionGroup(BoxLayout):
             anim = Animation(height=target_height_sub, opacity=target_opacity, d=0.25, t='out_quad')
             anim.start(w)
 
-    def _remove_subs(self):
-        if not self.opened:
-            for w in self.sub_widgets:
-                if w in self.children:
-                    self.remove_widget(w)
+class MenuSeparator(Widget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint_y = None
+        self.height = dp(2)
+        with self.canvas.before:
+            self.color = Color(0.8, 0.8, 0.8, 1)
+            self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._update_rect, size=self._update_rect)
 
+    def _update_rect(self, *args):
+        self.rect.pos = self.pos
+        self.rect.size = self.size
+        
 class RootLayout(FloatLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -337,19 +352,35 @@ class RootLayout(FloatLayout):
         self.top_bar.add_widget(Widget(size_hint_x=None, width=10))
         self.main_ui.add_widget(self.top_bar)
         # Screen Manager
+        # Dictionnaire pour le Lazy Loading
+        self.screen_map = {
+            "home": ("ui.screens.home", "HomeScreen"),
+            "agenda": ("ui.screens.agenda", "AgendaScreen"),
+            "resultats": ("ui.screens.resultat", "ResultatScreen"),
+            "classements": ("ui.screens.classement", "ClassementScreen"),
+            "effectifs": ("ui.screens.effectif", "EffectifScreen"),
+            "organigramme": ("ui.screens.organigramme", "OrganigrammeScreen"),
+            "divers": ("ui.screens.divers", "DiversScreen"),
+            "presentation": ("ui.screens.presentation", "PresentationScreen"),
+            "inscriptions": ("ui.screens.inscription", "InscriptionsScreen"),
+            "soirees": ("ui.screens.soirees", "SoireesScreen"),
+            "restauration": ("ui.screens.restauration", "RestaurationScreen"),
+            "boutique": ("ui.screens.boutique", "BoutiqueScreen"),
+            "partenaires": ("ui.screens.partenaires", "PartenairesScreen"),
+            "info": ("ui.screens.info", "InfoScreen"),
+            "settings": ("ui.screens.settings", "SettingsScreen"),
+            "about": ("ui.screens.about", "AboutScreen"),
+            "login_vestiaire": ("ui.screens.login", "LoginScreen"),
+            "vestiaire": ("ui.screens.vestiaire", "VestiaireScreen"),
+        }
         self.sm = ScreenManager()
-        self.sm.add_widget(HomeScreen(name="home"))
-        self.sm.add_widget(AgendaScreen(name="agenda"))
-        self.sm.add_widget(ResultatScreen(name="resultats"))
-        self.sm.add_widget(ClassementScreen(name="classements"))
-        self.sm.add_widget(EffectifScreen(name="effectifs"))
-        self.sm.add_widget(PresentationScreen(name="presentation"))
-        self.sm.add_widget(InscriptionsScreen(name="inscriptions"))
-        self.sm.add_widget(SoireesScreen(name="soirees"))
-        self.sm.add_widget(RestaurationScreen(name="restauration"))
-        self.sm.add_widget(InfoScreen(name="info"))
-        self.sm.add_widget(SettingsScreen(name="settings"))
-        self.sm.add_widget(AboutScreen(name="about"))
+        Clock.schedule_once(
+            lambda dt: self.load_initial_screen(),
+            0
+        )
+        #from ui.screens.home import HomeScreen
+        #self.sm.add_widget(HomeScreen(name="home"))
+        
         self.main_ui.add_widget(self.sm)
         self.add_widget(self.main_ui)
         # Overlay
@@ -377,8 +408,17 @@ class RootLayout(FloatLayout):
         self.menu_scroll.add_widget(self.menu_panel)
         self.add_widget(self.menu_scroll)
         self.menu_built = False
-        self.build_menu()
-        Clock.schedule_once(lambda dt: self.switch_screen("home"))
+        #self.build_menu()
+        #Clock.schedule_once(lambda dt: self.switch_screen("home"))
+        
+    def load_initial_screen(self):
+        from ui.screens.home import HomeScreen
+    
+        self.sm.add_widget(
+            HomeScreen(name="home")
+        )
+    
+        self.sm.current = "home"
     
     def _update_panel_height(self, *args):
         # La hauteur est le maximum entre le contenu et la taille de l'écran
@@ -398,24 +438,46 @@ class RootLayout(FloatLayout):
 
     def switch_screen(self, screen_name):
         self.close_menu()
-        if self.sm.has_screen(screen_name):
-            self.sm.current = screen_name
-            self.title_label.text = _(screen_name)
+        
+        # 1. Logique de redirection vers le login si vestiaire vide
+        if screen_name == "vestiaire":
+            app = App.get_running_app()
+            if not app.authorized_vestiaires:
+                screen_name = "login_vestiaire"
+        
+        # 2. Chargement dynamique si l'écran n'existe pas
+        if not self.sm.has_screen(screen_name):
+            if screen_name in self.screen_map:
+                try:
+                    module_path, class_name = self.screen_map[screen_name]
+                    # Import dynamique
+                    module = __import__(module_path, fromlist=[class_name])
+                    screen_class = getattr(module, class_name)
+                    # Ajout au ScreenManager
+                    self.sm.add_widget(screen_class(name=screen_name))
+                except Exception as e:
+                    print(f"[ERROR] Impossible de charger l'ecran {screen_name}: {e}")
+                    return
+            else:
+                print(f"[ERROR] L'ecran {screen_name} n'est pas dans screen_map.")
+                return
+        
+        # 3. Maintenant on est sûr que l'écran existe
+        self.sm.current = screen_name
+        self.title_label.text = _(screen_name)
+        
+        # Gestion visuelle spécifique
         if screen_name == "soirees":
-            # --- RÉAPPARITION DANS SOIRÉES ---
             self.btn_reload.opacity = 1
             self.btn_reload.disabled = False
             self.maj_label.opacity = 1
             self.maj_label.disabled = False
-            self.maj_label.width = dp(80)   # On lui redonne sa largeur
-            self.maj_label.size_hint_y = 1   # On lui redonne sa place verticale
-            # On met un texte par défaut pour qu'il ne soit pas vide au premier clic
+            self.maj_label.width = dp(80)
+            self.maj_label.size_hint_y = 1
             self.maj_label.text = "[size=11sp]MAJ[/size]\n[b]--h--[/b]"
         else:
-            # --- DISPARITION TOTALE AILLEURS ---
             self.btn_reload.opacity = 0
             self.btn_reload.disabled = True
-            
             self.maj_label.opacity = 0
             self.maj_label.disabled = True
             self.maj_label.width = 0
@@ -426,7 +488,6 @@ class RootLayout(FloatLayout):
     def build_menu(self):
         self.menu_panel.clear_widgets()
         app = App.get_running_app()
-        
         is_dark = False
         if app and hasattr(app, 'config'):
             try: is_dark = app.config.getboolean('User', 'dark_mode')
@@ -440,8 +501,7 @@ class RootLayout(FloatLayout):
         header_img = Image(
             source="assets/menu_top.png",
             size_hint=(1, None),      # Prend toute la largeur, hauteur manuelle
-            allow_stretch=True,
-            keep_ratio=True
+            fit_mode="contain"        # Remplace avantageusement allow_stretch et keep_ratio
         )
         # On lie la hauteur de l'image à sa largeur réelle pour garder le ratio 1.5
         header_img.bind(width=lambda inst, val: setattr(inst, 'height', val * 0.66))
@@ -452,13 +512,15 @@ class RootLayout(FloatLayout):
         self.menu_panel.add_widget(row_home)
         # Groupes
         self.menu_panel.add_widget(AccordionGroup(
-            title="Equipes", 
+            title="Club", 
             icon="assets/icons/fcvv.png", 
             sub_items=[
                 ("Agenda", "agenda"), 
                 ("Résultats", "resultats"), 
                 ("Classements", "classements"), 
-                ("Effectifs", "effectifs")
+                ("Effectifs", "effectifs"),
+                ("Organigramme", "organigramme"),
+                ("Divers", "divers")
             ]
         ))
         self.menu_panel.add_widget(AccordionGroup(
@@ -473,7 +535,9 @@ class RootLayout(FloatLayout):
         ))
         # Autres
         others = [
+            ("Boutique", "boutique", "assets/icons/boutique.png"),
             ("Info/Contact", "info", "assets/icons/contact.png"),
+            ("Partenaires", "partenaires", "assets/icons/partenaires.png"),
             ("Paramètres", "settings", "assets/icons/settings.png"),
             ("À Propos", "about", "assets/icons/about.png")
         ]
@@ -481,6 +545,16 @@ class RootLayout(FloatLayout):
             row = MenuRow(icon_source=icon, text=text)
             row.bind(on_release=lambda x, s=screen: self.switch_screen(s))
             self.menu_panel.add_widget(row)
+            
+        # --- NOUVEAU : Séparateur ---
+        self.menu_panel.add_widget(MenuSeparator())
+        # ----------------------------
+
+        # Mon Vestiaire (accès direct, séparé)
+        row_vestiaire = MenuRow(icon_source="assets/icons/vestiaire.png", text="Mon Vestiaire")
+        row_vestiaire.bind(on_release=lambda x: self.switch_screen("vestiaire"))
+        self.menu_panel.add_widget(row_vestiaire)
+        
         self.menu_panel.add_widget(Widget(size_hint_y=1)) 
         self.menu_built = True
 
@@ -493,7 +567,7 @@ class RootLayout(FloatLayout):
         # On ne reconstruit le menu que s'il n'existe pas encore
         # Cela permet de garder l'état (ouvert/fermé) des accordéons
         if not self.menu_built:
-            self.build_menu()
+            Clock.schedule_once(lambda dt: self.build_menu(), 0)
         self.menu_open = True
         self.overlay.size_hint = (1, 1)
         self.overlay.pos = self.pos
@@ -537,14 +611,11 @@ def customize_android_bars():
             LayoutParams = autoclass('android.view.WindowManager$LayoutParams')
             activity = PythonActivity.mActivity
             window = activity.getWindow()
-            
             window.addFlags(LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
             window.clearFlags(LayoutParams.FLAG_TRANSLUCENT_STATUS)
             window.clearFlags(LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
-            
             window.setStatusBarColor(Color.parseColor("#F7EC3F"))      # Jaune
             window.setNavigationBarColor(Color.parseColor("#1E3A8A"))  # Bleu
-            
             decorView = window.getDecorView()
             vis = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
             vis |= View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -555,367 +626,537 @@ def customize_android_bars():
     _set_bars_colors()
 #===============================================================================
 
+
 class MyApp(App):
-    # Ces noms DOIVENT correspondre exactement au buildozer.spec
     name = "fcvv" 
     org = "org.fcvv"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._ = _
-        self.generate_APK = (platform == 'android' or platform == 'ios')
-        # FORCE le chargement de la config immédiatement pour que _() fonctionne au build
         self.use_kivy_settings = False
         self.config = self.load_config() 
         self.app_config = {}
-        self._app_password_hash = ""
-        self.debug_mode = False
+        self.is_fetching_remote = False
+        self.images_currently_downloading = set()
+        self.last_config_hash = ""
+        self.authorized_vestiaires = []
+        self.cache_images_dir = os.path.join(self.user_data_dir, "cache_images")
         
+        self.notifier = None
+
     def get_application_config(self):
-        """Force l'emplacement du fichier .ini dans le dossier de données utilisateur"""
-        # self.user_data_dir est déjà géré par Kivy/Buildozer
         return os.path.join(self.user_data_dir, 'fcvv.ini')
 
     def build(self):
-        customize_android_bars()
-        # Assure-toi que RootLayout est bien défini ou importé dans ton fichier
         return RootLayout()
+    
+    def clean_key(self, text):
+        # Enlève les accents et remplace espaces par underscores
+        import unicodedata
+        return unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII').replace(' ', '_')
+    
+    def add_authorized_vestiaire(self, category_name, role, password_hash, save=True):
+        """
+        Ajoute une catégorie et stocke le rôle + hash pour la persistance.
+        :param save: Booléen pour autoriser ou non l'écriture immédiate sur le disque.
+        """
+        # 1. Assurer l'existence des sections nécessaires (sécurité)
+        if not self.config.has_section('Roles'):
+            self.config.add_section('Roles')
+        if not self.config.has_section('User'):
+            self.config.add_section('User')
+        
+        # 2. Mise à jour de la liste en mémoire (évite les doublons)
+        if category_name not in self.authorized_vestiaires:
+            self.authorized_vestiaires.append(category_name)
+        
+        # 3. Sauvegarde sécurisée (Rôle + Hash)
+        self.set_vestiaire_role(category_name, role)
+        
+        # Puis dans add_authorized_vestiaire :
+        key = self.clean_key(category_name)
+        self.config.set('Roles', f'{key}_hash', password_hash)
+        
+        # 4. Mise à jour des paramètres globaux
+        self.config.set('User', 'authorized_list', ','.join(self.authorized_vestiaires))
+        self.config.set('User', 'vestiaire_auth', '1')
+        
+        # 5. Persistance sur disque conditionnelle
+        if save:
+            try:
+                self.config.write()
+                print(f"[AUTH] {category_name} ajoutee et sauvegardee avec role {role}")
+            except Exception as e:
+                print(f"[ERROR] Impossible d'ecrire la configuration : {e}")
+        else:
+            print(f"[AUTH] {category_name} ajoutee en memoire (sauvegarde differee)")
+    
+    def is_access_still_valid(self, cat):
+        # Récupère le hash stocké localement
+        stored_hash = self.config.get('Roles', f'{cat}_hash', fallback='')
+        
+        # Récupère le hash actuel depuis votre config/API
+        vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
+        current_info = next((item for item in vestiaires if item.get("categorie") == cat), None)
+        
+        if not current_info: return False
+        
+        # Si le hash stocké est égal à l'un des deux hashs officiels, l'accès est valide
+        return stored_hash in [current_info.get("password_hash"), current_info.get("password_admin_hash")]
+
+    def check_vestiaire_password(self, category_name, password):
+        """Vérifie le mot de passe et retourne le rôle ('ADMIN' ou 'USER') si valide."""
+        import hashlib
+        
+        # Récupération de la liste des vestiaires
+        vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
+        
+        # Hash du mot de passe fourni
+        entered_hash = hashlib.sha256(password.encode()).hexdigest()
+        
+        for item in vestiaires:
+            if item.get("categorie") == category_name:
+                # 1. Vérification ADMIN (Priorité haute)
+                if entered_hash == item.get("password_admin_hash"):
+                    return "ADMIN"
+                
+                # 2. Vérification STANDARD
+                elif entered_hash == item.get("password_hash"):
+                    return "USER"
+                    
+        return None
+    
+    def is_auth_still_valid(self, category_name):
+        """Vérifie si la catégorie existe toujours dans la config distante."""
+        vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
+        return any(item.get("categorie") == category_name for item in vestiaires)
+
+    def verify_and_clean_auths(self, *args):
+        if not self.app_config: return
+        vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
+        
+        valid_auths = []
+        needs_update = False
+
+        for cat in self.authorized_vestiaires:
+            remote_item = next((item for item in vestiaires if item.get("categorie") == cat), None)
+            # Lecture du hash depuis la section [Roles]
+            local_hash = self.config.get('Roles', f'{cat}_hash', fallback="")
+            
+            # Condition : catégorie existe ET hash correspond (soit standard soit admin)
+            if remote_item and local_hash in [remote_item.get("password_hash"), remote_item.get("password_admin_hash")]:
+                valid_auths.append(cat)
+            else:
+                needs_update = True
+
+        if needs_update:
+            self.authorized_vestiaires = valid_auths
+            if not valid_auths:
+                self.config.set('User', 'vestiaire_auth', '0')
+            self.config.write()
+
+    def build_config(self, config):
+        # Configuration des paramètres utilisateur
+        config.setdefaults('User', {
+            'dark_mode': '0',
+            'font_size_factor': '24',
+            'langue': 'Francais',
+            'refresh_interval': '5',
+            'news_period': '15',
+            'vestiaire_auth': '0',
+            'authorized_list': '',
+            'nom_parent': ''
+        })
+        
+        # Initialisation de la section 'Roles' pour éviter les erreurs lors du premier démarrage
+        config.setdefaults('Roles', {})
+        
+    def set_vestiaire_role(self, cat, role):
+        """Sauvegarde le rôle (ADMIN/USER) pour une catégorie donnée dans le fichier config."""
+        # On vérifie si la section 'Roles' existe, sinon on la crée
+        if not self.config.has_section('Roles'):
+            self.config.add_section('Roles')
+        
+        # Sauvegarde du rôle
+        self.config.set('Roles', cat, role)
+        # Écriture effective dans le fichier .ini
+        self.config.write()
+        print(f"[DEBUG] Role '{role}' sauvegarde pour la categorie '{cat}'.")
+
+    def get_role_for_cat(self, cat):
+        """Récupère le rôle stocké pour la catégorie. Retourne 'USER' par défaut."""
+        if self.config.has_section('Roles'):
+            # Utilisation de has_option pour éviter une erreur si la clé n'existe pas
+            if self.config.has_option('Roles', cat):
+                return self.config.get('Roles', cat)
+        
+        # Retourne 'USER' par défaut si aucune configuration n'est trouvée
+        return "USER"
 
     def on_start(self):
-        # 1. Préparation du dossier de données
-        if not os.path.exists(self.user_data_dir):
-            try:
-                os.makedirs(self.user_data_dir, exist_ok=True)
-            except Exception as e:
-                print(f"Erreur dossier: {e}")
-        # 2. UI et Evénements
-        #Clock.schedule_once(lambda dt: customize_android_bars(), 0)
-        Window.bind(on_keyboard=self.on_back_button)
-        # 3. Gestion Android 13+
-        if platform == 'android':
-            # Délai de 1s pour laisser l'app s'initialiser avant la popup de permission
-            Clock.schedule_once(lambda dt: self.check_android_permissions(), 1)
+        # 0. Tâches de fond immédiates
+        threading.Thread(target=self.warmup_server, daemon=True).start()
+        
+        # 1. Chargement config
+        auth_str = self.config.get('User', 'authorized_list', fallback='')
+        self.authorized_vestiaires = [cat.strip() for cat in auth_str.split(',') if cat.strip()]
+        
+        # 2. Initialisation sécurisée du Notification Manager
+        if platform in ['android', 'ios']:
+            from core.NotificationManager import get_notification_manager
+            self.notifier = get_notification_manager()
+            if self.notifier:
+                try:
+                    self.notifier.request_permissions()
+                    self.notifier.init_service()
+                    Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"), 5.0)
+                    if self.authorized_vestiaires:
+                        Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires), 8.0)
+                except Exception as e:
+                    print(f"[FCM ERROR] Initialisation : {e}")
         else:
-            self.start_network_tasks()
+            print("[INFO] Environnement Windows/Desktop : Notifications FCM ignorées.")
 
-    def check_android_permissions(self):
-        if platform != 'android':
-            return
-        try:
-            from android.permissions import request_permissions, Permission
-            # On ne garde que les permissions de base si nécessaire 
-            # (ici on peut même laisser la liste vide ou retirer l'appel)
-            perms = [] 
-            def callback(permissions, results):
-                # On lance les tâches réseau, mais on ne lance plus le service
-                self.start_network_tasks()
+        # 3. Reste de l'initialisation
+        if platform == 'android' and 'customize_android_bars' in globals():
+            Clock.schedule_once(lambda dt: customize_android_bars(), 1)
+        
+        try: os.makedirs(self.cache_images_dir, exist_ok=True)
+        except: pass
+        
+        from kivy.core.window import Window
+        Window.softinput_mode = "below_target"
+        Window.bind(on_keyboard=self.on_back_button)
+        Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
 
-            request_permissions(perms, callback)
-        except Exception as e:
-            print(f"[PERMISSIONS ERROR] {e}")
-            self.start_network_tasks()
-
-    def start_background_service(self):
-        # Système de notification désactivé
-        pass
-
-    def get_file_hash(self, filepath):
-        """Calcule le hash SHA256 d'un fichier pour comparaison"""
-        if not os.path.exists(filepath):
-            return None
-        hasher = hashlib.sha256()
-        with open(filepath, 'rb') as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hasher.update(chunk)
-        return hasher.hexdigest()
+    def get_local_image_path(self, url):
+        """Optimise : Evite os.listdir(). Teste directement les extensions courantes."""
+        img_hash = hashlib.md5(url.encode()).hexdigest()
+        for ext in ['jpg', 'jpeg', 'png']:
+            path = os.path.join(self.cache_images_dir, f"img_{img_hash}.{ext}")
+            if os.path.exists(path):
+                return path
+        return None
 
     def download_news_images(self):
-        """Télécharge les images avec gestion du dictionnaire imbriqué et fallback SSL"""
-        # On cherche partout où il pourrait y avoir des news
+        """Telecharge les images uniquement si necessaire."""
+        import requests
+        try: news_period = int(self.config.get('User', 'news_period'))
+        except: news_period = 15
+        
+        date_limite = datetime.now() - timedelta(days=news_period)
         news_list = []
         for key in ["fcvv", "tournoi"]:
             found = self.app_config.get(key, {}).get("appli", {}).get("news", [])
-            if found:
-                news_list.extend(found)
-        if not news_list:
-            return
+            if found: news_list.extend(found)
+            
+        if not news_list: return
+
+        session = requests.Session()
         for item in news_list:
-            image_url = item.get("image")
-            if not image_url or not image_url.startswith("http"):
-                continue
-            img_hash = hashlib.md5(image_url.encode()).hexdigest()
-            filename = f"img_{img_hash}.jpg"
-            local_path = os.path.join(self.user_data_dir, filename)
-            if not os.path.exists(local_path):
-                try:
-                    print(f"[IMAGES] Telechargement : {filename}")
+            try:
+                actu_date = datetime.strptime(item.get("date", "").strip(), "%d/%m/%Y")
+                if actu_date < date_limite: continue
+            except: pass
+            urls = item.get("images") or item.get("image") or []
+            if isinstance(urls, str): urls = [urls]
+            # Suppression des doublons d'URL a la volee
+            unique_urls = list(dict.fromkeys([u for u in urls if u]))
+            local_paths = []
+            for url in unique_urls:
+                if not url.startswith("http"):
+                    local_paths.append(url)
+                    continue   
+                img_hash = hashlib.md5(url.encode()).hexdigest()
+                ext = url.split('.')[-1].split('?')[0].lower()
+                ext = ext if ext in ['jpg', 'jpeg', 'png'] else 'jpg'
+                filename = f"img_{img_hash}.{ext}"
+                local_path = os.path.join(self.cache_images_dir, filename)
+                if os.path.exists(local_path):
+                    local_paths.append(local_path)
+                else:
+                    if url in self.images_currently_downloading:
+                        print(f"[IMAGES SKIP] Deja en cours de telechargement (memoire) : {filename}")
+                        local_paths.append(local_path)
+                        continue
                     try:
-                        r = requests.get(image_url, timeout=10, verify=ca_bundle)
-                    except:
-                        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                        r = requests.get(image_url, timeout=10, verify=False)
-                    if r.status_code == 200:
-                        with open(local_path, "wb") as f:
-                            f.write(r.content)
-                        item["image"] = local_path
-                except Exception as e:
-                    print(f"[IMAGES ERROR] {e}")
+                        self.images_currently_downloading.add(url)
+                        print(f"[IMAGES] Telechargement : {filename}")
+                        r = session.get(url, timeout=10, verify=False)
+                        if r.status_code == 200:
+                            with open(local_path, "wb") as f: f.write(r.content)
+                            local_paths.append(local_path)
+                        else:
+                            local_paths.append(url)
+                    except Exception as e:
+                        print(f"[IMAGES ERROR] {e}")
+                        local_paths.append(url)
+                    finally:
+                        self.images_currently_downloading.discard(url)
+            if "images" in item or isinstance(item.get("images"), list):
+                item["images"] = local_paths
             else:
-                # IMPORTANT : On met à jour le chemin dans le dictionnaire 
-                # même si le fichier existe déjà, pour que l'UI l'utilise
-                item["image"] = local_path
-                
+                item["image"] = local_paths[0] if local_paths else ""
+
     def cleanup_unused_images(self):
+        """Nettoyage en tache de fond leger."""
         print("[CLEANUP] Verification des images inutilisees...")
         try:
-            needed_images = set()
-            
-            # 1. Lister toutes les images nécessaires selon la config actuelle
+            needed_hashes = set()
             for key in ["fcvv", "tournoi"]:
-                section = self.app_config.get(key, {})
-                news_list = section.get("appli", {}).get("news", [])
-                
+                news_list = self.app_config.get(key, {}).get("appli", {}).get("news", [])
                 for item in news_list:
-                    img_val = item.get("image")
-                    if img_val:
-                        # CAS 1 : C'est encore une URL (pas encore téléchargée ou pas encore mutée)
-                        if img_val.startswith("http"):
-                            img_hash = hashlib.md5(img_val.encode()).hexdigest()
-                            needed_images.add(f"img_{img_hash}.jpg")
-                        
-                        # CAS 2 : C'est déjà un chemin local (ex: C:\Users\...\img_abc123.jpg)
-                        elif "img_" in img_val:
-                            # On extrait juste le nom du fichier du chemin complet
-                            filename = os.path.basename(img_val)
-                            needed_images.add(filename)
-    
-            # --- SÉCURITÉ CRITIQUE ---
-            # Si on ne trouve aucune image nécessaire, on arrête tout pour éviter de vider le dossier
-            if not needed_images:
+                    img_vals = item.get("images") or item.get("image") or []
+                    if isinstance(img_vals, str): img_vals = [img_vals]
+                    for iv in img_vals:
+                        if not iv: continue
+                        if iv.startswith("http"):
+                            needed_hashes.add(hashlib.md5(iv.encode()).hexdigest())
+                        elif "img_" in iv:
+                            needed_hashes.add(os.path.basename(iv)[4:].split(".")[0])             
+            if not needed_hashes:
                 print("[CLEANUP] Alerte : Aucune image trouvee dans la config. Annulation par securite.")
                 return
-    
-            data_dir = self.user_data_dir
-            if not os.path.exists(data_dir):
-                return
-    
-            # 2. Parcourir les fichiers du dossier pour supprimer les inutiles
-            files_in_dir = os.listdir(data_dir)
             deleted_count = 0
-            
-            for filename in files_in_dir:
-                # On ne touche qu'aux fichiers images de l'app (commençant par img_)
-                if filename.startswith("img_") and filename.endswith(".jpg"):
-                    if filename not in needed_images:
-                        file_path = os.path.join(data_dir, filename)
-                        try:
-                            # Petite pause pour laisser le système relâcher le fichier si besoin
-                            os.remove(file_path)
-                            print(f"[CLEANUP] Supprime : {filename}")
-                            deleted_count += 1
-                        except Exception as e:
-                            # Arrive si l'image est actuellement affichée à l'écran (Kivy la verrouille)
-                            print(f"[CLEANUP SKIP] Impossible de supprimer {filename} (en cours d'utilisation)")
-            
+            for filename in os.listdir(self.cache_images_dir):
+                if not filename.startswith("img_"): continue
+                hash_part = filename[4:].split(".")[0]
+                if hash_part not in needed_hashes:
+                    try: 
+                        os.remove(os.path.join(self.cache_images_dir, filename))
+                        print(f"[CLEANUP] Supprime : {filename}")
+                        deleted_count += 1
+                    except: 
+                        print(f"[CLEANUP SKIP] Impossible de supprimer {filename}")
             print(f"[CLEANUP] Termine. {deleted_count} image(s) supprimee(s).")
-    
         except Exception as e:
             print(f"[CLEANUP ERROR] {e}")
-                
+
     def start_network_tasks(self):
-        """Déclenche les chargements sans bloquer l'UI"""
-        threading.Thread(target=self.safe_load_config, daemon=True).start()
+        if getattr(self, 'is_fetching_remote', False): 
+            print("[CONFIG] Flag reseau deja actif. Annulation du doublon.")
+            return
+        self.is_fetching_remote = True
+        threading.Thread(target=self.load_remote_config, daemon=True).start()
 
     def load_remote_config(self):
-        data_dir = self.user_data_dir
-        configs_to_process = [
-            ("config_tournoi.yaml", config_file_Id_tournoi, "tournoi"),
-            ("config_fcvv.yaml", config_file_Id_fcvv, "fcvv")
-        ]
+        """Optimise : Telecharge intelligemment et ne chaine les preloads que si necessaire."""
+        import yaml
+        import requests
         
-        # --- DETECTION PREMIER DEMARRAGE ---
-        files_exist = [os.path.exists(os.path.join(data_dir, f)) for f, _, _ in configs_to_process]
-        is_first_run = not any(files_exist) 
-        if is_first_run:
-            print("[CONFIG] Premier demarrage detecte : le nettoyage sera desactive pour cette session.")
-
-        # On crée une copie locale de travail pour éviter les conflits de Thread
-        local_config = {"tournoi": {}, "fcvv": {}}
-        if hasattr(self, 'app_config'):
-            local_config = dict(self.app_config)
-
-        # 1. Chargement du cache local
-        cache_loaded = False
-        for filename, _, key in configs_to_process:
-            cache_path = os.path.join(data_dir, filename)
-            if os.path.exists(cache_path):
-                try:
-                    with open(cache_path, "rb") as f: # Ouverture en mode binaire 'rb'
-                        local_config[key] = yaml.safe_load(f) or {}
-                        cache_loaded = True
-                except Exception as e: 
-                    print(f"Erreur lecture cache {filename}: {e}")
-
-        if cache_loaded:
-            Clock.schedule_once(lambda dt: setattr(self, 'app_config', local_config), 0)
-            self.download_news_images()
-            Clock.schedule_once(self._update_home_screen, 0)
-
-        # 2. Vérification des mises à jour sur Drive
-        config_changed = False
-        for filename, fid, key in configs_to_process:
-            cache_path = os.path.join(data_dir, filename)
-            download_url = f"https://drive.google.com/uc?export=download&id={fid}"
-            try:
-                r = None
-                try:
-                    r = requests.get(download_url, timeout=12, verify=ca_bundle)
-                except Exception:
-                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                    r = requests.get(download_url, timeout=12, verify=False)
-
-                if r and r.status_code == 200:
-                    new_content = r.content
-                    new_hash = hashlib.sha256(new_content).hexdigest()
-                    old_hash = self.get_file_hash(cache_path) if os.path.exists(cache_path) else "MISSING"
-
-                    if new_hash != old_hash:
-                        with open(cache_path, "wb") as f:
-                            f.write(new_content)
-                        # SOLUTION ICI : On passe directement le contenu binaire à safe_load
-                        local_config[key] = yaml.safe_load(new_content) or {}
-                        config_changed = True
-                        print(f"[CONFIG] {filename} mis a jour ou restaure.")
-            except Exception as e:
-                print(f"[CONFIG ERROR] {filename}: {e}")
-
-        # 3. Finalisation et injection finale sécurisée
-        if config_changed:
-            Clock.schedule_once(lambda dt: setattr(self, 'app_config', local_config), 0)
-            self.download_news_images()
+        self.is_fetching_remote = True
+        
+        try:
+            data_dir = self.user_data_dir
+            configs = [
+                ("config_tournoi.yaml", config_file_Id_tournoi, "tournoi"),
+                ("config_fcvv.yaml", config_file_Id_fcvv, "fcvv"),
+            ]
+            is_first_run = not any(os.path.exists(os.path.join(data_dir, f[0])) for f in configs)
             
-            if not is_first_run:
-                self.cleanup_unused_images()
-            else:
-                print("[CLEANUP] Saut du nettoyage (Installation initiale).")
+            # 1. Chargement rapide du cache local existant
+            cached_data = {}
+            for filename, _, key in configs:
+                cache_path = os.path.join(data_dir, filename)
+                if os.path.exists(cache_path):
+                    try:
+                        with open(cache_path, "r", encoding="utf-8") as f:
+                            cached_data[key] = yaml.safe_load(f) or {}
+                    except Exception as e:
+                        print(f"[CACHE ERROR] {filename}: {e}")
+            if cached_data: self.app_config.update(cached_data)
+            
+            # 2. Requêtes réseau
+            session = requests.Session()
+            tournoi_changed = False
+            fcvv_changed = False
+            updated_data = {}
+            
+            for filename, fid, key in configs:
+                cache_path = os.path.join(data_dir, filename)
+                url = f"https://docs.google.com/uc?id={fid}&export=download"
+                print(f"[CONFIG] Verification {filename}...")
+                try:
+                    response = session.get(url, headers={"User-Agent": "Mozilla"}, timeout=10, verify=False)
+                    if response.status_code != 200:
+                        print(f"[CONFIG ERROR] HTTP {response.status_code} pour {filename}")
+                        continue
+                    content = response.content
+                    if b"<html" in content[:100].lower():
+                        print(f"[CONFIG ERROR] HTML recu pour {filename}")
+                        continue
+                    
+                    # Comparaison directe en mémoire
+                    old_content = b""
+                    if os.path.exists(cache_path):
+                        with open(cache_path, "rb") as f: old_content = f.read()
+                    
+                    if hashlib.sha256(content).hexdigest() != hashlib.sha256(old_content).hexdigest():
+                        with open(cache_path, "wb") as f: f.write(content)
+                        updated_data[key] = yaml.safe_load(content.decode("utf-8")) or {}
+                        if key == "tournoi": tournoi_changed = True
+                        if key == "fcvv": fcvv_changed = True
+                    else:
+                        print(f"[CONFIG] {filename} inchange.")
+                except Exception as e:
+                    print(f"[CONFIG ERROR] {filename}: {e}")
 
-            if hasattr(self, 'preload_latest_tournament'):
-                threading.Thread(target=self.preload_latest_tournament, daemon=True).start()
+            # 3. Application ciblee des changements
+            def finalize(dt):
+                try:
+                    if fcvv_changed or tournoi_changed:
+                        self.app_config.update(updated_data)
+                    
+                    if self.app_config:
+                        self.verify_and_clean_auths()
 
-        Clock.schedule_once(self._update_home_screen, 0.2)
+                    if fcvv_changed:
+                        threading.Thread(target=self.download_news_images, daemon=True).start()
+                        if not is_first_run: 
+                            threading.Thread(target=self.cleanup_unused_images, daemon=True).start()    
+                    
+                    if tournoi_changed and hasattr(self, "preload_latest_tournament"):
+                        threading.Thread(target=self.preload_latest_tournament, daemon=True).start()
+                    
+                    if hasattr(self, "_update_home_screen"):
+                        Clock.schedule_once(self._update_home_screen, 0.1)
+                finally:
+                    self.is_fetching_remote = False
+
+            Clock.schedule_once(finalize, 0)
+
+        except Exception as e:
+            print(f"[CONFIG FATAL ERROR] {e}")
+            self.is_fetching_remote = False
 
     def on_back_button(self, window, key, *args):
-        # Le code 27 correspond à la touche 'Échap' sur PC ou 'Retour' sur Android
         if key == 27: 
-            if self.root and hasattr(self.root, 'menu_open') and self.root.menu_open:
+            if self.root and getattr(self.root, 'menu_open', False):
                 self.root.close_menu()
                 return True
             if self.root and hasattr(self.root, 'sm') and self.root.sm.current != 'home':
                 self.root.switch_screen('home')
                 return True
-            # Renvoie True uniquement si on a géré l'action, sinon False (laisse l'OS décider)
         return False
-    
-    
-    
-    
-    def preload_latest_tournament(self):
-        """
-        Télécharge le tournoi par défaut en utilisant la triple sécurité SSL.
-        """
-        tournois = self.app_config.get("tournois", [])
-        if not tournois:
-            return
+        
+    def preload_latest_tournament(self, target_url=None):
+        """Telecharge le tournoi cible de maniere isolee."""
+        import requests
+        tournois = self.app_config.get("tournoi", {}).get("tournois", [])
+        if not tournois and not target_url: return
         try:
-            # 1. Filtrage numérique des années
-            valid_years = []
-            for t in tournois:
-                y = str(t.get("annee", "")).strip()
-                if y.isdigit():
-                    valid_years.append(int(y))
-            if not valid_years:
-                print("[PRELOAD] Aucune annee numerique trouvee.")
-                return
-            # Trouver l'année la plus élevée (ex: 2026)
-            latest_year_str = str(max(valid_years))
-            # 2. Identifier le premier NOM alphabétique pour cette année
-            noms_annee = sorted(list(set([
-                str(t.get("nom")).strip() for t in tournois 
-                if str(t.get("annee")).strip() == latest_year_str
-            ])))
-            if not noms_annee:
-                return
-            nom_cible = noms_annee[0]
-            # 3. Recherche de l'entrée correspondante (Priorité au type "save")
-            target = next((t for t in tournois if str(t.get("nom")).strip() == nom_cible 
-                           and str(t.get("annee")).strip() == latest_year_str 
-                           and t.get("type") == "save"), None)
-            if not target:
-                target = next((t for t in tournois if str(t.get("nom")).strip() == nom_cible 
-                               and str(t.get("annee")).strip() == latest_year_str), None)
-            # --- VÉRIFICATION DE LA VARIABLE TARGET ---
-            if target:
-                url_raw = target.get("url", "")
-                # Extraction de l'ID Google Drive
-                if "id=" in url_raw:
-                    file_id = url_raw.split("id=")[-1].split("&")[0]
-                else:
-                    print("[PRELOAD] URL invalide (pas d'ID trouve)")
-                    return
-                ext = "json" if target.get("type") == "save" else "yaml"
+            if target_url:
+                file_id = target_url.split("id=")[-1].split("&")[0]
+                nom_cible = "selectionne"
+            else:
+                valid_years = [int(t.get("annee")) for t in tournois if str(t.get("annee", "")).strip().isdigit()]
+                if not valid_years: return
+                latest_year_str = str(max(valid_years))
+                noms_annee = sorted(list(set([str(t.get("nom")).strip() for t in tournois if str(t.get("annee")).strip() == latest_year_str])))
+                if not noms_annee: return
+                nom_cible = noms_annee[0]
+                target = next((t for t in tournois if str(t.get("nom")).strip() == nom_cible and str(t.get("annee")).strip() == latest_year_str and t.get("type") == "save"), None)
+                if not target: target = next((t for t in tournois if str(t.get("nom")).strip() == nom_cible and str(t.get("annee")).strip() == latest_year_str), None)
+                if not target: return
+                file_id = target.get("url", "").split("id=")[-1].split("&")[0]
+            download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            print(f"[PRELOAD] Telechargement de {nom_cible}...")
+            r = requests.get(download_url, timeout=15, verify=False)
+            if r.status_code == 200:
+                ext = "json" if r.content.strip().startswith(b"{") else "yaml"
                 filename = f"tournoi_{file_id}.{ext}"
                 local_path = os.path.join(self.user_data_dir, filename)
-                # 4. Téléchargement avec Fallback SSL
-                if not os.path.exists(local_path):
-                    print(f"[PRELOAD] Telechargement de {nom_cible}...")
-                    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-                    try:
-                        # Tentative A : Avec Certifi
-                        r = requests.get(download_url, timeout=15, verify=ca_bundle)
-                    except (requests.exceptions.SSLError, requests.exceptions.ConnectionError):
-                        # Tentative B : Fallback sans vérification
-                        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                        r = requests.get(download_url, timeout=15, verify=False)
-                    if r.status_code == 200:
-                        with open(local_path, "wb") as f:
-                            f.write(r.content)
-                        print(f"[PRELOAD] Succes : {filename}")
-                else:
-                    print(f"[PRELOAD] Cache OK : {nom_cible}")
+                with open(local_path, "wb") as f: f.write(r.content)
+                print(f"[PRELOAD] Succes : {filename} sauvegarde.")
+                if target_url: Clock.schedule_once(self._update_home_screen, 0)
+            else:
+                print(f"[PRELOAD] Echec telechargement, code: {r.status_code}")
         except Exception as e:
-            # Cette fois, 'target' est défini à l'intérieur du bloc, l'erreur disparaîtra
             print(f"[PRELOAD ERROR] : {e}")
-            
-    def safe_load_config(self):
-        try:
-            self.load_remote_config()
-        except Exception as e:
-            print(f"[FATAL CONFIG ERROR] {e}")
 
     def _update_home_screen(self, dt):
-        if self.root and hasattr(self.root, 'sm'):
-            if self.root.sm.has_screen('home'):
-                home = self.root.sm.get_screen('home')
-                if hasattr(home, 'update_ui_from_config'):
-                    home.update_ui_from_config()
-
-    def update_service_monitoring(self, url, nom):
-        """Système de monitoring désactivé"""
-        pass
+        if not self.root or not hasattr(self.root, 'sm') or not self.root.sm.has_screen('home'): return
+        home = self.root.sm.get_screen('home')
+        news_data = self.app_config.get("fcvv", {}).get("appli", {}).get("news", [])
+        current_hash = hashlib.md5(str(news_data).encode()).hexdigest()
+        if current_hash != self.last_config_hash:
+            print(f"[UI] Changement detecte ! Nouveau hash: {current_hash[:8]}")
+            self.last_config_hash = current_hash
+            Clock.schedule_once(lambda dt: home.update_ui_from_config(force=True), 0.1)
+        else:
+            print("[UI] Aucun changement dans les donnees, rafraichissement ignore.")
     
-    def build_config(self, config):
-        config.setdefaults('User', {
-            'dark_mode': '0',
-            'font_size_factor': '24',
-            'langue': 'Français',
-            'refresh_interval': '5'
-            # 'notifications': '1'  <-- À supprimer ou commenter
-        })
-
     def refresh_ui_theme(self):
         if self.root:
-            self.root.build_menu()
-            current_screen = self.root.sm.current
-            self.root.title_label.text = _(current_screen)
+            if hasattr(self.root, 'build_menu'):
+                self.root.build_menu()
+            if hasattr(self.root, 'sm') and hasattr(self.root, 'title_label'):
+                current_screen = self.root.sm.current
+                self.root.title_label.text = self._(current_screen)
+    
+    def gerer_abonnements_fcm(self, nouvelles_categories, anciennes_categories=None):
+        from kivy.clock import Clock
+        
+        # On délègue l'exécution à _execute_fcm_subscription
+        # Le délai est conservé pour garantir que l'initialisation du manager est terminée
+        Clock.schedule_once(lambda dt: self._execute_fcm_subscription(nouvelles_categories, anciennes_categories), 3.0)
+
+    def _execute_fcm_subscription(self, nouvelles, anciennes=None):
+        if getattr(self, 'notifier', None) is None:
+            return
+        from kivy.clock import Clock
+        
+        # On vérifie que le manager existe bien
+        if not hasattr(self, 'notifier') or self.notifier is None:
+            print("[FCM ERROR] NotificationManager non initialise.")
+            return
+
+        def do_fcm_work(*args):
+            try:
+                # 1. Lecture config sécurisée si nécessaire
+                if anciennes is None:
+                    anciennes_str = self.config.get('User', 'authorized_list', fallback='')
+                    anciennes_utilisees = [c.strip() for c in anciennes_str.split(',') if c.strip()]
+                else:
+                    anciennes_utilisees = anciennes
+
+                print(f"[FCM DEBUG] Synchro : {nouvelles} | Anciennes : {anciennes_utilisees}")
+
+                # 2. Désabonnement (Le différentiel est crucial)
+                for cat in anciennes_utilisees:
+                    if cat not in nouvelles:
+                        print(f"[FCM] Desabonnement : {cat}")
+                        self.notifier.unsubscribe_from_topic(cat)
+
+                # 3. ABONNEMENT FORCÉ
+                # Le manager (Android ou iOS) gère l'idempotence
+                for cat in nouvelles:
+                    print(f"[FCM] Abonnement force : {cat}")
+                    self.notifier.subscribe_to_topic(cat)
+                
+                # 4. Global
+                self.notifier.subscribe_to_topic("TournoiVercel")
+                print("[FCM] Synchro terminee via NotificationManager")
+
+            except Exception as e:
+                print(f"[FCM ERROR] Erreur lors de la synchro FCM : {e}")
+
+        # On déclenche sur le thread principal
+        Clock.schedule_once(do_fcm_work, 0.5)
+    
+    def warmup_server(self):
+        """Réveille le serveur API si celui-ci est en veille (Render cold start)."""
+        import requests
+        # URL cible : une route légère, idéalement une route /ping ou /health
+        # Si vous n'en avez pas, la racine ou l'endpoint des sondages convient.
+        url = "https://fcvv-api.onrender.com/" 
+        try:
+            # On utilise un timeout court : on veut juste provoquer le réveil, pas attendre la réponse
+            requests.get(url, timeout=5)
+            print("[WARMUP] Requete envoyee au serveur.")
+        except Exception as e:
+            print(f"[WARMUP] Le serveur est peut etre deja actif ou indisponible : {e}")
 
 if __name__ == "__main__":
     MyApp().run()

@@ -1,20 +1,26 @@
 # -*- coding: utf-8 -*-
 
 LANGUAGES = {
-    'Français': {
+    'Francais': {
         # Menu Principal & Navigation
         'home': 'Accueil',
         'presentation': 'Présentation',
         'inscriptions': 'Inscriptions',
         'soirees': 'Soirées',
         'restauration': 'Restauration',
+        'partenaires': 'Partenaires',
+        'boutique': 'Boutique',
         'info': 'Info/Contact',
         'settings': 'Paramètres',
         'about': 'À Propos',
+        'login_vestiaire': 'Login',
+        'vestiaire': 'Mon Vestiaire',
         
         # Nouveaux écrans Équipes
         'agenda': 'Agenda',
         'effectifs': 'Effectifs',
+        'organigramme': 'Organigramme',
+        'divers': 'Divers',
         'resultats': 'Résultats',
         'classement': 'Classement',
         'classements': 'Classements',
@@ -56,9 +62,9 @@ LANGUAGES = {
         'col_no': 'N°',
         'col_hour': 'Heure',
         'col_grp': 'Grp',
-        'col_team1': 'Équipe 1',
+        'col_team1': 'Locaux',
         'col_score': 'Score',
-        'col_team2': 'Équipe 2',
+        'col_team2': 'Visiteurs',
         'label_pause': 'Pause',
         'title_final_phase': 'PHASE FINALE',
         'tour_huitiemes': 'HUITIÈMES',
@@ -82,7 +88,7 @@ LANGUAGES = {
         'ga': 'BC',
         'diff': 'Diff',
         'automation': 'automatisation',
-        'refresh_rate': 'Fréquence (min)',
+        'refresh_rate': 'MAJ score (min)',
         
         'cache_size_label': "Espace utilisé",
         'cache_cleared': "Cache vidé !",
@@ -101,6 +107,10 @@ LANGUAGES = {
         'title_sucre': 'Sucré',
         'sold_out': 'ÉPUISÉ',
         'deposit': 'Consigne',
+        'months': {
+            1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril", 5: "Mai", 6: "Juin",
+            7: "Juillet", 8: "Août", 9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
+        }
     },
     'English': {
         # Main Menu & Navigation
@@ -109,13 +119,19 @@ LANGUAGES = {
         'inscriptions': 'Registration',
         'soirees': 'Evenings',
         'restauration': 'Catering',
+        'boutique': 'Shop',
         'info': 'Info/Contact',
+        'partenaires': 'Sponsors',
         'settings': 'Settings',
         'about': 'About',
+        'login_vestiaire': 'Login',
+        'vestiaire': 'Mon Vestiaire',
 
         # New Teams Screens
         'agenda': 'Schedule',
         'effectifs': 'Squad',
+        'organigramme': 'Organigramme',
+        'divers': 'Miscs',
         'resultats': 'Results',
         'classement': 'Standings',
         'classements': 'Standings',
@@ -202,5 +218,9 @@ LANGUAGES = {
         'title_sucre': 'Sweet',
         'sold_out': 'SOLD OUT',
         'deposit': 'Deposit',
+        'months': {
+            1: "January", 2: "February", 3: "March", 4: "April", 5: "May", 6: "June",
+            7: "July", 8: "August", 9: "September", 10: "October", 11: "November", 12: "December"
+        }
     }
 }

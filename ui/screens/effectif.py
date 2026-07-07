@@ -5,10 +5,14 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.scrollview import ScrollView
+from kivy.effects.scroll import ScrollEffect
 from kivy.graphics import Color, RoundedRectangle, Rectangle
 from kivy.app import App
 from kivy.metrics import dp
 from kivy.clock import Clock
+
+import json
+import hashlib
 
 # --- COMPOSANTS OPTIMISÉS POUR ÉVITER LES LEAKS DE MÉMOIRE (LAMBDA) ---
 class StyledTabButton(Button):
@@ -51,6 +55,7 @@ class EffectifScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.current_team_index = 0
+        self.last_config_hash = None # Initialisation du traceur de hash
         self.KIVY_BLUE = (30/255, 58/255, 138/255, 1)
 
         self.main_layout = BoxLayout(orientation="vertical")
@@ -58,8 +63,21 @@ class EffectifScreen(Screen):
             Color(*self.KIVY_BLUE)
             self.rect_bg = Rectangle(pos=self.main_layout.pos, size=self.main_layout.size)
         self.main_layout.bind(pos=self._update_bg, size=self._update_bg)
+        
+        # Initialisation cohérente du label de saison
+        self.season_label = Label(
+            text="",
+            bold=True,
+            font_size="18sp",
+            size_hint_y=None,
+            height=dp(40),
+            halign='center',
+            valign='middle'
+        )
+        self.season_label.bind(size=lambda s, w: setattr(s, 'text_size', (s.width, s.height)))
+        self.main_layout.add_widget(self.season_label)
 
-        # --- 1. SÉLECTEUR D'ÉQUIPE (STYLE PROPRE) ---
+        # --- 1. SÉLECTEUR D'ÉQUIPE ---
         self.team_scroll = ScrollView(
             size_hint=(1, None), 
             height=dp(85), 
@@ -87,15 +105,44 @@ class EffectifScreen(Screen):
 
     def update_ui_from_config(self, *args):
         app = App.get_running_app()
+        if not hasattr(app, "app_config") or not app.app_config:
+            return
+
+        # Récupération des données
+        appli_data = app.app_config.get("fcvv", {}).get("appli", {})
+        all_effectifs = appli_data.get("effectifs", [])
+        saison = appli_data.get("saison", {})
+
         f_factor = 24
         if hasattr(app, 'config'):
             try: f_factor = app.config.getint('User', 'font_size_factor')
             except: pass
 
-        all_effectifs = app.app_config.get("fcvv", {}).get("appli", {}).get("effectifs", [])
+        # MISE À JOUR DU LABEL SAISON
+        if hasattr(self, 'season_label') and saison:
+            new_text = f"SAISON {saison.get('debut', '')}/{saison.get('fin', '')}"
+            if self.season_label.text != new_text:
+                self.season_label.text = new_text
+
         if not all_effectifs: 
             return
 
+        # --- DEBUT DU MECANISME DE HASH SECURISÉ ---
+        data_to_hash = {
+            "data": all_effectifs,
+            "team_idx": self.current_team_index,
+            "font": f_factor,
+            "saison": saison
+        }
+        current_hash = hashlib.md5(json.dumps(data_to_hash, sort_keys=True).encode()).hexdigest()
+
+        if current_hash == self.last_config_hash and self.team_selector.children:
+            return # Sécurisation : évite la reconstruction si identique
+
+        self.last_config_hash = current_hash
+        # --- FIN DU MECANISME DE HASH ---
+
+        # Construction des onglets
         self.team_selector.clear_widgets()
         for i, eff_data in enumerate(all_effectifs):
             is_active = (i == self.current_team_index)
@@ -113,7 +160,6 @@ class EffectifScreen(Screen):
                 font_size=f"{f_factor - 1}sp"
             )
             
-            # Injection de l'index sans créer de closure lambda instable
             btn.target_index = i
             btn.bind(on_release=self._on_tab_pressed)
             self.team_selector.add_widget(btn)
@@ -132,7 +178,7 @@ class EffectifScreen(Screen):
     def render_table(self, data, f_factor):
         self.table_area.clear_widgets()
         
-        # --- AJOUT DU NOM DE L'ENTRAINEUR ---
+        # --- NOM DE L'ENTRAINEUR ---
         nom_coach = data.get("entraineur", "Non renseigné")
         coach_label = Label(
             text=f"Entraîneur : [b]{nom_coach}[/b]",
@@ -145,32 +191,26 @@ class EffectifScreen(Screen):
         )
         self.table_area.add_widget(coach_label)
 
-        # Scrollview principal du tableau
-        main_scroll = ScrollView(
-            size_hint=(1, 1), 
-            do_scroll_x=True, 
-            do_scroll_y=True,
-            bar_width=0,
-            scroll_type=['content']
-        )
-        
         # Définition des largeurs de colonnes de base
         base_widths = [45, 180, 110, 85, 40]
         adjusted_widths = [dp(w + (f_factor - 20) * 1.8) for w in base_widths]
-        min_needed_width = sum(adjusted_widths)
-        
-        # Pour une réactivité mobile parfaite, on lie la largeur du tableau à la largeur réelle du layout parent
-        total_table_width = max(min_needed_width, self.table_area.width if self.table_area.width > 0 else dp(320))
-        
-        if total_table_width > min_needed_width:
-            adjusted_widths[1] += (total_table_width - min_needed_width)
+        total_table_width = sum(adjusted_widths)
 
-        inner_table = BoxLayout(orientation="vertical", size_hint=(None, None), width=total_table_width)
-        inner_table.bind(minimum_height=inner_table.setter('height'))
-
-        # --- HEADER ---
+        # --- 1. HEADER FIXE ---
         h_height = dp(45) + dp(f_factor - 20)
-        header = GridLayout(cols=5, size_hint=(None, None), height=h_height, width=total_table_width)
+        header_scroll = ScrollView(
+            size_hint=(1, None),
+            height=h_height,
+            do_scroll_x=True,
+            do_scroll_y=False,
+            bar_width=0
+        )
+        
+        # Changement ici : On lie la largeur à celle de table_area si elle est plus grande que total_table_width
+        header = GridLayout(cols=5, size_hint=(None, None), height=h_height)
+        header.width = max(total_table_width, self.table_area.width)
+        self.table_area.bind(width=lambda inst, val: setattr(header, 'width', max(total_table_width, val)))
+        
         titles = ["N°", "Joueur", "Né(e) le", "Poste", ""]
         
         for i, title in enumerate(titles):
@@ -179,15 +219,40 @@ class EffectifScreen(Screen):
                 size_hint_x=None, width=adjusted_widths[i],
                 color=(0.97, 0.93, 0.25, 1)
             ))
-        inner_table.add_widget(header)
+        header_scroll.add_widget(header)
+        self.table_area.add_widget(header_scroll)
 
-        # --- LISTE DES JOUEURS ---
+        # --- 2. LISTE DES JOUEURS DEFILANTE ---
+        main_scroll = ScrollView(
+            size_hint=(1, 1), 
+            do_scroll_x=True, 
+            do_scroll_y=True,
+            bar_width=0,
+            scroll_type=['content'],
+            effect_cls=ScrollEffect, 
+            scroll_distance=dp(20),
+            smooth_scroll_end=10
+        )
+        main_scroll.lock_to_sigmoid = True
+
+        # SYNC DES DEUX SCROLLVIEWS
+        main_scroll.bind(scroll_x=lambda instance, value: setattr(header_scroll, 'scroll_x', value))
+        header_scroll.bind(scroll_x=lambda instance, value: setattr(main_scroll, 'scroll_x', value))
+
+        # Changement ici : On lie aussi dynamiquement la largeur de la table interne à la largeur disponible de l'écran
+        inner_table = BoxLayout(orientation="vertical", size_hint=(None, None))
+        inner_table.width = max(total_table_width, self.table_area.width)
+        self.table_area.bind(width=lambda inst, val: setattr(inner_table, 'width', max(total_table_width, val)))
+        inner_table.bind(minimum_height=inner_table.setter('height'))
+
         row_height = dp(50) + dp(f_factor - 20)
         for j in data.get("joueurs", []):
             is_cap = j.get("capitaine", False)
             
-            # Utilisation de la structure graphique épurée sans fuite mémoire
-            row = PlayerRowLayout(is_cap=is_cap, cols=5, size_hint=(None, None), height=row_height, width=total_table_width)
+            # Changement ici : Chaque rangée prend désormais la largeur du conteneur parent (inner_table.width)
+            row = PlayerRowLayout(is_cap=is_cap, cols=5, size_hint=(None, None), height=row_height)
+            row.width = inner_table.width
+            inner_table.bind(width=row.setter('width'))
 
             # Colonne N°
             row.add_widget(Label(text=str(j.get("numero", "-")), size_hint_x=None, width=adjusted_widths[0], 
@@ -198,7 +263,6 @@ class EffectifScreen(Screen):
             l_nom = Label(text=nom_complet, size_hint_x=None, width=adjusted_widths[1], 
                           halign='left', valign='middle', font_size=f"{f_factor - 5}sp")
             
-            # Liaison propre de la taille de texte à la cellule graphique
             l_nom.text_size = (adjusted_widths[1] - dp(10), row_height)
             row.add_widget(l_nom)
             

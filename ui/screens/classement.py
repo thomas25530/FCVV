@@ -8,11 +8,15 @@ from kivy.uix.scrollview import ScrollView
 from kivy.graphics import Color, RoundedRectangle, Rectangle
 from kivy.app import App
 from kivy.metrics import dp
-from kivy.core.window import Window
 from kivy.clock import Clock
 import json
 import hashlib
 import threading
+
+from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image
+from kivy.graphics import PushMatrix, PopMatrix, Rotate
+from kivy.effects.scroll import ScrollEffect
 
 # --- SOUS-CLASSES GRAPHIQUES POUR ÉVITER LES LEAKS DE MÉMOIRE (LAMBDA) ---
 class StyledTabButton(Button):
@@ -55,13 +59,46 @@ class ClassementScreen(Screen):
         self._is_refreshing = False
         self.KIVY_BLUE = (30/255, 58/255, 138/255, 1)
 
+        # 1. Racine FloatLayout pour la superposition
+        self.root_layout = FloatLayout()
+        self.add_widget(self.root_layout)
+
+        # 2. Layout principal (le contenu)
         self.main_layout = BoxLayout(orientation="vertical")
         with self.main_layout.canvas.before:
             Color(*self.KIVY_BLUE)
             self.rect_bg = Rectangle(pos=self.main_layout.pos, size=self.main_layout.size)
         self.main_layout.bind(pos=self._update_bg, size=self._update_bg)
+        self.root_layout.add_widget(self.main_layout)
+        
+        # Initialisation cohérente du label de saison
+        self.season_label = Label(
+            text="",
+            bold=True,
+            font_size="18sp",
+            size_hint_y=None,
+            height=dp(40),
+            halign='center',
+            valign='middle'
+        )
+        self.season_label.bind(size=lambda s, w: setattr(s, 'text_size', (s.width, s.height)))
+        self.main_layout.add_widget(self.season_label)
 
-        # 1. Sélecteur d'équipe (Barre masquée, comportement fluide)
+        # 3. LOADER (Ajouté au root_layout pour être au premier plan)
+        self.main_loader = Image(
+            source="assets/icons/loading_wheel.png", 
+            size_hint=(None, None), size=(dp(50), dp(50)), 
+            pos_hint={'center_x': 0.5, 'top': 0.8}, opacity=0
+        )
+        with self.main_loader.canvas.before:
+            PushMatrix()
+            self.main_rot = Rotate(angle=0)
+        with self.main_loader.canvas.after:
+            PopMatrix()
+        self.main_loader.bind(center=lambda inst, val: setattr(self.main_rot, 'origin', inst.center))
+        self.root_layout.add_widget(self.main_loader)
+
+        # 1. Sélecteur d'équipe
         self.team_scroll = ScrollView(
             size_hint=(1, None), height=dp(85), 
             do_scroll_y=False, bar_width=0, scroll_type=['content']
@@ -78,8 +115,18 @@ class ClassementScreen(Screen):
         # 3. Zone Tableau
         self.table_area = BoxLayout(orientation="vertical", size_hint=(1, 1))
         self.main_layout.add_widget(self.table_area)
-        
-        self.add_widget(self.main_layout)
+            
+    def _rotate_loader(self, dt):
+        self.main_rot.angle -= 6
+
+    def show_loader(self, show):
+        if show:
+            self.main_loader.opacity = 1
+            Clock.unschedule(self._rotate_loader)
+            Clock.schedule_interval(self._rotate_loader, 1/60)
+        else:
+            self.main_loader.opacity = 0
+            Clock.unschedule(self._rotate_loader)
 
     def _update_bg(self, instance, value):
         self.rect_bg.pos = instance.pos
@@ -89,42 +136,49 @@ class ClassementScreen(Screen):
         self.update_ui_from_config()
 
     def _check_scroll_limit(self, instance, value):
-        """Déclenche le rafraîchissement si on tire le tableau vers le bas"""
         if value > 1.05 and not self._is_refreshing:
             self._is_refreshing = True
-            print("[CLASSEMENT] Pull-to-refresh detecte")
+            self.show_loader(True)
             app = App.get_running_app()
             if hasattr(app, 'load_remote_config'):
                 threading.Thread(target=self._bg_refresh, args=(app,), daemon=True).start()
 
-    def _bg_refresh(self, app):
-        app.load_remote_config()
-        # Sécurisation du fil d'exécution : Tout le traitement UI retourne sur le thread principal
-        Clock.schedule_once(lambda dt: self._safe_ui_update(), 0.5)
-
     def _safe_ui_update(self):
         self.update_ui_from_config()
-        self._is_refreshing = False  # Le verrou est libéré seulement après la reconstruction complète
+        self.show_loader(False)
+        self._is_refreshing = False
+
+    def _bg_refresh(self, app):
+        app.load_remote_config()
+        Clock.schedule_once(lambda dt: self._safe_ui_update(), 0.5)
 
     def update_ui_from_config(self, *args):
         app = App.get_running_app()
         if not hasattr(app, "app_config") or not app.app_config:
             return
 
+        # 1. RÉCUPÉRATION DATA
+        appli_data = app.app_config.get("fcvv", {}).get("appli", {})
+        all_classements = appli_data.get("classements", [])
+        saison = appli_data.get("saison", {})
+
         f_factor = 24
         if hasattr(app, 'config'):
             try: f_factor = app.config.getint('User', 'font_size_factor')
             except: pass
 
-        all_classements = app.app_config.get("fcvv", {}).get("appli", {}).get("classements", [])
-        if not all_classements: 
-            return
+        # MISE À JOUR DU LABEL SAISON
+        if hasattr(self, 'season_label') and saison:
+            new_text = f"SAISON {saison.get('debut', '')}/{saison.get('fin', '')}"
+            if self.season_label.text != new_text:
+                self.season_label.text = new_text
 
-        # --- GESTION DU HASH ---
+        # 2. GESTION DU HASH UNIFIÉ
         data_to_hash = {
             "data": all_classements,
             "team_idx": self.current_team_index,
-            "font": f_factor
+            "font": f_factor,
+            "saison": saison
         }
         current_hash = hashlib.md5(json.dumps(data_to_hash, sort_keys=True).encode()).hexdigest()
 
@@ -134,7 +188,7 @@ class ClassementScreen(Screen):
         self.last_config_hash = current_hash
         self.team_selector.clear_widgets()
 
-        # Construction propre des onglets sans lambda anonymes orphelins
+        # Construction des onglets
         for i, class_data in enumerate(all_classements):
             is_active = (i == self.current_team_index)
             nom_equipe = class_data.get("equipe_nom", "Équipe")
@@ -147,7 +201,6 @@ class ClassementScreen(Screen):
                 bold=is_active, font_size=f"{f_factor - 1}sp"
             )
             
-            # Injection propre de l'index dans le callback d'action
             btn.target_index = i
             btn.bind(on_release=self._on_tab_pressed)
             self.team_selector.add_widget(btn)
@@ -170,17 +223,28 @@ class ClassementScreen(Screen):
 
         self.table_area.clear_widgets()
         
-        # Masquage de la scrollbar sur mobile pour un rendu plus épuré
-        main_scroll = ScrollView(
-            size_hint=(1, 1), do_scroll_x=True, do_scroll_y=True,
-            bar_width=0, scroll_type=['content']
-        )
-        main_scroll.bind(scroll_y=self._check_scroll_limit)
-        
+        # 1. Calcul des largeurs
         col_widths_dp = [40, 180, 45, 35, 35, 35, 35, 35, 40, 40, 35, 45]
         adjusted_widths = [dp(w + (f_factor - 20) * 1.5) for w in col_widths_dp]
         min_table_width = sum(adjusted_widths)
 
+        # 2. Configuration du ScrollView (Rendu responsive autonome pour iOS/Android)
+        main_scroll = ScrollView(
+            size_hint=(1, 1), 
+            do_scroll_x=True, 
+            do_scroll_y=True,
+            bar_width=0,
+            scroll_type=['content'],
+            effect_cls=ScrollEffect, 
+            scroll_distance=dp(20),
+            smooth_scroll_end=10
+        )
+        # Blocage de l'axe pour éliminer l'effet de flottement en diagonale
+        main_scroll.lock_to_sigmoid = True
+        
+        main_scroll.bind(scroll_y=self._check_scroll_limit)
+        
+        # 3. Création du conteneur intérieur
         inner_table = BoxLayout(orientation="vertical", size_hint=(None, None), width=min_table_width)
         inner_table.bind(minimum_height=inner_table.setter('height'))
 
@@ -197,7 +261,7 @@ class ClassementScreen(Screen):
             ))
         inner_table.add_widget(header)
 
-        # Lignes (Utilisation du composant de nettoyage TableRowLayout)
+        # Lignes du tableau
         row_height = dp(40) + dp(f_factor - 20)
         for entry in data.get("tableau", []):
             nom_equipe = entry.get("equipe", "")
@@ -222,3 +286,14 @@ class ClassementScreen(Screen):
 
         main_scroll.add_widget(inner_table)
         self.table_area.add_widget(main_scroll)
+        
+        # 4. Ajustement du scroll vertical après rendu
+        Clock.schedule_once(lambda dt: self._configure_scroll(main_scroll, inner_table), 0.1)
+
+    def _configure_scroll(self, scroll_view, content_layout):
+        content_layout.canvas.ask_update() 
+        # Déclenchement ou coupure dynamique du scroll vertical
+        if content_layout.height <= (scroll_view.height + dp(5)):
+            scroll_view.do_scroll_y = False
+        else:
+            scroll_view.do_scroll_y = True

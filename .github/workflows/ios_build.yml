@@ -41,7 +41,7 @@ jobs:
     - name: Compiler les recettes Kivy-ios (uniquement si pas de cache)
       if: steps.cache-kivy-ios.outputs.cache-hit != 'true'
       run: |
-        toolchain build python3 kivy openssl pillow
+        toolchain build python3 kivy openssl pillow firebase
 
     - name: Préparer un dossier source propre pour iOS
       run: |
@@ -63,9 +63,20 @@ jobs:
         # 5. Installation des dépendances externes requises par le code
         pip install --target=./ios_src requests urllib3 charset-normalizer idna pyyaml chardet plyer
 
+    - name: Copier le fichier de configuration Firebase
+      run: |
+        # Assure-toi que ton fichier est bien dans assets/
+        if [ -f "assets/GoogleService-Info.plist" ]; then
+          cp assets/GoogleService-Info.plist ios_src/
+          echo "Configuration Firebase copiée."
+        else
+          echo "ERREUR : GoogleService-Info.plist manquant dans assets/"
+          exit 1
+        fi
+ 
     - name: Créer le projet Xcode
       run: |
-        toolchain create FCVV ./ios_src
+        toolchain create FCVV ./ios_src --bundle-id org.fcvv.fcvv
 
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
@@ -98,6 +109,18 @@ jobs:
         else
           echo "Fichier Info.plist introuvable, utilisation des orientations par défaut."
         fi
+    
+    - name: Configurer les capacités Push Notifications et Firebase
+      run: |
+        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+        INFOPLIST_PATH="$(dirname "$XCODEPROJ_PATH")/fcvv-Info.plist"
+        
+        # Activer les Remote Notifications (Background Modes)
+        # Cela ajoute UIBackgroundModes -> remote-notification
+        plutil -insert UIBackgroundModes -array "$INFOPLIST_PATH" 2>/dev/null || true
+        plutil -insert UIBackgroundModes.0 -string "remote-notification" "$INFOPLIST_PATH"
+        
+        echo "Capacités de notifications ajoutées au Info.plist."
 
     - name: Compiler le projet Xcode pour Simulateur (Génération du .app)
       run: |

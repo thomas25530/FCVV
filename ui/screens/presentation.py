@@ -12,6 +12,7 @@ from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Rotate, Round
 from kivy.metrics import dp
 from kivy.animation import Animation
 from kivy.properties import NumericProperty
+from kivy.effects.scroll import ScrollEffect
 
 class LoadingSpinner(Image):
     angle = NumericProperty(0)
@@ -42,14 +43,14 @@ class LoadingSpinner(Image):
         if hasattr(self, 'anim'):
             self.anim.stop(self)
 
+
 class PresentationScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
-        app = App.get_running_app()
-        self.is_apk = getattr(app, 'generate_APK', False)
         self.KIVY_BLUE = (30/255, 58/255, 138/255, 1)
         self.current_tab = "presse"  
+        self._clock_ev = None  # Traceur pour annuler le Clock et éviter les fuites
         
         with self.canvas.before:
             Color(*self.KIVY_BLUE)
@@ -58,19 +59,27 @@ class PresentationScreen(Screen):
 
         self.main_layout = BoxLayout(orientation='vertical')
         
-        # --- 1. SÉLECTEUR D'ONGLETS (AJUSTÉ POUR GROS DOIGTS) ---
+        # --- 1. SÉLECTEUR D'ONGLETS ---
         self.tab_bar = BoxLayout(size_hint_y=None, height=dp(85), spacing=dp(10), padding=dp(10))
         self.main_layout.add_widget(self.tab_bar)
 
-        # 2. CONTENEUR DE CONTENU
-        self.scroll = ScrollView(do_scroll_x=False, bar_width=0)
+        # 2. CONTENEUR DE CONTENU (Ajout des rails anti-flottement)
+        self.scroll = ScrollView(
+            do_scroll_x=False, 
+            do_scroll_y=True, 
+            bar_width=0,
+            effect_cls=ScrollEffect,
+            scroll_type=['content']
+        )
+        self.scroll.lock_to_sigmoid = True # Rail vertical bien droit
+        
         self.content_layout = BoxLayout(orientation='vertical', padding=[dp(20), dp(10)], spacing=dp(15), size_hint_y=None)
         self.content_layout.bind(minimum_height=self.content_layout.setter('height'))
         
         self.scroll.add_widget(self.content_layout)
         self.main_layout.add_widget(self.scroll)
         
-        self.img_header = Image(source="assets/logo_pres.png", size_hint=(1, None), height=dp(220), allow_stretch=True, keep_ratio=True)
+        self.img_header = Image(source="assets/logo_pres.png", size_hint=(1, None), height=dp(220), fit_mode="contain")
         self.label_presse = Label(text="", color=(1, 1, 1, 1), halign='justify', valign='top', size_hint_y=None, markup=True)
         self.label_presse.bind(width=lambda s, w: s.setter('text_size')(s, (w, None)))
         self.label_presse.bind(texture_size=lambda s, z: s.setter('height')(s, z[1]))
@@ -84,7 +93,6 @@ class PresentationScreen(Screen):
         self.rect_bg.size = instance.size
 
     def _update_btn_rect(self, instance, value):
-        """ Callback nommé pour éviter les fuites liées aux lambdas du canvas """
         if hasattr(instance, 'bg_rect'):
             instance.bg_rect.pos = instance.pos
             instance.bg_rect.size = instance.size
@@ -92,29 +100,51 @@ class PresentationScreen(Screen):
     def on_enter(self):
         self.update_ui_from_config()
 
-    def switch_tab(self, tab_name):
-        self.current_tab = tab_name
+    def on_leave(self):
+        # Sécurité cruciale : si on quitte l'écran, on coupe les événements programmés
+        if self._clock_ev:
+            Clock.unschedule(self._clock_ev)
+            self._clock_ev = None
+        if self.spinner in self.content_layout.children:
+            self.spinner.stop_animation()
+
+    def _on_tab_released(self, instance):
+        """Callback nommé pour les onglets"""
+        self.current_tab = instance.target_tab
         self.update_ui_from_config()
 
+    def _on_pdf_released(self, instance):
+        """Callback nommé pour l'ouverture de PDF"""
+        url = instance.target_url
+        if url and url.startswith("http"):
+            webbrowser.open(url)
+
     def update_ui_from_config(self, *args):
+        # Annulation d'un ancien clock en cours si cette méthode est appelée manuellement entre-temps
+        if self._clock_ev:
+            Clock.unschedule(self._clock_ev)
+            self._clock_ev = None
+
         app = App.get_running_app()
         tr = app._ if hasattr(app, '_') else lambda x: x
-        lang = app.config.get('User', 'langue') if hasattr(app, 'config') else 'Français'
+        lang = app.config.get('User', 'langue') if hasattr(app, 'config') else 'Francais'
         
         f_factor = 20
         if hasattr(app, 'config'):
             try: f_factor = app.config.getint('User', 'font_size_factor')
             except: pass
 
-        # --- FIX FUITE MÉMOIRE : Nettoyage des liaisons de la barre d'onglets ---
+        # --- NETTOYAGE DES ANCIENS BOUTONS POUR ÉVITER LES LEAKS ---
         for btn in self.tab_bar.children:
             btn.unbind(pos=self._update_btn_rect, size=self._update_btn_rect)
+            btn.unbind(on_release=self._on_tab_released)
 
-        # Rafraîchissement de la barre d'onglets
+        for child in self.content_layout.children:
+            if isinstance(child, Button):
+                child.unbind(on_release=self._on_pdf_released)
+
+        # Rafraîchissement structurel
         self.tab_bar.clear_widgets()
-        self.tab_bar.height = dp(85)
-        self.tab_bar.spacing = dp(10)
-        self.tab_bar.padding = dp(10)
         
         tabs = [("presse", tr("press_kit")), ("docs", tr("documents"))]
         
@@ -137,21 +167,22 @@ class PresentationScreen(Screen):
                 Color(*(0.97, 0.93, 0.25, 1) if is_active else (1, 1, 1, 0.15))
                 btn.bg_rect = RoundedRectangle(pos=btn.pos, size=btn.size, radius=[dp(8)])
             
-            # Utilisation du callback nommé propre au lieu d'une fonction lambda
+            # Stockage des variables cibles directement dans l'objet pour s'affranchir des lambdas
+            btn.target_tab = tab_id
             btn.bind(pos=self._update_btn_rect, size=self._update_btn_rect)
-            btn.bind(on_release=lambda x, tid=tab_id: self.switch_tab(tid))
+            btn.bind(on_release=self._on_tab_released)
             self.tab_bar.add_widget(btn)
 
-        # --- FIX FUITE MÉMOIRE : Arrêt forcé du LoadingSpinner s'il est présent ---
         if self.spinner in self.content_layout.children:
             self.spinner.stop_animation()
 
-        # Mise à jour du contenu
         self.content_layout.clear_widgets()
         
+        # --- EN ATTENTE DU CHARGEMENT CONFIG ---
         if not hasattr(app, 'app_config') or not app.app_config.get("tournoi"):
             self.content_layout.add_widget(self.spinner)
-            Clock.schedule_once(self.update_ui_from_config, 0.5)
+            # Sauvegarde de la référence du Clock pour pouvoir l'annuler au besoin
+            self._clock_ev = Clock.schedule_once(self.update_ui_from_config, 0.5)
             return
 
         tournoi_root = app.app_config.get("tournoi", {})
@@ -175,7 +206,6 @@ class PresentationScreen(Screen):
                 for doc in docs:
                     name_key = 'nom_en' if lang == 'English' else 'nom'
                     btn_name = doc.get(name_key, doc.get("nom", "Document"))
-                    btn_url = doc.get("url", "")
                     
                     btn_height = dp(80) + dp(f_factor - 20)
                     
@@ -188,9 +218,7 @@ class PresentationScreen(Screen):
                         bold=True,
                         font_size=f"{f_factor - 1}sp"
                     )
-                    pdf_btn.bind(on_release=lambda x, url=btn_url: self.open_custom_pdf(url))
+                    # Utilisation d'un attribut dynamique à la place du lambda
+                    pdf_btn.target_url = doc.get("url", "")
+                    pdf_btn.bind(on_release=self._on_pdf_released)
                     self.content_layout.add_widget(pdf_btn)
-
-    def open_custom_pdf(self, url):
-        if url and url.startswith("http"):
-            webbrowser.open(url)

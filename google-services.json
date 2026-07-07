@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "512335597045",
+    "project_id": "fcvv-app",
+    "storage_bucket": "fcvv-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:512335597045:android:9819dbed0c70a09d3be4bc",
+        "android_client_info": {
+          "package_name": "org.fcvv.fcvv"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTxB5sz0Y1Olg4qXoreO5AviBVbUhHIhw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

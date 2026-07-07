@@ -25,7 +25,7 @@ def get_save_path(annee, nom_tournoi):
         base = Path(__file__).parent / "save"
     
     path = base / str(annee)
-    path.mkdir(parents=True, exist_ok=True)
+    #path.mkdir(parents=True, exist_ok=True)
     return path / f"{safe_filename(nom_tournoi)}.json"
 
 def safe_filename(name):
@@ -239,38 +239,63 @@ class TournoiLogic:
     
     def generer_matchs(self, preserve_scores=False):
         """Round-robin intercalé par tour avec préservation des scores existants"""
-        # ⚡ Conserver les scores existants si nécessaire
+    
         old_matchs = deepcopy(self.matchs) if preserve_scores else []
+    
         p = self.config.get("parametres", {})
         heure = datetime.strptime(p.get("heure_debut", "09:00"), "%H:%M")
-        duree = p.get("duree_match", 5)
-        pause = p.get("pause", 0)
-        duree_td = parse_duree(duree)
-        pause_td = parse_duree(pause)
+    
+        duree_td = parse_duree(p.get("duree_match", 5))
+        pause_td = parse_duree(p.get("pause", 0))
+    
+        # Préparation des rotations par groupe
         rotations = {}
-        max_len = max(len(eqs) for eqs in self.groupes.values())
-        rounds = max_len if max_len % 2 == 1 else max_len - 1
-        for g, eqs in self.groupes.items():
-            l = list(eqs)
+        rounds_by_group = {}
+    
+        for g, equipes in self.groupes.items():
+            l = list(equipes)
+    
             if len(l) % 2 == 1:
                 l.append("BYE")
+    
             rotations[g] = l
+    
+            n = len(l)
+            rounds_by_group[g] = n - 1
+    
+        max_rounds = max(rounds_by_group.values())
+    
         new_matchs = []
-        for r in range(rounds):
-            for g, eqs in rotations.items():
+    
+        for r in range(max_rounds):
+    
+            for g in self.groupes.keys():
+    
+                # Ce groupe a déjà fini tous ses rounds
+                if r >= rounds_by_group[g]:
+                    continue
+    
+                eqs = rotations[g]
                 n = len(eqs)
+    
                 for i in range(n // 2):
-                    a, b = eqs[i], eqs[n - 1 - i]
+    
+                    a = eqs[i]
+                    b = eqs[n - 1 - i]
+    
                     if "BYE" in (a, b):
                         continue
-                    # 🔀 RANDOMISATION A / B
-                    #if random.random() < 0.5:
-                    #    a, b = b, a
-                    # 🔹 Chercher ancien match correspondant pour récupérer scores
+    
                     old_m = next(
-                        (m for m in old_matchs if m.get("A") == a and m.get("B") == b and m.get("groupe") == g),
+                        (
+                            m for m in old_matchs
+                            if m.get("A") == a
+                            and m.get("B") == b
+                            and m.get("groupe") == g
+                        ),
                         {}
                     )
+    
                     new_matchs.append({
                         "heure": heure.strftime("%H:%M:%S"),
                         "groupe": g,
@@ -282,9 +307,12 @@ class TournoiLogic:
                         "TAB_A": old_m.get("TAB_A"),
                         "TAB_B": old_m.get("TAB_B")
                     })
+    
                     heure += duree_td + pause_td
-                if len(eqs) > 2:
-                    rotations[g] = [eqs[0]] + [eqs[-1]] + eqs[1:-1]
+    
+                # Rotation du groupe
+                rotations[g] = [eqs[0]] + [eqs[-1]] + eqs[1:-1]
+    
         self.matchs = new_matchs
 
     def update_petite_finale_from_demi(self):
@@ -410,31 +438,29 @@ class TournoiLogic:
         nb_qual_par_groupe = [len(eq) for eq in qualifies_par_groupe.values()]
         total_equipes = sum(nb_qual_par_groupe)
         bracket = [None] * total_equipes
+        
         # --- Cas spécial : un seul groupe ---
         if len(qualifies_par_groupe) == 1:
             equipes = list(qualifies_par_groupe.values())[0]
             n = len(equipes)
-            # --- Fonction de seeding tennis ---
             def generate_seed_positions(n):
-                if n == 1:
-                    return [1]
+                if n == 1: return [1]
                 prev = generate_seed_positions(n // 2)
                 res = []
                 for p in prev:
                     res.append(p)
                     res.append(n + 1 - p)
                 return res
-            # --- Adapter à puissance de 2 (BYE si nécessaire) ---
             next_pow2 = 2 ** math.ceil(math.log2(n))
             equipes_extended = equipes[:]
             while len(equipes_extended) < next_pow2:
-                equipes_extended.append(None)  # BYE
-            # --- Génération du bracket seedé ---
+                equipes_extended.append(None)
             positions = generate_seed_positions(len(equipes_extended))
             bracket = [None] * len(equipes_extended)
             for i, seed in enumerate(positions):
                 bracket[i] = equipes_extended[seed - 1]
             return bracket
+
         # --- Cas spécial : demi-directe ---
         if all(n == 1 for n in nb_qual_par_groupe):
             equipes = [qualifies_par_groupe[g][0] for g in groupes]
@@ -446,15 +472,14 @@ class TournoiLogic:
                 bracket.append(gauche[i])
                 bracket.append(droite[i])
             return bracket
-        # --- Si divisible sans reste, on garde le code actuel ---
-        quart_size = total_equipes / 4
+
+        # --- CAS 1 : Groupes de tailles égales ---
         tailles = [len(eqs) for eqs in qualifies_par_groupe.values()]
         if len(set(tailles)) == 1:
-            # --- Etape 1 : placement des 1ers ---
             step = total_equipes // nb_groupes
             for i, g in enumerate(groupes):
                 bracket[i * step] = qualifies_par_groupe[g][0]
-            # --- Etape 2 : placement des derniers contre 1ers ---
+
             derniers = [qualifies_par_groupe[g][-1] for g in groupes][::-1]
             for i, g in enumerate(groupes):
                 candidate = derniers[i]
@@ -472,33 +497,28 @@ class TournoiLogic:
                         if bracket[idx] is None:
                             bracket[idx] = candidate
                             break
-            # --- Etape 3 : placement des 2èmes dans l'autre moitié du bracket ---
+
             for g in groupes:
                 e1 = qualifies_par_groupe[g][0]
                 if len(qualifies_par_groupe[g]) > 1:
                     e2 = qualifies_par_groupe[g][1]
-                else:
-                    continue
-                if e2 in bracket:
-                    continue
+                else: continue
+                if e2 in bracket: continue
                 pos_1er = bracket.index(e1)
                 half_offset = total_equipes // 2
                 target_pos = (pos_1er + half_offset) % total_equipes
-                placed = False
                 for i in range(total_equipes // 2):
                     idx = (target_pos + i) % total_equipes
                     if bracket[idx] is None:
                         bracket[idx] = e2
-                        placed = True
                         break
-            # --- Etape 4 : placement intelligent des restantes ---
+
             restantes = [e for g in groupes for e in qualifies_par_groupe[g] if e not in bracket]
             quartiers = [list(range(i, i + 4)) for i in range(0, total_equipes, 4)]
             for q in quartiers:
                 free_slots = [idx for idx in q if bracket[idx] is None]
                 for idx in free_slots:
-                    if not restantes:
-                        break
+                    if not restantes: break
                     for i, equipe in enumerate(restantes):
                         g_equipe = next(g for g in groupes if equipe in qualifies_par_groupe[g])
                         groupes_dans_quartier = set(
@@ -512,120 +532,86 @@ class TournoiLogic:
                     else:
                         bracket[idx] = restantes.pop(0)
             return bracket
+
+        # --- CAS 2 : Groupes de tailles ASYMÉTRIQUES ---
         else:
-            # --- Étape 1 : placer les 1ers de chaque groupe ---
-            step = (total_equipes) // (nb_groupes+1)  # espacement approx
-            for i, g in enumerate(groupes):
-                bracket[i * step] = qualifies_par_groupe[g][0]
-            # Vérifier quels matchs sont encore vides et ajouter un ou plusieurs 2ème pour avoir au moins une équipe
-            for idx in range(0, total_equipes, 2):  # parcours par match
-                if bracket[idx] is None:
-                    # Vérifier si la deuxième case existe et est vide
-                    if idx + 1 < total_equipes:
-                        if bracket[idx + 1] is None:
-                            # match vide complet
-                            for g in groupes:
-                                if len(qualifies_par_groupe[g]) > 1 and qualifies_par_groupe[g][1] not in bracket:
-                                    bracket[idx] = qualifies_par_groupe[g][1]
-                                    break
-            # --- Étape 2 : placer les qualifiés les plus faibles contre les 1ers ---
-            # Construire les rangs du pire au meilleur (dernier, avant-dernier, etc.)
-            max_len = max(len(v) for v in qualifies_par_groupe.values())
-            rangs = []
-            for pos in range(max_len - 1, -1, -1):  # du dernier au premier
-                rang = []
-                for g in groupes:
+            # SÉCURITÉ CRITIQUE : On filtre les groupes pour ignorer ceux qui n'ont aucune équipe
+            groupes_actifs = [g for g in groupes if len(qualifies_par_groupe[g]) > 0]
+            
+            # Si aucun groupe n'a d'équipe (tournoi non démarré / vide), on renvoie un bracket vide
+            if not groupes_actifs:
+                return [None] * total_equipes
+
+            # 1. Séparer strictement les premiers et les challengers (2èmes/3èmes)
+            # SÉCURITÉ : On ne prend le premier [0] que sur les groupes qui ont au moins une équipe
+            premiers = [(g, qualifies_par_groupe[g][0]) for g in groupes_actifs]
+            
+            challengers = []
+            max_len = max(len(qualifies_par_groupe[g]) for g in groupes_actifs) if groupes_actifs else 0
+            
+            for pos in range(max_len - 1, 0, -1):  
+                for g in groupes_actifs:
                     if len(qualifies_par_groupe[g]) > pos:
-                        rang.append((g, qualifies_par_groupe[g][pos]))
-                rangs.append(rang)
-            # Liste plate des candidats dans le bon ordre
-            candidats = []
-            for rang in rangs:
-                for g, equipe in rang:
-                    candidats.append((g, equipe))
-            # On va consommer les candidats au fur et à mesure
+                        challengers.append((g, qualifies_par_groupe[g][pos]))
+
+            # 2. Placer un maximum de Premiers sur les têtes de séries (index pairs : 0, 2, 4, 6...)
+            nb_seeds_max = total_equipes // 2
+            premiers_seeds = premiers[:nb_seeds_max]
+            premiers_restants = premiers[nb_seeds_max:]  
+
+            for i, (g, equipe) in enumerate(premiers_seeds):
+                if i * 2 < len(bracket):
+                    bracket[i * 2] = equipe
+
+            # 3. Distribuer le reste (les 1ers restants + les challengers) face aux têtes de série
+            tous_les_opposants = premiers_restants + challengers
             utilises = set()
-            for g in groupes:
-                e1 = qualifies_par_groupe[g][0]
-                pos_1er = bracket.index(e1)
-                placed = False
-                for i, (g_candidate, candidate) in enumerate(candidats):
-                    # 🔥 correction ici
-                    if candidate in utilises or candidate in bracket:
+
+            for idx in range(0, total_equipes, 2):
+                if idx >= len(bracket): break
+                tete_de_serie = bracket[idx]
+                if tete_de_serie is None:
+                    continue
+                
+                g_tete = next((g for g in groupes_actifs if tete_de_serie in qualifies_par_groupe[g]), None)
+                voisin_idx = idx + 1
+                if voisin_idx >= len(bracket): break
+
+                # Trouver le meilleur opposant disponible qui n'est pas du même groupe
+                for i, (g_opp, opp) in enumerate(tous_les_opposants):
+                    if opp in utilises:
                         continue
-                    if g_candidate == g:
-                        continue  # pas même groupe que le 1er
-                    # Chercher une position valide autour du 1er
-                    for offset in range(1, total_equipes):
-                        idx = (pos_1er + offset) % total_equipes
-                        if bracket[idx] is not None:
-                            continue
-                        # Déterminer adversaire dans le match
-                        voisin_idx = idx + 1 if idx % 2 == 0 else idx - 1
-                        voisin = bracket[voisin_idx] if 0 <= voisin_idx < total_equipes else None
-                        if voisin:
-                            g_voisin = next(grp for grp in groupes if voisin in qualifies_par_groupe[grp])
-                            if g_voisin == g_candidate:
-                                continue  # même groupe dans le match interdit
-                        # OK on place
-                        bracket[idx] = candidate
-                        utilises.add(candidate)
-                        placed = True
-                        break
-                    if placed:
-                        break
-            # --- Étape 3 : compléter les cases où on avait ajouté un 2ème ---
-            restantes = [e for g in groupes for e in qualifies_par_groupe[g] if e not in bracket]
+                    if g_opp == g_tete:
+                        continue  
+
+                    bracket[voisin_idx] = opp
+                    utilises.add(opp)
+                    break
+
+            # 4. Remplissage de secours (Trous restants s'il y en a)
+            restantes = [opp for _, opp in tous_les_opposants if opp not in utilises]
             for idx in range(total_equipes):
-                if bracket[idx] is not None:
-                    continue
-                if not restantes:
-                    break
-                # placer un dernier qualifié restant si possible, sinon avant-dernier
-                for i, equipe in enumerate(restantes):
-                    bracket[idx] = equipe
-                    restantes.pop(i)
-                    break
-            # --- Étape 4 : placer les 2èmes encore non choisis dans l'autre moitié du bracket ---
-            for g in groupes:
-                if len(qualifies_par_groupe[g]) > 1:
-                    e2 = qualifies_par_groupe[g][1]
-                else:
-                    continue
-                if e2 in bracket:
-                    continue
-                pos_1er = bracket.index(qualifies_par_groupe[g][0])
-                half_offset = total_equipes // 2
-                target_pos = (pos_1er + half_offset) % total_equipes
-                placed = False
-                for i in range(total_equipes // 2):
-                    idx = (target_pos + i) % total_equipes
-                    if bracket[idx] is None:
-                        bracket[idx] = e2
-                        placed = True
-                        break
-            # --- Étape 5 : placer les dernières équipes restantes de façon intelligente ---
-            restantes = [e for g in groupes for e in qualifies_par_groupe[g] if e not in bracket]
-            quartiers = [list(range(i, min(i + 4, total_equipes))) for i in range(0, total_equipes, 4)]
-            for q in quartiers:
-                free_slots = [idx for idx in q if bracket[idx] is None]
-                for idx in free_slots:
+                if idx >= len(bracket): break
+                if bracket[idx] is None:
                     if not restantes:
                         break
+                    
+                    voisin_idx = idx + 1 if idx % 2 == 0 else idx - 1
+                    voisin = bracket[voisin_idx] if (0 <= voisin_idx < len(bracket)) else None
+                    
+                    g_voisin = next((g for g in groupes_actifs if voisin in qualifies_par_groupe[g]), None) if voisin else None
+                    
+                    placed = False
                     for i, equipe in enumerate(restantes):
-                        g_equipe = next(g for g in groupes if equipe in qualifies_par_groupe[g])
-                        groupes_dans_quartier = set(
-                            next(g for g in groupes if bracket[p] in qualifies_par_groupe[g])
-                            for p in q if bracket[p] is not None
-                        )
-                        if g_equipe not in groupes_dans_quartier:
+                        g_equipe = next((g for g in groupes_actifs if equipe in qualifies_par_groupe[g]), None)
+                        if g_equipe and g_equipe != g_voisin:
                             bracket[idx] = equipe
                             restantes.pop(i)
+                            placed = True
                             break
-                    else:
-                        # fallback si impossible d’éviter doublon de groupe
-                        if restantes:
-                            bracket[idx] = restantes.pop(0)
+                    if not placed:
+                        bracket[idx] = restantes.pop(0)
+
             return bracket
     
     def generate_first_round(self):
