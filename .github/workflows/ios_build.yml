@@ -76,18 +76,18 @@ jobs:
         
         # 2. Injection du Bundle ID
         XCODEPROJ_PATH=$(find ./ios_src -maxdepth 1 -name "*.xcodeproj" | head -n 1)
-        INFOPLIST_PATH="$(dirname "$XCODEPROJ_PATH")/fcvv-Info.plist"
+        # Recherche dynamique du plist ici aussi
+        INFOPLIST_PATH=$(find ./ios_src -name "*-Info.plist" | head -n 1)
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
-        # 3. Préparer le Podfile pour pointer explicitement vers le projet
-        # On ajoute la ligne 'project' au début du Podfile
+        # 3. Préparer le Podfile
         echo "project '$(basename "$XCODEPROJ_PATH")'" > ios_src/Podfile
         cat Podfile >> ios_src/Podfile
         
         # 4. Installation des pods
         cd ios_src
         pod install
-        ls -R ios_src
+        ls -R .  # Affiche bien le contenu du dossier courant (ios_src)
 
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
@@ -103,43 +103,30 @@ jobs:
           echo "Icône manquante ou dossier introuvable, configuration ignorée."
         fi
 
-    - name: Configurer l'orientation en mode Portrait (comme sur Android)
+    - name: Configurer l'orientation et les capacités Push
       run: |
-        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-        INFOPLIST_PATH="$(dirname "$XCODEPROJ_PATH")/fcvv-Info.plist"
+        # Recherche dynamique du fichier plist
+        INFOPLIST_PATH=$(find ./ios_src -name "*-Info.plist" | head -n 1)
+        echo "Fichier plist trouvé : $INFOPLIST_PATH"
         
-        if [ -f "$INFOPLIST_PATH" ]; then
-          echo "Configuration de l'orientation Portrait unique dans $INFOPLIST_PATH..."
-          
-          # 1. On vide le tableau des orientations existantes
-          plutil -remove UISupportedInterfaceOrientations "$INFOPLIST_PATH" 2>/dev/null || true
-          
-          # 2. On recrée le tableau avec uniquement la valeur Portrait
-          plutil -insert UISupportedInterfaceOrientations -array "$INFOPLIST_PATH"
-          plutil -insert UISupportedInterfaceOrientations.0 -string "UIInterfaceOrientationPortrait" "$INFOPLIST_PATH"
-        else
-          echo "Fichier Info.plist introuvable, utilisation des orientations par défaut."
-        fi
-    
-    - name: Configurer les capacités Push Notifications et Firebase
-      run: |
-        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-        INFOPLIST_PATH="$(dirname "$XCODEPROJ_PATH")/fcvv-Info.plist"
+        # 1. Orientation Portrait
+        plutil -remove UISupportedInterfaceOrientations "$INFOPLIST_PATH" 2>/dev/null || true
+        plutil -insert UISupportedInterfaceOrientations -array "$INFOPLIST_PATH"
+        plutil -insert UISupportedInterfaceOrientations.0 -string "UIInterfaceOrientationPortrait" "$INFOPLIST_PATH"
         
-        # Activer les Remote Notifications (Background Modes)
-        # Cela ajoute UIBackgroundModes -> remote-notification
+        # 2. Background Modes (Notifications)
         plutil -insert UIBackgroundModes -array "$INFOPLIST_PATH" 2>/dev/null || true
         plutil -insert UIBackgroundModes.0 -string "remote-notification" "$INFOPLIST_PATH"
         
-        echo "Capacités de notifications ajoutées au Info.plist."
+        echo "Configuration du Info.plist terminée."
 
     - name: Compiler le projet Xcode pour Simulateur
       run: |
-        # On utilise maintenant le .xcworkspace généré par CocoaPods
-        XCODEWORKSPACE_PATH=$(find . -maxdepth 2 -name "*.xcworkspace" | head -n 1)
+        # On force la recherche du workspace dans le dossier ios_src
+        XCODEWORKSPACE_PATH=$(find ./ios_src -maxdepth 1 -name "*.xcworkspace" | head -n 1)
         XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
         
-        echo "Compilation du workspace $XCODENAME..."
+        echo "Compilation du workspace : $XCODEWORKSPACE_PATH"
         
         xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
