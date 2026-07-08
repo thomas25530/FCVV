@@ -88,17 +88,27 @@ jobs:
         INFOPLIST_PATH=$(find . -name "*-Info.plist" | head -n 1)
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
-        # 4. Génération du Podfile avec la cible 'fcvv' (en minuscules)
+        # 4. Génération du Podfile avec post_install pour Firebase
         ABS_PATH=$(realpath "$XCODEPROJ_PATH")
         echo "platform :ios, '13.0'" > "$PROJECT_DIR/Podfile"
         echo "use_frameworks!" >> "$PROJECT_DIR/Podfile"
         echo "project '$ABS_PATH'" >> "$PROJECT_DIR/Podfile"
-        echo "target 'fcvv' do" >> "$PROJECT_DIR/Podfile" # ICI : changement de FCVV à fcvv
+        echo "target 'fcvv' do" >> "$PROJECT_DIR/Podfile"
         echo "  pod 'Firebase/Messaging'" >> "$PROJECT_DIR/Podfile"
         echo "  pod 'Firebase/Core'" >> "$PROJECT_DIR/Podfile"
         echo "end" >> "$PROJECT_DIR/Podfile"
+        # Ajout du post_install pour forcer les paramètres de build Firebase
+        echo "post_install do |installer|" >> "$PROJECT_DIR/Podfile"
+        echo "  installer.pods_project.targets.each do |target|" >> "$PROJECT_DIR/Podfile"
+        echo "    target.build_configurations.each do |config|" >> "$PROJECT_DIR/Podfile"
+        echo "      config.build_settings['BUILD_LIBRARY_FOR_DISTRIBUTION'] = 'YES'" >> "$PROJECT_DIR/Podfile"
+        echo "      config.build_settings['SWIFT_VERSION'] = '5.0'" >> "$PROJECT_DIR/Podfile"
+        echo "    end" >> "$PROJECT_DIR/Podfile"
+        echo "  end" >> "$PROJECT_DIR/Podfile"
+        echo "end" >> "$PROJECT_DIR/Podfile"
         
         touch "$PROJECT_DIR/dummy.swift"
+        
         # 5. Installation des pods
         cd "$PROJECT_DIR"
         pod install
@@ -119,26 +129,20 @@ jobs:
 
     - name: Configurer et Compiler le projet
       run: |
-        # 1. Configuration Info.plist (utilisation de -create pour éviter les erreurs de clé manquante)
+        # 1. Configuration Info.plist
         INFOPLIST_PATH=$(find . -name "*-Info.plist" ! -name "GoogleService-Info.plist" | head -n 1)
         if [ ! -z "$INFOPLIST_PATH" ]; then
           plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH" || \
           plutil -insert UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH"
-          
           plutil -replace UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH" || \
           plutil -insert UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH"
         fi
 
         # 2. Identification du workspace
         XCODEWORKSPACE_PATH=$(find . -name "*.xcworkspace" | head -n 1)
-        if [ -z "$XCODEWORKSPACE_PATH" ]; then
-          echo "ERREUR : Workspace introuvable."
-          exit 1
-        fi
         XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
         
-        # 3. Compilation
-        # EXCLUDED_ARCHS=x86_64 est ajouté pour forcer Xcode à ignorer l'architecture Intel
+        # 3. Compilation avec flag Swift pour ignorer l'erreur d'interface module
         xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
@@ -147,6 +151,7 @@ jobs:
                    ONLY_ACTIVE_ARCH=YES \
                    EXCLUDED_ARCHS=x86_64 \
                    BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+                   OTHER_SWIFT_FLAGS='-no-verify-emitted-module-interface' \
                    CODE_SIGNING_ALLOWED=NO \
                    CODE_SIGNING_REQUIRED=NO \
                    CODE_SIGNING_IDENTITY="" \
