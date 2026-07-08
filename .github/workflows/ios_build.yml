@@ -71,22 +71,34 @@ jobs:
  
     - name: Créer le projet Xcode et installer Firebase
       run: |
-        # 1. Création du projet
+        # 1. Création du projet dans le dossier 'ios_src'
         toolchain create FCVV ./ios_src
         
-        # 2. Trouver le chemin absolu du .xcodeproj
-        XCODEPROJ_PATH=$(find "$(pwd)/ios_src" -maxdepth 1 -name "*.xcodeproj" | head -n 1)
+        # --- DEBUG : Lister les fichiers pour voir où est le projet ---
+        echo "--- LISTE DES FICHIERS ---"
+        ls -R ./ios_src
+        echo "--------------------------"
+        
+        # 2. Trouver le chemin du .xcodeproj de manière plus fiable
+        # On cherche le dossier qui finit par .xcodeproj dans ios_src
+        XCODEPROJ_PATH=$(find ./ios_src -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+        
+        if [ -z "$XCODEPROJ_PATH" ]; then
+          echo "ERREUR : Impossible de trouver le fichier .xcodeproj"
+          exit 1
+        fi
+        
         echo "Projet trouvé à : $XCODEPROJ_PATH"
         
         # 3. Injection du Bundle ID dans le plist
         INFOPLIST_PATH=$(find ./ios_src -name "*-Info.plist" | head -n 1)
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
-        # 4. Créer un Podfile propre qui pointe vers le chemin absolu
-        # On utilise une syntaxe Ruby plus robuste pour CocoaPods
+        # 4. Préparer le Podfile avec le chemin absolu
+        ABS_PATH=$(realpath "$XCODEPROJ_PATH")
         echo "platform :ios, '13.0'" > ios_src/Podfile
         echo "use_frameworks!" >> ios_src/Podfile
-        echo "project '$XCODEPROJ_PATH'" >> ios_src/Podfile
+        echo "project '$ABS_PATH'" >> ios_src/Podfile
         echo "target 'FCVV' do" >> ios_src/Podfile
         echo "  pod 'Firebase/Messaging'" >> ios_src/Podfile
         echo "  pod 'Firebase/Core'" >> ios_src/Podfile
@@ -95,7 +107,6 @@ jobs:
         # 5. Installation des pods
         cd ios_src
         pod install
-        ls -R .  # Affiche bien le contenu du dossier courant (ios_src)
 
     - name: Détecter le dossier Xcode et configurer l'icône
       run: |
