@@ -134,12 +134,11 @@ jobs:
         fi
         XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
         
-        # 3. Compilation
+        # 3. Compilation (sans -arch car il est inclus dans la destination)
         xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
                    -sdk iphonesimulator \
-                   -arch arm64 \
                    -destination 'platform=iOS Simulator,name=iPhone 15' \
                    ONLY_ACTIVE_ARCH=NO \
                    BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
