@@ -71,17 +71,18 @@ jobs:
  
     - name: Créer le projet Xcode et installer Firebase
       run: |
-        # 1. Création du projet (sans l'argument fautif)
+        # 1. Création du projet
         toolchain create FCVV ./ios_src
         
-        # 2. Injection du Bundle ID directement dans le projet Xcode
-        # On utilise plutil pour modifier le Info.plist généré
-        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+        # 2. Injection du Bundle ID
+        XCODEPROJ_PATH=$(find ./ios_src -maxdepth 1 -name "*.xcodeproj" | head -n 1)
         INFOPLIST_PATH="$(dirname "$XCODEPROJ_PATH")/fcvv-Info.plist"
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
-        # 3. Copie du Podfile dans le dossier généré
-        cp Podfile ios_src/
+        # 3. Préparer le Podfile pour pointer explicitement vers le projet
+        # On ajoute la ligne 'project' au début du Podfile
+        echo "project '$(basename "$XCODEPROJ_PATH")'" > ios_src/Podfile
+        cat Podfile >> ios_src/Podfile
         
         # 4. Installation des pods
         cd ios_src
