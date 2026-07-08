@@ -110,31 +110,37 @@ jobs:
           echo "Icône manquante ou dossier introuvable, configuration ignorée."
         fi
 
-    - name: Configurer l'orientation et les capacités Push
+    - name: Configurer l'orientation, les capacités et compiler
       run: |
-        # Recherche dynamique du fichier plist
-        INFOPLIST_PATH=$(find ./ios_src -name "*-Info.plist" | head -n 1)
-        echo "Fichier plist trouvé : $INFOPLIST_PATH"
+        # 1. Trouver le VRAI Info.plist (on exclut les fichiers GoogleService)
+        # On cherche partout dans le répertoire de travail
+        INFOPLIST_PATH=$(find . -name "*-Info.plist" ! -name "GoogleService-Info.plist" | head -n 1)
+        echo "Info.plist cible : $INFOPLIST_PATH"
         
-        # 1. Orientation Portrait
-        plutil -remove UISupportedInterfaceOrientations "$INFOPLIST_PATH" 2>/dev/null || true
-        plutil -insert UISupportedInterfaceOrientations -array "$INFOPLIST_PATH"
-        plutil -insert UISupportedInterfaceOrientations.0 -string "UIInterfaceOrientationPortrait" "$INFOPLIST_PATH"
-        
-        # 2. Background Modes (Notifications)
-        plutil -insert UIBackgroundModes -array "$INFOPLIST_PATH" 2>/dev/null || true
-        plutil -insert UIBackgroundModes.0 -string "remote-notification" "$INFOPLIST_PATH"
-        
-        echo "Configuration du Info.plist terminée."
+        # 2. Configurer le plist (si trouvé)
+        if [ ! -z "$INFOPLIST_PATH" ]; then
+          plutil -remove UISupportedInterfaceOrientations "$INFOPLIST_PATH" 2>/dev/null 2>&1 || true
+          plutil -insert UISupportedInterfaceOrientations -array "$INFOPLIST_PATH"
+          plutil -insert UISupportedInterfaceOrientations.0 -string "UIInterfaceOrientationPortrait" "$INFOPLIST_PATH"
+          plutil -remove UIBackgroundModes 2>/dev/null || true
+          plutil -insert UIBackgroundModes -array "$INFOPLIST_PATH"
+          plutil -insert UIBackgroundModes.0 -string "remote-notification" "$INFOPLIST_PATH"
+        else
+          echo "Attention : Info.plist non trouvé."
+        fi
 
-    - name: Compiler le projet Xcode pour Simulateur
-      run: |
-        # On force la recherche du workspace dans le dossier ios_src
-        XCODEWORKSPACE_PATH=$(find ./ios_src -maxdepth 1 -name "*.xcworkspace" | head -n 1)
-        XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
+        # 3. Trouver le workspace n'importe où
+        XCODEWORKSPACE_PATH=$(find . -name "*.xcworkspace" | head -n 1)
+        if [ -z "$XCODEWORKSPACE_PATH" ]; then
+          echo "ERREUR : Workspace introuvable. Structure actuelle :"
+          ls -R . | head -n 50
+          exit 1
+        fi
         
+        XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
         echo "Compilation du workspace : $XCODEWORKSPACE_PATH"
         
+        # 4. Compilation
         xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
