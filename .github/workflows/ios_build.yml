@@ -71,41 +71,32 @@ jobs:
  
     - name: Créer le projet Xcode et installer Firebase
       run: |
-        # 1. Création du projet dans le dossier 'ios_src'
+        # 1. Création du projet
         toolchain create FCVV ./ios_src
         
-        # --- DEBUG : Lister les fichiers pour voir où est le projet ---
-        echo "--- LISTE DES FICHIERS ---"
-        ls -R ./ios_src
-        echo "--------------------------"
-        
-        # 2. Trouver le chemin du .xcodeproj de manière plus fiable
-        # On cherche le dossier qui finit par .xcodeproj dans ios_src
-        XCODEPROJ_PATH=$(find ./ios_src -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-        
-        if [ -z "$XCODEPROJ_PATH" ]; then
-          echo "ERREUR : Impossible de trouver le fichier .xcodeproj"
-          exit 1
-        fi
-        
+        # 2. Le projet est généré dans un sous-dossier nommé 'fcvv-ios' selon tes logs
+        # On cherche donc le projet dans le dossier de travail courant
+        XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
         echo "Projet trouvé à : $XCODEPROJ_PATH"
         
-        # 3. Injection du Bundle ID dans le plist
-        INFOPLIST_PATH=$(find ./ios_src -name "*-Info.plist" | head -n 1)
+        # 3. Injection du Bundle ID (on cherche le plist partout dans le dossier de build)
+        INFOPLIST_PATH=$(find . -name "*-Info.plist" | head -n 1)
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
         # 4. Préparer le Podfile avec le chemin absolu
         ABS_PATH=$(realpath "$XCODEPROJ_PATH")
-        echo "platform :ios, '13.0'" > ios_src/Podfile
-        echo "use_frameworks!" >> ios_src/Podfile
-        echo "project '$ABS_PATH'" >> ios_src/Podfile
-        echo "target 'FCVV' do" >> ios_src/Podfile
-        echo "  pod 'Firebase/Messaging'" >> ios_src/Podfile
-        echo "  pod 'Firebase/Core'" >> ios_src/Podfile
-        echo "end" >> ios_src/Podfile
+        # On crée le Podfile à la racine du dossier projet pour être sûr
+        PROJECT_DIR=$(dirname "$XCODEPROJ_PATH")
+        echo "platform :ios, '13.0'" > "$PROJECT_DIR/Podfile"
+        echo "use_frameworks!" >> "$PROJECT_DIR/Podfile"
+        echo "project '$ABS_PATH'" >> "$PROJECT_DIR/Podfile"
+        echo "target 'FCVV' do" >> "$PROJECT_DIR/Podfile"
+        echo "  pod 'Firebase/Messaging'" >> "$PROJECT_DIR/Podfile"
+        echo "  pod 'Firebase/Core'" >> "$PROJECT_DIR/Podfile"
+        echo "end" >> "$PROJECT_DIR/Podfile"
         
-        # 5. Installation des pods
-        cd ios_src
+        # 5. Installation des pods dans le bon dossier
+        cd "$PROJECT_DIR"
         pod install
 
     - name: Détecter le dossier Xcode et configurer l'icône
