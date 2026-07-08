@@ -63,7 +63,7 @@ class AndroidNotificationManager(NotificationManager):
             messaging = self.FirebaseMessaging.getInstance()
             self.token_task = messaging.getToken()
     
-            print("[FCM] Demande de token envoyée")
+            print("[FCM] Demande de token envoyee")
     
         except Exception as e:
             print(f"[FCM ERROR] init_service : {e}")
@@ -82,21 +82,21 @@ class AndroidNotificationManager(NotificationManager):
                         print("[FCM WARNING] Token indisponible")
     
                 else:
-                    print("[FCM] Token en cours de création...")
+                    print("[FCM] Token en cours de creation...")
     
             print(f"[FCM] Demande d'abonnement au topic : {topic}")
     
             # On lance TOUJOURS l'abonnement
             task = self.FirebaseMessaging.getInstance().subscribeToTopic(topic)
     
-            print(f"[FCM] Requête envoyée pour : {topic}")
+            print(f"[FCM] Requete envoyee pour : {topic}")
     
         except Exception as e:
             print(f"[FCM ERROR] subscribe_to_topic : {e}")
     
     def unsubscribe_from_topic(self, topic):
         try:
-            print(f"[FCM] Désabonnement : {topic}")
+            print(f"[FCM] Desabonnement : {topic}")
     
             self.FirebaseMessaging.getInstance()\
                 .unsubscribeFromTopic(topic)
@@ -129,9 +129,9 @@ class IOSNotificationManager(NotificationManager):
         # On vérifie ici si le token est déjà disponible pour confirmer la connexion
         token = self.FIRMessaging.fcmToken
         if token:
-            print("[FCM iOS] Service prêt et Token FCM disponible")
+            print("[FCM iOS] Service pret et Token FCM disponible")
         else:
-            print("[FCM iOS] Service initialisé, attente du token FCM...")
+            print("[FCM iOS] Service initialise, attente du token FCM...")
 
     def _get_token(self):
         """Retourne le token FCM s'il est disponible, sinon None."""
@@ -142,16 +142,16 @@ class IOSNotificationManager(NotificationManager):
         token = self._get_token()
         
         if not token:
-            print(f"[FCM iOS WARNING] Token non trouvé. L'abonnement à '{topic}' risque d'échouer.")
+            print(f"[FCM iOS WARNING] Token non trouve. L'abonnement a '{topic}' risque d'echouer.")
         else:
-            print(f"[FCM iOS] Token détecté : {str(token)[:25]}...")
+            print(f"[FCM iOS] Token detecte : {str(token)[:25]}...")
 
         # Utilisation de la méthode Objective-C correspondante
         print(f"[FCM iOS] Demande d'abonnement au topic : {topic}")
         self.FIRMessaging.subscribeToTopic_completion_(topic, None)
 
     def unsubscribe_from_topic(self, topic):
-        print(f"[FCM iOS] Désabonnement du topic : {topic}")
+        print(f"[FCM iOS] Desabonnement du topic : {topic}")
         self.FIRMessaging.unsubscribeFromTopic_completion_(topic, None)
 
     def request_permissions(self):
@@ -165,11 +165,11 @@ class IOSNotificationManager(NotificationManager):
 
     def handle_permission_response(self, granted, error):
         if granted:
-            print("[FCM iOS] Permission accordée")
+            print("[FCM iOS] Permission accordee")
         else:
             # Si error n'est pas None, on affiche le message d'erreur
             err_msg = error.localizedDescription if error is not None else "Inconnue"
-            print(f"[FCM iOS] Permission refusée : {err_msg}")
+            print(f"[FCM iOS] Permission refusee : {err_msg}")
 
 def get_notification_manager():
     if platform == 'android':

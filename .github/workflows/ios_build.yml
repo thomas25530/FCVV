@@ -74,17 +74,25 @@ jobs:
         # 1. Création du projet
         toolchain create FCVV ./ios_src
         
-        # 2. Injection du Bundle ID
-        XCODEPROJ_PATH=$(find ./ios_src -maxdepth 1 -name "*.xcodeproj" | head -n 1)
-        # Recherche dynamique du plist ici aussi
+        # 2. Trouver le chemin absolu du .xcodeproj
+        XCODEPROJ_PATH=$(find "$(pwd)/ios_src" -maxdepth 1 -name "*.xcodeproj" | head -n 1)
+        echo "Projet trouvé à : $XCODEPROJ_PATH"
+        
+        # 3. Injection du Bundle ID dans le plist
         INFOPLIST_PATH=$(find ./ios_src -name "*-Info.plist" | head -n 1)
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
-        # 3. Préparer le Podfile
-        echo "project '$(basename "$XCODEPROJ_PATH")'" > ios_src/Podfile
-        cat Podfile >> ios_src/Podfile
+        # 4. Créer un Podfile propre qui pointe vers le chemin absolu
+        # On utilise une syntaxe Ruby plus robuste pour CocoaPods
+        echo "platform :ios, '13.0'" > ios_src/Podfile
+        echo "use_frameworks!" >> ios_src/Podfile
+        echo "project '$XCODEPROJ_PATH'" >> ios_src/Podfile
+        echo "target 'FCVV' do" >> ios_src/Podfile
+        echo "  pod 'Firebase/Messaging'" >> ios_src/Podfile
+        echo "  pod 'Firebase/Core'" >> ios_src/Podfile
+        echo "end" >> ios_src/Podfile
         
-        # 4. Installation des pods
+        # 5. Installation des pods
         cd ios_src
         pod install
         ls -R .  # Affiche bien le contenu du dossier courant (ios_src)

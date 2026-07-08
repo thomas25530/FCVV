@@ -18,9 +18,10 @@ from kivy.uix.widget import Widget
 from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.clock import Clock
 from kivy.app import App
-from kivy.metrics import dp
+from kivy.metrics import dp, sp
 from kivy.animation import Animation
 from kivy.core.window import Window
+from kivy.core.text import Label as CoreLabel
 from datetime import datetime
 # Dans le haut de votre fichier vestiaire.py, assurez-vous d'avoir :
 from kivy.uix.spinner import Spinner, SpinnerOption
@@ -483,7 +484,23 @@ class VestiaireScreen(Screen):
         self.add_widget(self.main_layout)
         
         # Barre de catégories
-        self.cat_bar = BoxLayout(size_hint_y=None, height=dp(70), spacing=dp(8), padding=dp(10))
+        self.cat_scroll = ScrollView(
+            size_hint_y=None,
+            height=dp(70),
+            do_scroll_x=True,
+            do_scroll_y=False,
+            bar_width=0
+        )
+        
+        self.cat_bar = BoxLayout(
+            size_hint_x=None,
+            height=dp(70),
+            spacing=dp(8),
+            padding=[dp(10), 0]
+        )
+        
+        self.cat_bar.bind(minimum_width=self.cat_bar.setter("width"))
+        self.cat_scroll.add_widget(self.cat_bar)
         
         # --- MODIFICATION : ScrollView pour les sous-onglets ---
         self.sub_scroll = ScrollView(size_hint_y=None, height=dp(60), do_scroll_x=True, do_scroll_y=False, bar_width=0)
@@ -493,48 +510,30 @@ class VestiaireScreen(Screen):
         
         self.scroll_content = ScrollView(bar_width=0)
         
-        self.main_layout.add_widget(self.cat_bar)
+        self.main_layout.add_widget(self.cat_scroll)
         self.main_layout.add_widget(self.sub_scroll)
         self.main_layout.add_widget(self.scroll_content)
         
     def update_ui(self):
         app = App.get_running_app()
-        fs = app.config.getint('User', 'font_size_factor', fallback=18)
         if not hasattr(app, 'authorized_vestiaires') or not app.authorized_vestiaires: return
         if not self.current_cat: self.current_cat = app.authorized_vestiaires[0]
         
-        base_size = app.config.getint('User', 'font_size_factor', fallback=18) if hasattr(app, 'config') else 18
+        fs = app.config.getint('User', 'font_size_factor', fallback=18)
         
         # --- Rendu des catégories ---
-        cat_font_size = base_size + 2
         self.cat_bar.clear_widgets()
         for cat in app.authorized_vestiaires:
             is_active = (self.current_cat == cat)
-            
-            # Vérifier si l'utilisateur est ADMIN pour cette catégorie
             role = app.get_role_for_cat(cat)
+            display = f"{cat} [size={int((fs+2)*0.7)}sp][color=888888](ADMIN)[/color][/size]" if role == "ADMIN" else cat
             
-            # Utilisation du Markup Kivy pour le style "ADMIN"
-            if role == "ADMIN":
-                display_text = f"{cat} [size={int(cat_font_size * 0.7)}sp][color=888888](ADMIN)[/color][/size]"
-            else:
-                display_text = cat
+            btn = Button(text=display, markup=True, size_hint=(None, 1), font_size=f"{fs+2}sp",
+                         background_normal='', background_color=(0, 0, 0, 0), bold=True,
+                         color=(0, 0, 0, 1) if is_active else (1, 1, 1, 1))
             
-            # On ajuste la largeur dynamiquement selon la présence du tag
-            # Le \n dans le texte augmente la hauteur, on ajuste si nécessaire ou on laisse le layout gérer
-            btn_width = max(dp(140), dp(len(cat) * (cat_font_size * 0.8)))
-            
-            btn = Button(
-                text=display_text,
-                markup=True,  # INDISPENSABLE pour le style
-                size_hint=(None, 1),
-                width=btn_width,
-                font_size=f"{cat_font_size}sp",
-                background_normal='',
-                background_color=(0, 0, 0, 0),
-                bold=True,
-                color=(0, 0, 0, 1) if is_active else (1, 1, 1, 1)
-            )
+            # Correction : largeur adaptative avec minimum pour "gros doigts"
+            btn.bind(texture_size=lambda instance, val: setattr(instance, 'width', max(dp(100), val[0] + dp(30))))
             
             with btn.canvas.before:
                 Color(0.97, 0.93, 0.25, 1) if is_active else Color(1, 1, 1, 0.15)
@@ -542,65 +541,40 @@ class VestiaireScreen(Screen):
             btn.bind(pos=lambda i, v: setattr(i.bg, 'pos', v), size=lambda i, v: setattr(i.bg, 'size', v))
             btn.bind(on_release=lambda x, c=cat: self.set_category(c))
             self.cat_bar.add_widget(btn)
-            
-        # --- MODIFICATION : Rendu des sous-onglets adaptatif ---
-        sub_font_size = base_size - 3
+
+        # --- Rendu des sous-onglets ---
         self.sub_bar.clear_widgets()
         tabs = ["INFOS", "SONDAGES", "CONVOCS", "CHAT", "SAISON", "EFFECTIF", "DOCS"]
-        
-        # Récupération du rôle pour filtrer les onglets
-        role_actuel = App.get_running_app().get_role_for_cat(self.current_cat)
+        role_actuel = app.get_role_for_cat(self.current_cat)
         
         for sub in tabs:
-            # Sécurité : Cacher EFFECTIF pour les non-admins
-            if sub == "EFFECTIF" and role_actuel != "ADMIN":
-                continue
-            
+            if sub == "EFFECTIF" and role_actuel != "ADMIN": continue
             is_active = (self.current_sub_tab == sub)
             
-            # Calcul dynamique de la largeur
-            dynamic_width = max(dp(120), dp(len(sub) * (sub_font_size * 0.8) + 30))
+            btn = Button(text=sub, size_hint=(None, 1), font_size=f"{fs-3}sp",
+                         background_normal='', background_color=(0, 0, 0, 0), bold=is_active,
+                         color=(0, 0, 0, 1) if is_active else (1, 1, 1, 1))
             
-            btn = Button(
-                text=sub,
-                size_hint=(None, 1),
-                width=dynamic_width,
-                font_size=f"{sub_font_size}sp",
-                background_normal='',
-                background_color=(0, 0, 0, 0),
-                bold=is_active,
-                color=(0, 0, 0, 1) if is_active else (1, 1, 1, 1)
-            )
+            btn.bind(texture_size=lambda instance, val: setattr(instance, 'width', max(dp(90), val[0] + dp(20))))
             
             with btn.canvas.before:
                 Color(0.97, 0.93, 0.25, 1) if is_active else Color(1, 1, 1, 0.1)
                 btn.bg = Rectangle(pos=btn.pos, size=btn.size)
-                
-            btn.bind(pos=lambda i, v: setattr(i.bg, 'pos', v), 
-                     size=lambda i, v: setattr(i.bg, 'size', v))
+            btn.bind(pos=lambda i, v: setattr(i.bg, 'pos', v), size=lambda i, v: setattr(i.bg, 'size', v))
             btn.bind(on_release=lambda x, s=sub: self.set_sub_tab(s))
             self.sub_bar.add_widget(btn)
 
-        # Sécurité supplémentaire : Si l'utilisateur est sur EFFECTIF sans être admin, on le renvoie vers INFOS
-        if self.current_sub_tab == "EFFECTIF" and role_actuel != "ADMIN":
-            self.current_sub_tab = "INFOS"
+        if self.current_sub_tab == "EFFECTIF" and role_actuel != "ADMIN": self.current_sub_tab = "INFOS"
 
-        # --- Logique de chargement de données ---
+        # --- Logique de chargement ---
         data = self._cache_data.get(self.current_cat)
         if data:
-            if self.current_sub_tab == "CONVOCS":
-                self.fetch_convocations_from_firebase(data)
-            else:
-                self.render_content(data)
+            self.fetch_convocations_from_firebase(data) if self.current_sub_tab == "CONVOCS" else self.render_content(data)
         else:
             self.scroll_content.clear_widgets()
-            self.scroll_content.add_widget(Label(
-                text="Chargement...", 
-                color=(1, 1, 1, 0.5),
-                font_size=f"{fs + 4}sp"
-            ))
-            vestiaires_cfg = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
-            cat_info = next((item for item in vestiaires_cfg if item.get("categorie") == self.current_cat), None)
+            self.scroll_content.add_widget(Label(text="Chargement...", color=(1, 1, 1, 0.5), font_size=f"{fs+4}sp"))
+            vest_cfg = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
+            cat_info = next((item for item in vest_cfg if item.get("categorie") == self.current_cat), None)
             if cat_info:
                 path = os.path.join(app.user_data_dir, f"data_{self.current_cat}.yaml")
                 threading.Thread(target=self.verify_and_load, args=(cat_info, path), daemon=True).start()
@@ -991,7 +965,20 @@ class VestiaireScreen(Screen):
                 ))
             else:
                 for idx, j in enumerate(joueurs, 1):
-                    infos = f"{j.get('nom')} {j.get('prenom')}\n[size={int(fs*0.8)}sp][color=888888]Licence : {j.get('licence', 'N/C')}[/color][/size]"
+                    # Récupération des données avec fallback
+                    nom = j.get('nom', '').upper()
+                    prenom = j.get('prenom', '')
+                    licence = j.get('licence', 'N/C')
+                    date_nais = j.get('date_naissance', 'N/C')
+                    
+                    # Construction du texte avec Markup Kivy
+                    infos = (
+                        f"{nom} {prenom}\n"
+                        f"[size={int(fs*0.8)}sp][color=888888]"
+                        f"Né(e) le : {date_nais}\n"
+                        f"Licence : {licence}"
+                        f"[/color][/size]"
+                    )
                     layout.add_widget(JoueurItem(nom=infos, statut="", index=idx))
                     
         elif self.current_sub_tab == "DOCS":
