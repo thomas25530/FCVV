@@ -74,28 +74,25 @@ jobs:
         # 1. Création du projet
         toolchain create FCVV ./ios_src
         
-        # 2. Le projet est généré dans un sous-dossier nommé 'fcvv-ios' selon tes logs
-        # On cherche donc le projet dans le dossier de travail courant
+        # 2. Trouver le chemin
         XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-        echo "Projet trouvé à : $XCODEPROJ_PATH"
+        PROJECT_DIR=$(dirname "$XCODEPROJ_PATH")
         
-        # 3. Injection du Bundle ID (on cherche le plist partout dans le dossier de build)
+        # 3. Injection du Bundle ID
         INFOPLIST_PATH=$(find . -name "*-Info.plist" | head -n 1)
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
-        # 4. Préparer le Podfile avec le chemin absolu
+        # 4. Génération du Podfile avec la cible 'fcvv' (en minuscules)
         ABS_PATH=$(realpath "$XCODEPROJ_PATH")
-        # On crée le Podfile à la racine du dossier projet pour être sûr
-        PROJECT_DIR=$(dirname "$XCODEPROJ_PATH")
         echo "platform :ios, '13.0'" > "$PROJECT_DIR/Podfile"
         echo "use_frameworks!" >> "$PROJECT_DIR/Podfile"
         echo "project '$ABS_PATH'" >> "$PROJECT_DIR/Podfile"
-        echo "target 'FCVV' do" >> "$PROJECT_DIR/Podfile"
+        echo "target 'fcvv' do" >> "$PROJECT_DIR/Podfile" # ICI : changement de FCVV à fcvv
         echo "  pod 'Firebase/Messaging'" >> "$PROJECT_DIR/Podfile"
         echo "  pod 'Firebase/Core'" >> "$PROJECT_DIR/Podfile"
         echo "end" >> "$PROJECT_DIR/Podfile"
         
-        # 5. Installation des pods dans le bon dossier
+        # 5. Installation des pods
         cd "$PROJECT_DIR"
         pod install
 
