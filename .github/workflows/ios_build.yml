@@ -35,10 +35,16 @@ jobs:
       id: cache-kivy-ios
       uses: actions/cache@v4
       with:
-        path: ~/.kivy-ios
-        key: ${{ runner.os }}-kivy-ios-v1-python3-kivy-openssl-pillow
+        # On met en cache le dossier de la toolchain ET le dossier des builds
+        path: |
+          ~/.kivy-ios
+          ./dist
+        # Utilise une clé unique basée sur le système, mais garde la même pour tes tests
+        key: ${{ runner.os }}-kivy-ios-v2-${{ hashFiles('buildozer.spec') }} 
+        restore-keys: |
+          ${{ runner.os }}-kivy-ios-v2-
 
-    - name: Compiler les recettes Kivy-ios (uniquement si pas de cache)
+    - name: Compiler les recettes Kivy-ios (si pas de cache)
       if: steps.cache-kivy-ios.outputs.cache-hit != 'true'
       run: |
         toolchain build python3 kivy openssl pillow
@@ -92,6 +98,7 @@ jobs:
         echo "  pod 'Firebase/Core'" >> "$PROJECT_DIR/Podfile"
         echo "end" >> "$PROJECT_DIR/Podfile"
         
+        touch "$PROJECT_DIR/dummy.swift"
         # 5. Installation des pods
         cd "$PROJECT_DIR"
         pod install
@@ -110,44 +117,37 @@ jobs:
           echo "Icône manquante ou dossier introuvable, configuration ignorée."
         fi
 
-    - name: Configurer l'orientation, les capacités et compiler
+    - name: Configurer et Compiler le projet
       run: |
-        # 1. Trouver le VRAI Info.plist (on exclut les fichiers GoogleService)
-        # On cherche partout dans le répertoire de travail
+        # 1. Configuration Info.plist
         INFOPLIST_PATH=$(find . -name "*-Info.plist" ! -name "GoogleService-Info.plist" | head -n 1)
-        echo "Info.plist cible : $INFOPLIST_PATH"
-        
-        # 2. Configurer le plist (si trouvé)
         if [ ! -z "$INFOPLIST_PATH" ]; then
-          plutil -remove UISupportedInterfaceOrientations "$INFOPLIST_PATH" 2>/dev/null 2>&1 || true
-          plutil -insert UISupportedInterfaceOrientations -array "$INFOPLIST_PATH"
-          plutil -insert UISupportedInterfaceOrientations.0 -string "UIInterfaceOrientationPortrait" "$INFOPLIST_PATH"
-          plutil -remove UIBackgroundModes 2>/dev/null || true
-          plutil -insert UIBackgroundModes -array "$INFOPLIST_PATH"
-          plutil -insert UIBackgroundModes.0 -string "remote-notification" "$INFOPLIST_PATH"
-        else
-          echo "Attention : Info.plist non trouvé."
+          plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH"
+          plutil -replace UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH"
         fi
 
-        # 3. Trouver le workspace n'importe où
+        # 2. Identification du workspace
         XCODEWORKSPACE_PATH=$(find . -name "*.xcworkspace" | head -n 1)
         if [ -z "$XCODEWORKSPACE_PATH" ]; then
-          echo "ERREUR : Workspace introuvable. Structure actuelle :"
-          ls -R . | head -n 50
+          echo "ERREUR : Workspace introuvable."
           exit 1
         fi
-        
         XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
-        echo "Compilation du workspace : $XCODEWORKSPACE_PATH"
         
-        # 4. Compilation
+        # 3. Compilation
         xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
                    -sdk iphonesimulator \
                    -arch arm64 \
+                   -destination 'platform=iOS Simulator,name=iPhone 15' \
+                   ONLY_ACTIVE_ARCH=NO \
+                   BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
                    CODE_SIGNING_ALLOWED=NO \
-                   IPHONEOS_DEPLOYMENT_TARGET=13.0
+                   CODE_SIGNING_REQUIRED=NO \
+                   CODE_SIGNING_IDENTITY="" \
+                   IPHONEOS_DEPLOYMENT_TARGET=13.0 \
+                   build
 
     - name: Localiser et compresser le fichier .app pour Appetize
       run: |
