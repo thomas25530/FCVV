@@ -119,11 +119,14 @@ jobs:
 
     - name: Configurer et Compiler le projet
       run: |
-        # 1. Configuration Info.plist
+        # 1. Configuration Info.plist (utilisation de -create pour éviter les erreurs de clé manquante)
         INFOPLIST_PATH=$(find . -name "*-Info.plist" ! -name "GoogleService-Info.plist" | head -n 1)
         if [ ! -z "$INFOPLIST_PATH" ]; then
-          plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH"
-          plutil -replace UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH"
+          plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH" || \
+          plutil -insert UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH"
+          
+          plutil -replace UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH" || \
+          plutil -insert UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH"
         fi
 
         # 2. Identification du workspace
@@ -134,13 +137,15 @@ jobs:
         fi
         XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
         
-        # 3. Compilation (sans -arch car il est inclus dans la destination)
+        # 3. Compilation
+        # EXCLUDED_ARCHS=x86_64 est ajouté pour forcer Xcode à ignorer l'architecture Intel
         xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
                    -sdk iphonesimulator \
                    -destination 'platform=iOS Simulator,name=iPhone 15' \
-                   ONLY_ACTIVE_ARCH=NO \
+                   ONLY_ACTIVE_ARCH=YES \
+                   EXCLUDED_ARCHS=x86_64 \
                    BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
                    CODE_SIGNING_ALLOWED=NO \
                    CODE_SIGNING_REQUIRED=NO \
