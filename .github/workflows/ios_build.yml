@@ -88,16 +88,17 @@ jobs:
         INFOPLIST_PATH=$(find . -name "*-Info.plist" | head -n 1)
         plutil -replace CFBundleIdentifier -string "org.fcvv.fcvv" "$INFOPLIST_PATH"
         
-        # 4. Génération du Podfile avec post_install pour Firebase
+        # 4. Génération du Podfile optimisé
         ABS_PATH=$(realpath "$XCODEPROJ_PATH")
         echo "platform :ios, '13.0'" > "$PROJECT_DIR/Podfile"
         echo "use_frameworks!" >> "$PROJECT_DIR/Podfile"
         echo "project '$ABS_PATH'" >> "$PROJECT_DIR/Podfile"
         echo "target 'fcvv' do" >> "$PROJECT_DIR/Podfile"
-        echo "  pod 'Firebase/Messaging'" >> "$PROJECT_DIR/Podfile"
-        echo "  pod 'Firebase/Core'" >> "$PROJECT_DIR/Podfile"
+        echo "  pod 'FirebaseCore'" >> "$PROJECT_DIR/Podfile"
+        echo "  pod 'FirebaseMessaging'" >> "$PROJECT_DIR/Podfile"
         echo "end" >> "$PROJECT_DIR/Podfile"
-        # Ajout du post_install pour forcer les paramètres de build Firebase
+        
+        # Injection des paramètres post_install pour calmer le compilateur Swift
         echo "post_install do |installer|" >> "$PROJECT_DIR/Podfile"
         echo "  installer.pods_project.targets.each do |target|" >> "$PROJECT_DIR/Podfile"
         echo "    target.build_configurations.each do |config|" >> "$PROJECT_DIR/Podfile"
@@ -111,7 +112,6 @@ jobs:
         
         touch "$PROJECT_DIR/dummy.swift"
         
-        # 5. Installation des pods
         cd "$PROJECT_DIR"
         pod install
 
@@ -120,13 +120,8 @@ jobs:
         XCODEPROJ_PATH=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
         XCODEDIR=$(basename $(dirname "$XCODEPROJ_PATH"))
         
-        echo "Chemin trouvé : $XCODEPROJ_PATH"
-        echo "Dossier cible pour l'icône : $XCODEDIR"
-        
         if [ -f "assets/logo_apk_fcvv.png" ] && [ ! -z "$XCODEDIR" ]; then
           toolchain icon "$XCODEDIR" assets/logo_apk_fcvv.png
-        else
-          echo "Icône manquante ou dossier introuvable, configuration ignorée."
         fi
 
     - name: Configurer et Compiler le projet
@@ -134,20 +129,18 @@ jobs:
         # 1. Configuration Info.plist
         INFOPLIST_PATH=$(find . -name "*-Info.plist" ! -name "GoogleService-Info.plist" | head -n 1)
         if [ ! -z "$INFOPLIST_PATH" ]; then
-          plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH" || \
-          plutil -insert UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH"
-          plutil -replace UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH" || \
-          plutil -insert UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH"
+          plutil -replace UISupportedInterfaceOrientations -json '["UIInterfaceOrientationPortrait"]' "$INFOPLIST_PATH" || true
+          plutil -replace UIBackgroundModes -json '["remote-notification"]' "$INFOPLIST_PATH" || true
         fi
 
         # 2. Identification du workspace
         XCODEWORKSPACE_PATH=$(find . -name "*.xcworkspace" | head -n 1)
         XCODENAME=$(basename "$XCODEWORKSPACE_PATH" .xcworkspace)
         
-        # Nettoyage du cache de build avant de compiler
+        # Nettoyage profond
         rm -rf /Users/runner/Library/Developer/Xcode/DerivedData/*
         
-        # 3. Compilation avec flag Swift pour ignorer l'erreur d'interface module
+        # 3. Compilation
         xcodebuild -workspace "$XCODEWORKSPACE_PATH" \
                    -scheme "$XCODENAME" \
                    -configuration Debug \
@@ -155,7 +148,7 @@ jobs:
                    -destination 'platform=iOS Simulator,name=iPhone 15' \
                    ONLY_ACTIVE_ARCH=YES \
                    EXCLUDED_ARCHS=x86_64 \
-                   BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+                   BUILD_LIBRARY_FOR_DISTRIBUTION=NO \
                    OTHER_SWIFT_FLAGS='-no-verify-emitted-module-interface' \
                    CODE_SIGNING_ALLOWED=NO \
                    CODE_SIGNING_REQUIRED=NO \
