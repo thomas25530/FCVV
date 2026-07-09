@@ -126,9 +126,36 @@ jobs:
           set -euxo pipefail
           WS=$(find . -name "*.xcworkspace" | head -1)
           if [ -z "$WS" ]; then echo "Workspace introuvable."; exit 1; fi
-          SCHEME=$(xcodebuild -list -workspace "$WS" | awk '/^Schemes:/ {getline; gsub(/^[ \t]+/, ""); print; exit}')
-          echo "========== SCHEME DETECTE: $SCHEME =========="
+          
+          # Nettoyage forcé du Podfile pour supprimer les doublons constatés
+          # On ne garde que la version propre que nous avons définie
+          cat > ./fcvv-ios/Podfile <<EOF
+          platform :ios, '13.0'
+          use_modular_headers!
+          project 'fcvv.xcodeproj'
+          target 'fcvv' do
+            pod 'FirebaseCore'
+            pod 'FirebaseMessaging'
+          end
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['SWIFT_VERSION'] = '5.0'
+                config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
+              end
+            end
+          end
+          EOF
+          
+          # Re-installation propre après nettoyage
+          cd ./fcvv-ios && pod install
+          
+          # Utilisation du schéma identifié dans tes logs
+          SCHEME="fcvv"
+          
+          echo "========== BUILD AVEC SCHEME: $SCHEME =========="
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
+          
           xcodebuild -workspace "$WS" \
                      -scheme "$SCHEME" \
                      -configuration Debug \
