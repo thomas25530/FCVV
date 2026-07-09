@@ -124,12 +124,15 @@ jobs:
       - name: Build simulator
         run: |
           set -euxo pipefail
-          WS=$(find . -name "*.xcworkspace" | head -1)
-          if [ -z "$WS" ]; then echo "Workspace introuvable."; exit 1; fi
           
-          # Nettoyage forcé du Podfile pour supprimer les doublons constatés
-          # On ne garde que la version propre que nous avons définie
-          cat > ./fcvv-ios/Podfile <<EOF
+          # 1. On localise le workspace en chemin ABSOLU avant de bouger
+          WORKSPACE_PATH=$(find "$PWD" -name "*.xcworkspace" | head -1)
+          PROJECT_DIR=$(dirname "$WORKSPACE_PATH")
+          
+          if [ -z "$WORKSPACE_PATH" ]; then echo "Workspace introuvable."; exit 1; fi
+          
+          # 2. Nettoyage du Podfile (Version unique et propre)
+          cat > "$PROJECT_DIR/Podfile" <<EOF
           platform :ios, '13.0'
           use_modular_headers!
           project 'fcvv.xcodeproj'
@@ -142,21 +145,23 @@ jobs:
               target.build_configurations.each do |config|
                 config.build_settings['SWIFT_VERSION'] = '5.0'
                 config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
+                # Ajout crucial pour éviter les erreurs "overrides" détectées précédemment
+                config.build_settings['OTHER_LDFLAGS'] = '$(inherited)'
+                config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited)'
               end
             end
           end
           EOF
           
-          # Re-installation propre après nettoyage
-          cd ./fcvv-ios && pod install
+          # 3. Installation des pods
+          cd "$PROJECT_DIR" && pod install
           
-          # Utilisation du schéma identifié dans tes logs
+          # 4. Build en utilisant le chemin absolu du workspace
           SCHEME="fcvv"
-          
           echo "========== BUILD AVEC SCHEME: $SCHEME =========="
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
           
-          xcodebuild -workspace "$WS" \
+          xcodebuild -workspace "$WORKSPACE_PATH" \
                      -scheme "$SCHEME" \
                      -configuration Debug \
                      -sdk iphonesimulator \
