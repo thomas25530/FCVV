@@ -48,8 +48,7 @@ jobs:
           echo "========== TOOLCHAIN INFO =========="
           toolchain build_info || true
           
-          # 2. Localisation précise du projet (d'après les logs, il est dans ios_src/fcvv)
-          # On cherche dans tout le dossier courant au cas où la structure évoluerait
+          # 2. Localisation précise du projet
           PROJ_PATH=$(find "$PWD" -name "fcvv.xcodeproj" | head -1)
           
           if [ -z "$PROJ_PATH" ]; then
@@ -62,14 +61,19 @@ jobs:
           echo "Projet localisé : $PROJ_PATH"
           echo "Dossier du projet : $DIR"
           
-          # 3. Génération du Podfile avec chemin absolu
+          # 3. Génération du Podfile avec use_modular_headers!
           cat > "$DIR/Podfile" <<EOF
           platform :ios, '13.0'
+          
+          use_modular_headers!
+          
           project 'fcvv.xcodeproj'
+          
           target 'fcvv' do
             pod 'FirebaseCore'
             pod 'FirebaseMessaging'
           end
+          
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
