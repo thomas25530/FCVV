@@ -41,25 +41,28 @@ jobs:
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
+          
+          # 1. Création du projet
           toolchain create FCVV ios_src
-          echo "========== TOOLCHAIN =========="
-          toolchain --version || true
-          echo "========== TREE =========="
-          find . -maxdepth 3 | sort
-          echo "========== PROJECTS =========="
-          find . -name "*.xcodeproj"
-          echo "========== WORKSPACES =========="
-          find . -name "*.xcworkspace"
-          echo "========== PLISTS =========="
-          find . -name "*.plist"
           
-          PROJ=$(find . -name "*.xcodeproj" | head -1)
-          DIR=$(dirname "$PROJ")
-          if [ -z "$PROJ" ]; then echo "Aucun projet Xcode trouvé."; exit 1; fi
+          echo "========== TOOLCHAIN INFO =========="
+          toolchain build_info || true
           
+          # 2. Utilisation de chemins absolus pour éviter l'erreur Pods-fcvv
+          PROJ_PATH=$(find "$PWD/ios_src" -name "*.xcodeproj" | head -1)
+          DIR=$(dirname "$PROJ_PATH")
+          
+          if [ -z "$PROJ_PATH" ]; then
+            echo "ERREUR: Projet introuvable dans $(pwd)/ios_src"
+            exit 1
+          fi
+          
+          echo "Projet localisé : $PROJ_PATH"
+          
+          # 3. Génération du Podfile avec chemin absolu
           cat > "$DIR/Podfile" <<EOF
           platform :ios, '13.0'
-          project '$PROJ'
+          project '$PROJ_PATH'
           target 'fcvv' do
             pod 'FirebaseCore'
             pod 'FirebaseMessaging'
@@ -73,16 +76,16 @@ jobs:
             end
           end
           EOF
+          
+          # 4. Installation des pods dans le dossier cible
           cd "$DIR" && pod install
           
-          echo "========== PODS =========="
+          echo "========== DIAGNOSTICS APRES POD INSTALL =========="
+          echo "Répertoire actuel : $(pwd)"
           ls -la
-          echo "========== POD VERSION =========="
-          pod --version
-          echo "========== POD ENV =========="
-          pod env || true
-          echo "========== CONTENT =========="
-          find . -maxdepth 3 | sort
+          echo "Version Pod : $(pod --version)"
+          echo "Contenu du dossier actuel :"
+          find . -maxdepth 2 | sort
 
       - name: Full Xcode diagnostics
         run: |
