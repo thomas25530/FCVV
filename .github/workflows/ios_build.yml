@@ -145,7 +145,7 @@ jobs:
               target.build_configurations.each do |config|
                 config.build_settings['SWIFT_VERSION'] = '5.0'
                 config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
-                # Ajout crucial pour éviter les erreurs "overrides" détectées précédemment
+                # Gestion des héritages pour éviter les conflits de build settings
                 config.build_settings['OTHER_LDFLAGS'] = '$(inherited)'
                 config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited)'
               end
@@ -161,11 +161,13 @@ jobs:
           echo "========== BUILD AVEC SCHEME: $SCHEME =========="
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
           
+          # Ajout des flags OTHER_CFLAGS pour autoriser les includes non-modulaires
           xcodebuild -workspace "$WORKSPACE_PATH" \
                      -scheme "$SCHEME" \
                      -configuration Debug \
                      -sdk iphonesimulator \
                      -destination "platform=iOS Simulator,name=iPhone 15" \
+                     OTHER_CFLAGS='$(inherited) -Wno-error=non-modular-include-in-framework-module' \
                      EXCLUDED_ARCHS=x86_64 \
                      ONLY_ACTIVE_ARCH=NO \
                      CODE_SIGNING_ALLOWED=NO \
