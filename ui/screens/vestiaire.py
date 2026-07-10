@@ -282,19 +282,27 @@ class JoueurItem(BoxLayout):
         )
 
 class ChatView(BoxLayout):
-    def __init__(self, categorie, **kwargs):
+    def __init__(self, categorie, screen_instance=None, **kwargs):
         super().__init__(orientation='vertical', spacing=dp(5), **kwargs)
         self.categorie, self.cached_messages, self.limit = categorie, [], 25
         self.last_hash = None
+        
+        # Récupération sécurisée des données via l'instance de l'écran passée en argument
+        cat_data = {}
+        if screen_instance:
+            cat_data = getattr(screen_instance, '_cache_data', {}).get(self.categorie, {})
+        
+        app = App.get_running_app()
+        self.is_admin_only = cat_data.get('chat_admin_only', False)
+        self.user_role = app.get_role_for_cat(self.categorie)
         
         self.scroll = ScrollView(bar_width=0, do_scroll_x=False)
         self.msg_container = BoxLayout(orientation='vertical', size_hint_y=None)
         self.msg_container.bind(minimum_height=self.msg_container.setter("height"))
         
-        app = App.get_running_app()
         fs = app.config.getint('User', 'font_size_factor', fallback=18)
         
-        # 1. Préparation du label "Aucun message" (size_hint_y=None et height=0 par défaut)
+        # 1. Préparation du label "Aucun message"
         self.empty_label = Label(
             text="Aucun message pour le moment.\nSoyez le premier à écrire !",
             halign="center",
@@ -305,31 +313,38 @@ class ChatView(BoxLayout):
             font_size=f"{fs + 4}sp"
         )
         self.empty_label.bind(size=lambda i, v: setattr(i, 'text_size', (v[0], None)))
-        
-        # 2. Ajout du label directement DANS le conteneur scrollable
         self.msg_container.add_widget(self.empty_label)
         
         self.scroll.add_widget(self.msg_container)
         self.add_widget(self.scroll)
 
-        # 3. Zone de saisie (fixe en bas)
-        self.input_box = BoxLayout(size_hint_y=None, height=dp(80), spacing=dp(10), padding=dp(5))
-        self.input_field = TextInput(
-            hint_text="Message...", 
-            multiline=False, 
-            font_size=f"{fs + 2}sp",
-            padding=[dp(10), dp(10)]
-        )
-        send_btn = Button(
-            text="Envoyer", 
-            size_hint_x=0.3, 
-            font_size=f"{fs}sp", 
-            bold=True
-        )
-        send_btn.bind(on_release=self.send_message)
-        self.input_box.add_widget(self.input_field)
-        self.input_box.add_widget(send_btn)
-        self.add_widget(self.input_box)
+        # 2. Zone de saisie conditionnelle
+        if not self.is_admin_only or self.user_role == "ADMIN":
+            self.input_box = BoxLayout(size_hint_y=None, height=dp(80), spacing=dp(10), padding=dp(5))
+            self.input_field = TextInput(
+                hint_text="Message...", 
+                multiline=False, 
+                font_size=f"{fs + 2}sp",
+                padding=[dp(10), dp(10)]
+            )
+            send_btn = Button(
+                text="Envoyer", 
+                size_hint_x=0.3, 
+                font_size=f"{fs}sp", 
+                bold=True
+            )
+            send_btn.bind(on_release=self.send_message)
+            self.input_box.add_widget(self.input_field)
+            self.input_box.add_widget(send_btn)
+            self.add_widget(self.input_box)
+        else:
+            # Message informatif pour les non-admins
+            self.add_widget(Label(
+                text="[color=888888]Chat en mode lecture seule (Staff uniquement)[/color]",
+                markup=True,
+                size_hint_y=None,
+                height=dp(50)
+            ))
 
         self.load_cache()
         self.fetch_messages()
@@ -438,6 +453,9 @@ class ChatView(BoxLayout):
                 self.render_messages(scroll_to_bottom_trigger=True)
 
     def send_message(self, *args):
+        # Sécurité supplémentaire côté client avant l'envoi
+        if self.is_admin_only and self.user_role != "ADMIN":
+            return
         text = self.input_field.text.strip()
         if text:
             app = App.get_running_app()
@@ -706,11 +724,9 @@ class VestiaireScreen(Screen):
 
         # 1. VIDER IMMÉDIATEMENT L'INTERFACE pour éviter de voir l'ancien contenu
         self.scroll_content.clear_widgets()
-        
         # 2. RÉINITIALISATION
         self.current_cat = cat
         self.current_sub_tab = "INFOS" # On revient sur l'onglet par défaut
-
         # 3. Animation de transition
         anim = Animation(opacity=0, duration=0.1)
         
@@ -730,7 +746,6 @@ class VestiaireScreen(Screen):
             return
             
         self.current_sub_tab = sub
-        
         # Transition visuelle : fondu rapide pour la "rupture"
         anim = Animation(opacity=0, duration=0.1)
         
@@ -779,7 +794,7 @@ class VestiaireScreen(Screen):
         # Gestion spécifique pour le CHAT (pas de layout vertical ici)
         if self.current_sub_tab == "CHAT":
             self.scroll_content.do_scroll_y = False
-            self.scroll_content.add_widget(ChatView(categorie=self.current_cat, size_hint=(1, 1)))
+            self.scroll_content.add_widget(ChatView(categorie=self.current_cat, screen_instance=self, size_hint=(1, 1)))
             return
         
         # 2. Initialisation du layout avec opacity=0 pour cacher toute construction intermédiaire

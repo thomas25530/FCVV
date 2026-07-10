@@ -41,99 +41,15 @@ jobs:
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
-          
-          # 1. Création du projet
           toolchain create FCVV ios_src
           
-          echo "========== TOOLCHAIN INFO =========="
-          toolchain build_info || true
-          
-          # 2. Localisation précise du projet
+          # Localisation du projet généré
           PROJ_PATH=$(find "$PWD" -name "fcvv.xcodeproj" | head -1)
-          
-          if [ -z "$PROJ_PATH" ]; then
-            echo "ERREUR: Projet fcvv.xcodeproj introuvable dans $(pwd)"
-            find . -maxdepth 3
-            exit 1
-          fi
-          
           DIR=$(dirname "$PROJ_PATH")
-          echo "Projet localisé : $PROJ_PATH"
-          echo "Dossier du projet : $DIR"
           
-          # 3. Génération du Podfile avec use_modular_headers!
+          # Génération du Podfile propre et robuste
           cat > "$DIR/Podfile" <<EOF
           platform :ios, '13.0'
-          
-          use_modular_headers!
-          
-          project 'fcvv.xcodeproj'
-          
-          target 'fcvv' do
-            pod 'FirebaseCore'
-            pod 'FirebaseMessaging'
-          end
-          
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings['SWIFT_VERSION'] = '5.0'
-                config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
-              end
-            end
-          end
-          EOF
-          
-          # 4. Installation des pods dans le dossier cible
-          cd "$DIR" && pod install
-          
-          echo "========== DIAGNOSTICS APRES POD INSTALL =========="
-          echo "Répertoire actuel : $(pwd)"
-          ls -la
-          echo "Version Pod : $(pod --version)"
-          echo "Contenu du dossier actuel :"
-          find . -maxdepth 2 | sort
-
-      - name: Full Xcode diagnostics
-        run: |
-          set -euxo pipefail
-          echo "========== XCODE PROJECTS =========="
-          find . -name "*.xcodeproj"
-          echo "========== WORKSPACES =========="
-          find . -name "*.xcworkspace"
-          echo "========== PLIST =========="
-          find . -name "*.plist"
-          PBX=$(find . -name project.pbxproj | head -1)
-          if [ -f "$PBX" ]; then
-            echo "========== TARGETS =========="
-            grep "name =" "$PBX" | sort | uniq || true
-            echo "========== BUNDLE ID =========="
-            grep "PRODUCT_BUNDLE_IDENTIFIER" "$PBX" | sort | uniq || true
-            echo "========== PRODUCT NAME =========="
-            grep "productName" "$PBX" || true
-            echo "========== INFOPLIST =========="
-            grep "INFOPLIST_FILE" "$PBX" || true
-          fi
-          PROJ=$(find . -name "*.xcodeproj" | head -1)
-          [ -n "$PROJ" ] && xcodebuild -list -project "$PROJ"
-          WS=$(find . -name "*.xcworkspace" | head -1)
-          [ -n "$WS" ] && xcodebuild -list -workspace "$WS"
-          echo "========== PODFILE =========="
-          find . -name Podfile -exec cat {} \;
-
-      - name: Build simulator
-        run: |
-          set -euxo pipefail
-          
-          # 1. On localise le workspace en chemin ABSOLU avant de bouger
-          WORKSPACE_PATH=$(find "$PWD" -name "*.xcworkspace" | head -1)
-          PROJECT_DIR=$(dirname "$WORKSPACE_PATH")
-          
-          if [ -z "$WORKSPACE_PATH" ]; then echo "Workspace introuvable."; exit 1; fi
-          
-          # 2. Nettoyage du Podfile (Version unique et propre)
-          cat > "$PROJECT_DIR/Podfile" <<EOF
-          platform :ios, '13.0'
           use_modular_headers!
           project 'fcvv.xcodeproj'
           target 'fcvv' do
@@ -143,9 +59,9 @@ jobs:
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
                 config.build_settings['SWIFT_VERSION'] = '5.0'
                 config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
-                # Gestion des héritages pour éviter les conflits de build settings
                 config.build_settings['OTHER_LDFLAGS'] = '$(inherited)'
                 config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited)'
               end
@@ -153,20 +69,23 @@ jobs:
           end
           EOF
           
-          # 3. Installation des pods
-          cd "$PROJECT_DIR" && pod install
+          cd "$DIR" && pod install
+
+      - name: Build simulator
+        run: |
+          set -euxo pipefail
+          WORKSPACE_PATH=$(find "$PWD" -name "*.xcworkspace" | head -1)
           
-          # 4. Build en utilisant le chemin absolu du workspace
-          SCHEME="fcvv"
-          echo "========== BUILD AVEC SCHEME: $SCHEME =========="
+          # Nettoyage avant build
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
           
-          # Ajout des flags OTHER_CFLAGS pour autoriser les includes non-modulaires
+          # Build avec flags de compatibilité pour Firebase
           xcodebuild -workspace "$WORKSPACE_PATH" \
-                     -scheme "$SCHEME" \
+                     -scheme "fcvv" \
                      -configuration Debug \
                      -sdk iphonesimulator \
                      -destination "platform=iOS Simulator,name=iPhone 15" \
+                     IPHONEOS_DEPLOYMENT_TARGET=13.0 \
                      OTHER_CFLAGS='$(inherited) -Wno-error=non-modular-include-in-framework-module' \
                      EXCLUDED_ARCHS=x86_64 \
                      ONLY_ACTIVE_ARCH=NO \
@@ -175,6 +94,7 @@ jobs:
 
       - name: Package app
         run: |
+          # Recherche du dossier .app généré
           APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | head -1)
           cd "$(dirname "$APP")"
           zip -r "$GITHUB_WORKSPACE/fcvv.zip" "$(basename "$APP")"
