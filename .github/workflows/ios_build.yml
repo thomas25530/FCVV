@@ -43,50 +43,52 @@ jobs:
           set -euxo pipefail
           toolchain create FCVV ios_src
           
-          # Localisation du projet généré
+          # Localisation
           PROJ_PATH=$(find "$PWD" -name "fcvv.xcodeproj" | head -1)
           DIR=$(dirname "$PROJ_PATH")
           
-          # Génération du Podfile propre et robuste
-          cat > "$DIR/Podfile" <<EOF
+          # Génération du Podfile sans modularité forcée (plus stable pour Firebase)
+          cat > "$DIR/Podfile" <<'EOF'
           platform :ios, '13.0'
-          use_modular_headers!
           project 'fcvv.xcodeproj'
+
           target 'fcvv' do
             pod 'FirebaseCore'
             pod 'FirebaseMessaging'
           end
+
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
                 config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
                 config.build_settings['SWIFT_VERSION'] = '5.0'
                 config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
-                config.build_settings['OTHER_LDFLAGS'] = '$(inherited)'
-                config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited)'
+                # On ajoute le dossier racine des pods aux chemins de recherche
+                config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited) "${PODS_ROOT}"'
               end
             end
           end
           EOF
           
+          # Nettoyage et installation propre
+          rm -rf "$DIR/Pods" "$DIR/Podfile.lock"
           cd "$DIR" && pod install
-
+      
       - name: Build simulator
         run: |
           set -euxo pipefail
           WORKSPACE_PATH=$(find "$PWD" -name "*.xcworkspace" | head -1)
           
-          # Nettoyage avant build
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
           
-          # Build avec flags de compatibilité pour Firebase
+          # Build avec inclusion explicite du dossier Pods pour résoudre les imports
           xcodebuild -workspace "$WORKSPACE_PATH" \
                      -scheme "fcvv" \
                      -configuration Debug \
                      -sdk iphonesimulator \
                      -destination "platform=iOS Simulator,name=iPhone 15" \
                      IPHONEOS_DEPLOYMENT_TARGET=13.0 \
-                     OTHER_CFLAGS='$(inherited) -Wno-error=non-modular-include-in-framework-module' \
+                     OTHER_CFLAGS='$(inherited) -Wno-error=non-modular-include-in-framework-module -I"${PODS_ROOT}/Headers/Public"' \
                      EXCLUDED_ARCHS=x86_64 \
                      ONLY_ACTIVE_ARCH=NO \
                      CODE_SIGNING_ALLOWED=NO \
