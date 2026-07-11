@@ -30,12 +30,17 @@ jobs:
         with:
           path: ~/.kivy-ios
           key: ${{ runner.os }}-kivy-ios-${{ hashFiles('buildozer.spec') }}
-          restore-keys: |
-            ${{ runner.os }}-kivy-ios-
+          restore-keys: ${{ runner.os }}-kivy-ios-
 
-      - name: Build kivy-ios recipes
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: toolchain build python3 kivy openssl pillow
+      - name: Validate cache and Build
+        run: |
+          # Si le dossier est vide ou si python3 est absent, on build tout
+          if [ ! -d "$HOME/.kivy-ios/build/python3" ]; then
+            echo "Recettes manquantes dans le cache, reconstruction..."
+            toolchain build python3 kivy openssl pillow
+          else
+            echo "Cache valide trouvé."
+          fi
 
       - name: Prepare sources
         run: |
