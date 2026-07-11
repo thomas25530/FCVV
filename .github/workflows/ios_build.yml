@@ -21,12 +21,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install "Cython>=3.0,<3.1" "kivy-ios>=1.3.0" pillow requests urllib3
 
+      - name: Create Kivy-iOS directory
+        run: mkdir -p ~/.kivy-ios
+
       - name: Cache kivy-ios
         id: cache
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
           key: ${{ runner.os }}-kivy-ios-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-kivy-ios-
 
       - name: Build kivy-ios recipes
         if: steps.cache.outputs.cache-hit != 'true'
@@ -43,19 +48,24 @@ jobs:
           set -euxo pipefail
           toolchain create FCVV ios_src
           
-          # Localisation du projet
-          PROJ_PATH=$(find "$PWD" -name "fcvv.xcodeproj" | head -1)
-          DIR=$(dirname "$PROJ_PATH")
+          # Gestion de l'icône
+          PROJ_DIR=$(find "$PWD" -name "fcvv.xcodeproj" | xargs dirname)
+          mkdir -p "$PROJ_DIR/Resources"
+          if [ -f "assets/logo_apk_fcvv.png" ]; then
+            cp "assets/logo_apk_fcvv.png" "$PROJ_DIR/Resources/icon.png"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles array" "$PROJ_DIR/Info.plist" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:0 string icon.png" "$PROJ_DIR/Info.plist" 2>/dev/null || true
+          fi
           
-          # Génération du Podfile avec Firebase version 10.x pour éviter les conflits Swift 6
-          cat > "$DIR/Podfile" <<'EOF'
+          # Podfile
+          cat > "$PROJ_DIR/Podfile" <<'EOF'
           platform :ios, '13.0'
           use_modular_headers! 
           project 'fcvv.xcodeproj'
 
           target 'fcvv' do
-            pod 'FirebaseCore', '~> 10.28.0'
-            pod 'FirebaseMessaging', '~> 10.28.0'
+            pod 'FirebaseCore', '10.28.0'
+            pod 'FirebaseMessaging', '10.28.0'
             pod 'GoogleUtilities', :modular_headers => true
           end
 
@@ -65,18 +75,15 @@ jobs:
                 config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
                 config.build_settings['SWIFT_VERSION'] = '5.0'
                 config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
-                config.build_settings['OTHER_LDFLAGS'] = '$(inherited)'
-                # Configuration des chemins d'en-tête pour Firebase 10.x
-                config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited) "${PODS_ROOT}/GoogleUtilities"'
+                config.build_settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC'
               end
             end
           end
           EOF
           
-          # Nettoyage et installation forcée
-          rm -rf "$DIR/Pods" "$DIR/Podfile.lock"
-          cd "$DIR" && pod install
-      
+          rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock"
+          cd "$PROJ_DIR" && pod install
+
       - name: Build simulator
         run: |
           set -euxo pipefail
@@ -90,6 +97,7 @@ jobs:
                      -destination "platform=iOS Simulator,name=iPhone 15" \
                      IPHONEOS_DEPLOYMENT_TARGET=13.0 \
                      OTHER_CFLAGS='$(inherited) -Wno-error=non-modular-include-in-framework-module' \
+                     OTHER_LDFLAGS='$(inherited) -ObjC' \
                      EXCLUDED_ARCHS=x86_64 \
                      ONLY_ACTIVE_ARCH=NO \
                      CODE_SIGNING_ALLOWED=NO \
@@ -97,7 +105,6 @@ jobs:
 
       - name: Package app
         run: |
-          # Recherche du dossier .app généré
           APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | head -1)
           cd "$(dirname "$APP")"
           zip -r "$GITHUB_WORKSPACE/fcvv.zip" "$(basename "$APP")"
