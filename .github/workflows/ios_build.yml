@@ -51,23 +51,42 @@ jobs:
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
+          # 1. Création du projet
           toolchain create FCVV ios_src
-          PROJ_DIR=$(find "$PWD" -name "fcvv.xcodeproj" | xargs dirname)
           
-          # Conversion en XML lisible pour permettre l'édition
-          plutil -convert xml1 "$PROJ_DIR/Info.plist"
+          # 2. Recherche dynamique du dossier contenant le fichier .xcodeproj
+          # Cela évite les erreurs de chemin si le nom de dossier change (fcvv vs FCVV)
+          PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "Erreur : Fichier .xcodeproj non trouvé."
+            exit 1
+          fi
+          PROJ_DIR=$(dirname "$PROJECT_FILE")
+          echo "Dossier projet détecté : $PROJ_DIR"
           
-          # Ajout des configurations manquantes
+          # 3. Conversion XML sécurisée (Info.plist)
+          if [ -f "$PROJ_DIR/Info.plist" ]; then
+            plutil -convert xml1 "$PROJ_DIR/Info.plist"
+          else
+            echo "Erreur : Info.plist introuvable dans $PROJ_DIR"
+            ls -R "$PROJ_DIR"
+            exit 1
+          fi
+          
+          # 4. Ajout des configurations manquantes
           /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PROJ_DIR/Info.plist" 2>/dev/null || true
           
+          # 5. Gestion des icônes
           if [ -d "assets/Images.xcassets" ]; then
             rm -rf "$PROJ_DIR/Images.xcassets"
             cp -r "assets/Images.xcassets" "$PROJ_DIR/"
-            # Forcer l'utilisation du catalogue d'icônes dans le plist
+            
+            # Forcer la configuration de l'icône dans le plist
             /usr/libexec/PlistBuddy -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName string 'AppIcon'" "$PROJ_DIR/Info.plist" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Set :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName 'AppIcon'" "$PROJ_DIR/Info.plist"
           fi
           
+          # 6. Création du Podfile
           cat > "$PROJ_DIR/Podfile" <<'EOF'
           platform :ios, '13.0'
           use_modular_headers! 
@@ -88,6 +107,7 @@ jobs:
           end
           EOF
           
+          # 7. Installation des pods
           rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock"
           cd "$PROJ_DIR" && pod install
 
