@@ -53,20 +53,22 @@ jobs:
           set -euxo pipefail
           toolchain create FCVV ios_src
           
-          # 1. Recherche dynamique et Debug
-          PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
+          # 1. Recherche dynamique et Debug (Sécurisé)
+          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
+          if [ -z "$PROJECT_FILE" ]; then echo "Aucun projet trouvé !"; exit 1; fi
+          
           PROJ_DIR=$(dirname "$PROJECT_FILE")
+          PROJ_NAME=$(basename "$PROJECT_FILE")
           PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -n 1)
+          
           echo "Dossier projet : $PROJ_DIR"
-          ls -R "$PROJ_DIR" | grep -E "main.m|Info.plist"
-
+          echo "Nom du projet : $PROJ_NAME"
+          
           # 2. Mise à jour PLIST
           plutil -convert xml1 "$PLIST_FILE"
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier 'org.fcvv.fcvv'" "$PLIST_FILE"
-          /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PLIST_FILE" 2>/dev/null || true
           
           # 3. Injection sécurisée dans main.m
-          # On utilise @import qui est la méthode recommandée avec use_frameworks!
           sed -i '' '1i\
           @import FirebaseCore;
           ' "$PROJ_DIR/main.m"
@@ -81,11 +83,12 @@ jobs:
             cp -r "assets/Images.xcassets" "$PROJ_DIR/fcvv/"
           fi
           
-          # 5. Création Podfile (use_frameworks! est crucial pour Firebase)
-          cat > "$PROJ_DIR/Podfile" <<'EOF'
+          # 5. Création Podfile dynamique
+          # On utilise $PROJ_NAME pour que Pods pointe exactement sur le fichier existant
+          cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
           use_frameworks!
-          project 'fcvv.xcodeproj'
+          project '$PROJ_NAME'
 
           target 'fcvv' do
             pod 'FirebaseCore', '10.28.0'
@@ -93,15 +96,20 @@ jobs:
           end
           EOF
           
-          # 6. Installation et vérification
-          rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock" "$PROJ_DIR/fcvv.xcworkspace"
+          # 6. Installation et diagnostic de la structure
+          rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock" "$PROJ_DIR/"*.xcworkspace
+          
           cd "$PROJ_DIR"
           pod install --verbose
           
-          echo "Contenu après pod install :"
-          ls -F .
-          if [ ! -f "fcvv.xcworkspace" ]; then
-            echo "ERREUR : fcvv.xcworkspace introuvable"
+          # DEBUG : Afficher tous les fichiers .xcworkspace trouvés
+          echo "Liste des workspaces générés :"
+          find . -maxdepth 1 -name "*.xcworkspace"
+          
+          # Vérification finale
+          if [ -z "$(find . -maxdepth 1 -name "*.xcworkspace")" ]; then
+            echo "ERREUR : CocoaPods n'a pas généré de fichier .xcworkspace"
+            ls -R # Pour voir où il a mis les fichiers
             exit 1
           fi
 
