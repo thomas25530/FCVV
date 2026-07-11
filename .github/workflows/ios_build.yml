@@ -66,7 +66,7 @@ jobs:
           # 3. Injection automatique dans main.m
           # Utilisation de #import <Firebase/Firebase.h> qui est plus robuste
           sed -i '' '1i\
-          #import <Firebase/Firebase.h>
+          #import <FirebaseCore/FirebaseCore.h>
           ' "$PROJ_DIR/main.m"
           
           sed -i '' '/int main/a\
