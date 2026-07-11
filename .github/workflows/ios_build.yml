@@ -66,10 +66,9 @@ jobs:
           # 2. Mise à jour PLIST et version déploiement
           plutil -convert xml1 "$PLIST_FILE"
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier 'org.fcvv.fcvv'" "$PLIST_FILE"
-          # Forcer le déploiement à 13.0 dans le pbxproj pour supprimer les warnings
           sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 9.0/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' "$PROJECT_FILE/project.pbxproj"
           
-          # 3. Injection sécurisée dans main.m (Utilisation de #import standard)
+          # 3. Injection dans main.m
           sed -i '' '1i\
           #import <FirebaseCore/FirebaseCore.h>
           ' "$PROJ_DIR/main.m"
@@ -84,7 +83,7 @@ jobs:
             cp -r "assets/Images.xcassets" "$PROJ_DIR/fcvv/"
           fi
           
-          # 5. Création Podfile avec activation explicite des modules
+          # 5. Création Podfile (Liaison forcée avec -ObjC)
           cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
           use_frameworks!
@@ -100,6 +99,7 @@ jobs:
               target.build_configurations.each do |config|
                 config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
                 config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+                config.build_settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC'
               end
             end
           end
@@ -110,7 +110,6 @@ jobs:
           cd "$PROJ_DIR"
           pod install --verbose
           
-          # DEBUG : Vérification
           echo "--- Liste des fichiers après Pod Install ---"
           ls -F
           
@@ -127,7 +126,7 @@ jobs:
           
           xcrun simctl erase "iPhone 15" || true
           
-          # On ajoute 'clean' pour éviter les conflits de cache
+          # Compilation propre avec héritage des flags des Pods
           xcodebuild clean build \
                        -workspace "$WORKSPACE_PATH" \
                        -scheme "fcvv" \
