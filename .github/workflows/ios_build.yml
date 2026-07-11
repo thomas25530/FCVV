@@ -51,91 +51,87 @@ jobs:
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
+
           toolchain create FCVV ios_src
-          
-          # 1. Recherche dynamique et Debug
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
-          if [ -z "$PROJECT_FILE" ]; then echo "Aucun projet trouvé !"; exit 1; fi
+
+          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+          [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
+
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           PROJ_NAME=$(basename "$PROJECT_FILE")
-          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -n 1)
-          
-          echo "Dossier projet : $PROJ_DIR"
-          echo "Nom du projet : $PROJ_NAME"
-          
-          # 2. Mise à jour PLIST et version déploiement
+
+          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -1)
+
+          echo "Projet : $PROJECT_FILE"
+
           plutil -convert xml1 "$PLIST_FILE"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier 'org.fcvv.fcvv'" "$PLIST_FILE"
-          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 9.0/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' "$PROJECT_FILE/project.pbxproj"
-          
-          # 3. Injection dans main.m
-          sed -i '' '1i\
-          #import <FirebaseCore/FirebaseCore.h>
-          ' "$PROJ_DIR/main.m"
-          
-          sed -i '' '/int main/a\
-              [FIRApp configure];
-          ' "$PROJ_DIR/main.m"
-          
-          # 4. Gestion icônes
-          if [ -d "assets/Images.xcassets" ]; then
+
+          /usr/libexec/PlistBuddy \
+            -c "Set :CFBundleIdentifier org.fcvv.fcvv" \
+            "$PLIST_FILE"
+
+          sed -i '' \
+            's/IPHONEOS_DEPLOYMENT_TARGET = 9.0/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' \
+            "$PROJECT_FILE/project.pbxproj"
+
+          if [ -d assets/Images.xcassets ]; then
             rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
-            cp -r "assets/Images.xcassets" "$PROJ_DIR/fcvv/"
+            cp -R assets/Images.xcassets "$PROJ_DIR/fcvv/"
           fi
-          
-          # 5. Création Podfile (Liaison forcée avec -ObjC)
+
           cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
-          use_frameworks!
+
           project '$PROJ_NAME'
 
           target 'fcvv' do
-            pod 'FirebaseCore', '10.28.0'
-            pod 'FirebaseMessaging', '10.28.0'
+            pod 'FirebaseMessaging'
           end
 
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
-                config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
                 config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-                config.build_settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC'
               end
             end
           end
           EOF
-          
-          # 6. Installation
-          rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock" "$PROJ_DIR/"*.xcworkspace
+
           cd "$PROJ_DIR"
-          pod install --verbose
-          
-          echo "--- Liste des fichiers après Pod Install ---"
-          ls -F
-          
-          if [ -z "$(find . -maxdepth 1 -name "*.xcworkspace")" ]; then
-            echo "ERREUR : CocoaPods n'a pas généré de fichier .xcworkspace"
-            exit 1
-          fi
+
+          rm -rf Pods
+          rm -f Podfile.lock
+          rm -rf *.xcworkspace
+
+          pod deintegrate || true
+          pod repo update
+          pod install
+
+          echo "===== PODFILE LOCK ====="
+          cat Podfile.lock
+
+          echo "===== WORKSPACE ====="
+          find . -name "*.xcworkspace"
 
       - name: Build simulator
         run: |
           set -euxo pipefail
+
           WORKSPACE_PATH=$(find "$PWD" -name "*.xcworkspace" | head -1)
-          echo "Utilisation de l'espace de travail : $WORKSPACE_PATH"
-          
+
+          echo "Workspace : $WORKSPACE_PATH"
+
           xcrun simctl erase "iPhone 15" || true
-          
-          # Compilation propre avec héritage des flags des Pods
-          xcodebuild clean build \
-                       -workspace "$WORKSPACE_PATH" \
-                       -scheme "fcvv" \
-                       -configuration Debug \
-                       -sdk iphonesimulator \
-                       -destination "platform=iOS Simulator,name=iPhone 15" \
-                       CODE_SIGNING_ALLOWED=NO \
-                       CODE_SIGNING_REQUIRED=NO \
-                       GCC_PREPROCESSOR_DEFINITIONS='$(inherited) DEBUG=1'
+
+          xcodebuild \
+            clean build \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,name=iPhone 15" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
 
       - name: Package app
         run: |
