@@ -53,10 +53,9 @@ jobs:
           set -euxo pipefail
           toolchain create FCVV ios_src
           
-          # 1. Recherche dynamique et Debug (Sécurisé)
+          # 1. Recherche dynamique et Debug
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -n 1)
           if [ -z "$PROJECT_FILE" ]; then echo "Aucun projet trouvé !"; exit 1; fi
-          
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           PROJ_NAME=$(basename "$PROJECT_FILE")
           PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -n 1)
@@ -64,13 +63,15 @@ jobs:
           echo "Dossier projet : $PROJ_DIR"
           echo "Nom du projet : $PROJ_NAME"
           
-          # 2. Mise à jour PLIST
+          # 2. Mise à jour PLIST et version déploiement
           plutil -convert xml1 "$PLIST_FILE"
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier 'org.fcvv.fcvv'" "$PLIST_FILE"
+          # Forcer le déploiement à 13.0 dans le pbxproj pour supprimer les warnings
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 9.0/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' "$PROJECT_FILE/project.pbxproj"
           
-          # 3. Injection sécurisée dans main.m
+          # 3. Injection sécurisée dans main.m (Utilisation de #import standard)
           sed -i '' '1i\
-          @import FirebaseCore;
+          #import <FirebaseCore/FirebaseCore.h>
           ' "$PROJ_DIR/main.m"
           
           sed -i '' '/int main/a\
@@ -83,8 +84,7 @@ jobs:
             cp -r "assets/Images.xcassets" "$PROJ_DIR/fcvv/"
           fi
           
-          # 5. Création Podfile dynamique
-          # On utilise $PROJ_NAME pour que Pods pointe exactement sur le fichier existant
+          # 5. Création Podfile avec activation explicite des modules
           cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
           use_frameworks!
@@ -94,22 +94,28 @@ jobs:
             pod 'FirebaseCore', '10.28.0'
             pod 'FirebaseMessaging', '10.28.0'
           end
+
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+              end
+            end
+          end
           EOF
           
-          # 6. Installation et diagnostic de la structure
+          # 6. Installation
           rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock" "$PROJ_DIR/"*.xcworkspace
-          
           cd "$PROJ_DIR"
           pod install --verbose
           
-          # DEBUG : Afficher tous les fichiers .xcworkspace trouvés
-          echo "Liste des workspaces générés :"
-          find . -maxdepth 1 -name "*.xcworkspace"
+          # DEBUG : Vérification
+          echo "--- Liste des fichiers après Pod Install ---"
+          ls -F
           
-          # Vérification finale
           if [ -z "$(find . -maxdepth 1 -name "*.xcworkspace")" ]; then
             echo "ERREUR : CocoaPods n'a pas généré de fichier .xcworkspace"
-            ls -R # Pour voir où il a mis les fichiers
             exit 1
           fi
 
