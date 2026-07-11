@@ -67,9 +67,14 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PLIST_FILE" 2>/dev/null || true
           
           # 3. Injection automatique de Firebase dans le code natif (main.m)
-          # Cela garantit que les classes FIRApp sont chargées et visibles par pyobjus
-          sed -i '' '1i #import <FirebaseCore/FirebaseCore.h>' "$PROJ_DIR/main.m"
-          sed -i '' '/int main/a \    [FIRApp configure];' "$PROJ_DIR/main.m"
+          # Utilisation de la syntaxe BSD sed compatible macOS
+          sed -i '' '1i\
+          #import <FirebaseCore/FirebaseCore.h>
+          ' "$PROJ_DIR/main.m"
+          
+          sed -i '' '/int main/a\
+              [FIRApp configure];
+          ' "$PROJ_DIR/main.m"
           
           # 4. Gestion des icônes
           if [ -d "assets/Images.xcassets" ]; then
