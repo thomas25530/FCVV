@@ -29,41 +29,45 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-kivy-ios-v2-${{ hashFiles('buildozer.spec') }}
           restore-keys: ${{ runner.os }}-kivy-ios-
 
       - name: Validate cache and Build
         run: |
-          # Si le dossier est vide ou si python3 est absent, on build tout
           if [ ! -d "$HOME/.kivy-ios/build/python3" ]; then
-            echo "Recettes manquantes dans le cache, reconstruction..."
             toolchain build python3 kivy openssl pillow
-          else
-            echo "Cache valide trouvé."
           fi
 
       - name: Prepare sources
         run: |
+          rm -rf ios_src
           mkdir ios_src
           rsync -a --exclude=".git" --exclude=".github" --exclude=".buildozer" --exclude="bin" --exclude="build" --exclude="dist" --exclude="ios_src" ./ ios_src/
           echo "${{ secrets.FIREBASE_IOS_CONFIG }}" > ios_src/GoogleService-Info.plist
+          # Nettoyage des fichiers temporaires
+          find ios_src -name "__pycache__" -type d -exec rm -rf {} +
+          find ios_src -name "*.pyc" -delete
 
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
           toolchain create FCVV ios_src
-          
-          # Gestion de l'icône
           PROJ_DIR=$(find "$PWD" -name "fcvv.xcodeproj" | xargs dirname)
-          find "$PROJ_DIR" \( -name "AppDelegate.*" -o -name "main.m" -o -name "main.mm" \)
           
-          # Gestion de l'icône : Remplacement du catalogue par défaut
+          # Conversion en XML lisible pour permettre l'édition
+          plutil -convert xml1 "$PROJ_DIR/Info.plist"
+          
+          # Ajout des configurations manquantes
+          /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PROJ_DIR/Info.plist" 2>/dev/null || true
+          
           if [ -d "assets/Images.xcassets" ]; then
             rm -rf "$PROJ_DIR/Images.xcassets"
             cp -r "assets/Images.xcassets" "$PROJ_DIR/"
+            # Forcer l'utilisation du catalogue d'icônes dans le plist
+            /usr/libexec/PlistBuddy -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName string 'AppIcon'" "$PROJ_DIR/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName 'AppIcon'" "$PROJ_DIR/Info.plist"
           fi
           
-          # Podfile (inchangé)
           cat > "$PROJ_DIR/Podfile" <<'EOF'
           platform :ios, '13.0'
           use_modular_headers! 
@@ -78,11 +82,7 @@ jobs:
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-                config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
-                config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-                config.build_settings['DEFINES_MODULE'] = 'YES'
-                config.build_settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC'
+                config.build_settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC -all_load -lc++'
               end
             end
           end
@@ -95,26 +95,20 @@ jobs:
         run: |
           set -euxo pipefail
           WORKSPACE_PATH=$(find "$PWD" -name "*.xcworkspace" | head -1)
-          rm -rf ~/Library/Developer/Xcode/DerivedData/*
-          
+          xcrun simctl erase "iPhone 15"
           xcodebuild -workspace "$WORKSPACE_PATH" \
                      -scheme "fcvv" \
                      -configuration Debug \
                      -sdk iphonesimulator \
                      -destination "platform=iOS Simulator,name=iPhone 15" \
-                     IPHONEOS_DEPLOYMENT_TARGET=13.0 \
-                     OTHER_CFLAGS='$(inherited) -Wno-error=non-modular-include-in-framework-module' \
-                     OTHER_LDFLAGS='$(inherited) -ObjC -all_load' \
-                     EXCLUDED_ARCHS=x86_64 \
-                     ONLY_ACTIVE_ARCH=NO \
+                     OTHER_LDFLAGS='$(inherited) -ObjC -all_load -lc++' \
                      CODE_SIGNING_ALLOWED=NO \
                      build
 
       - name: Package app
         run: |
           APP=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | head -1)
-          cd "$(dirname "$APP")"
-          zip -r "$GITHUB_WORKSPACE/fcvv.zip" "$(basename "$APP")"
+          zip -r "$GITHUB_WORKSPACE/fcvv.zip" -j "$APP"
 
       - uses: actions/upload-artifact@v4
         with:

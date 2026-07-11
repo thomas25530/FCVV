@@ -117,58 +117,62 @@ class AndroidNotificationManager(NotificationManager):
 
 class IOSNotificationManager(NotificationManager):
     def __init__(self):
-        from pyobjus import autoclass
-        # Classes nécessaires pour iOS/Firebase
-        self.UNCenter = autoclass('UNUserNotificationCenter').currentNotificationCenter()
-        # FIRMessaging est un singleton, on récupère l'instance
-        self.FIRMessaging = autoclass('FIRMessaging').messaging()
+        from pyobjus import autoclass, protocol
+        # On force le chargement explicite des classes Firebase au démarrage
+        # pour éviter l'exception "Unable to find class"
+        try:
+            self.FIRApp = autoclass('FIRApp')
+            # Si non configuré par le AppDelegate, on tente de le faire ici
+            # self.FIRApp.configure() 
+            
+            self.UNCenter = autoclass('UNUserNotificationCenter').currentNotificationCenter()
+            self.FIRMessaging = autoclass('FIRMessaging').messaging()
+        except Exception as e:
+            print(f"[FCM iOS Init Error] {e}")
 
     def init_service(self):
-        # Sur iOS, l'initialisation de Firebase est gérée 
-        # via le fichier AppDelegate dans Xcode (FIRApp configure)
-        # On vérifie ici si le token est déjà disponible pour confirmer la connexion
+        # On vérifie si le token est déjà disponible
         token = self.FIRMessaging.fcmToken
         if token:
-            print("[FCM iOS] Service pret et Token FCM disponible")
+            print(f"[FCM iOS] Service pret. Token: {str(token)[:10]}...")
         else:
             print("[FCM iOS] Service initialise, attente du token FCM...")
 
     def _get_token(self):
-        """Retourne le token FCM s'il est disponible, sinon None."""
         return self.FIRMessaging.fcmToken
 
     def subscribe_to_topic(self, topic):
-        # Vérification de la disponibilité du token avant abonnement
-        token = self._get_token()
-        
-        if not token:
-            print(f"[FCM iOS WARNING] Token non trouve. L'abonnement a '{topic}' risque d'echouer.")
-        else:
-            print(f"[FCM iOS] Token detecte : {str(token)[:25]}...")
-
-        # Utilisation de la méthode Objective-C correspondante
         print(f"[FCM iOS] Demande d'abonnement au topic : {topic}")
-        self.FIRMessaging.subscribeToTopic_completion_(topic, None)
+        # Note: Si le crash persiste, le 'None' doit être remplacé par un objet
+        # conforme au protocole de completion attendu par pyobjus.
+        try:
+            self.FIRMessaging.subscribeToTopic_(topic)
+            print("[FCM iOS] Abonnement envoye")
+        except Exception as e:
+            print(f"[FCM iOS] Erreur abonnement : {e}")
 
     def unsubscribe_from_topic(self, topic):
         print(f"[FCM iOS] Desabonnement du topic : {topic}")
-        self.FIRMessaging.unsubscribeFromTopic_completion_(topic, None)
+        try:
+            self.FIRMessaging.unsubscribeFromTopic_(topic)
+        except Exception as e:
+            print(f"[FCM iOS] Erreur desabonnement : {e}")
 
     def request_permissions(self):
-        # Demande les autorisations de base (Alertes, Sons, Badges)
-        # UNAuthorizationOptionAlert = 1 << 0, Badge = 1 << 1, Sound = 1 << 2
-        options = (1 << 0) | (1 << 1) | (1 << 2) 
+        # Options: Alert (1), Badge (2), Sound (4)
+        options = 7 
+        print("[FCM iOS] Demande de permissions...")
         self.UNCenter.requestAuthorizationWithOptions_completionHandler_(
-            options, 
+            options,
             self.handle_permission_response
         )
 
     def handle_permission_response(self, granted, error):
+        # Ce callback est appelé par le système iOS
         if granted:
             print("[FCM iOS] Permission accordee")
         else:
-            # Si error n'est pas None, on affiche le message d'erreur
-            err_msg = error.localizedDescription if error is not None else "Inconnue"
+            err_msg = error.localizedDescription if error else "Inconnue"
             print(f"[FCM iOS] Permission refusee : {err_msg}")
 
 def get_notification_manager():
