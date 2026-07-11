@@ -40,24 +40,25 @@ jobs:
       - name: Prepare sources
         run: |
           mkdir ios_src
-          rsync -a --exclude=".git" --exclude=".github" --exclude=".buildozer" --exclude="bin" --exclude="build" --exclude="dist" ./ ios_src/
+          rsync -a --exclude=".git" --exclude=".github" --exclude=".buildozer" --exclude="bin" --exclude="build" --exclude="dist" --exclude="ios_src" ./ ios_src/
           echo "${{ secrets.FIREBASE_IOS_CONFIG }}" > ios_src/GoogleService-Info.plist
 
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
           toolchain create FCVV ios_src
+          find "$PROJ_DIR" \( -name "AppDelegate.*" -o -name "main.m" -o -name "main.mm" \)
           
           # Gestion de l'icône
           PROJ_DIR=$(find "$PWD" -name "fcvv.xcodeproj" | xargs dirname)
-          mkdir -p "$PROJ_DIR/Resources"
-          if [ -f "assets/logo_apk_fcvv.png" ]; then
-            cp "assets/logo_apk_fcvv.png" "$PROJ_DIR/Resources/icon.png"
-            /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles array" "$PROJ_DIR/Info.plist" 2>/dev/null || true
-            /usr/libexec/PlistBuddy -c "Add :CFBundleIconFiles:0 string icon.png" "$PROJ_DIR/Info.plist" 2>/dev/null || true
+          
+          # Gestion de l'icône : Remplacement du catalogue par défaut
+          if [ -d "assets/Images.xcassets" ]; then
+            rm -rf "$PROJ_DIR/Images.xcassets"
+            cp -r "assets/Images.xcassets" "$PROJ_DIR/"
           fi
           
-          # Podfile
+          # Podfile (inchangé)
           cat > "$PROJ_DIR/Podfile" <<'EOF'
           platform :ios, '13.0'
           use_modular_headers! 
@@ -73,8 +74,9 @@ jobs:
             installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
                 config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-                config.build_settings['SWIFT_VERSION'] = '5.0'
                 config.build_settings['ENABLE_MODULE_VERIFIER'] = 'NO'
+                config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+                config.build_settings['DEFINES_MODULE'] = 'YES'
                 config.build_settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC'
               end
             end
@@ -97,7 +99,7 @@ jobs:
                      -destination "platform=iOS Simulator,name=iPhone 15" \
                      IPHONEOS_DEPLOYMENT_TARGET=13.0 \
                      OTHER_CFLAGS='$(inherited) -Wno-error=non-modular-include-in-framework-module' \
-                     OTHER_LDFLAGS='$(inherited) -ObjC' \
+                     OTHER_LDFLAGS='$(inherited) -ObjC -all_load' \
                      EXCLUDED_ARCHS=x86_64 \
                      ONLY_ACTIVE_ARCH=NO \
                      CODE_SIGNING_ALLOWED=NO \
