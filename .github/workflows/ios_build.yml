@@ -52,10 +52,10 @@ jobs:
         run: |
           set -euxo pipefail
           toolchain create FCVV ios_src
-          find "$PROJ_DIR" \( -name "AppDelegate.*" -o -name "main.m" -o -name "main.mm" \)
           
           # Gestion de l'icône
           PROJ_DIR=$(find "$PWD" -name "fcvv.xcodeproj" | xargs dirname)
+          find "$PROJ_DIR" \( -name "AppDelegate.*" -o -name "main.m" -o -name "main.mm" \)
           
           # Gestion de l'icône : Remplacement du catalogue par défaut
           if [ -d "assets/Images.xcassets" ]; then
