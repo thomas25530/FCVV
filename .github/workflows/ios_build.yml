@@ -53,23 +53,20 @@ jobs:
           set -euxo pipefail
           toolchain create FCVV ios_src
           
-          # 1. Recherche dynamique du dossier projet et du plist
+          # 1. Recherche dynamique
           PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -n 1)
-          
-          echo "Dossier projet : $PROJ_DIR"
-          echo "Plist détecté : $PLIST_FILE"
           
           # 2. Conversion XML et mise à jour de l'ID
           plutil -convert xml1 "$PLIST_FILE"
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier 'org.fcvv.fcvv'" "$PLIST_FILE"
           /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PLIST_FILE" 2>/dev/null || true
           
-          # 3. Injection automatique de Firebase dans le code natif (main.m)
-          # Utilisation de la syntaxe BSD sed compatible macOS
+          # 3. Injection automatique dans main.m
+          # Utilisation de #import <Firebase/Firebase.h> qui est plus robuste
           sed -i '' '1i\
-          #import <FirebaseCore/FirebaseCore.h>
+          #import <Firebase/Firebase.h>
           ' "$PROJ_DIR/main.m"
           
           sed -i '' '/int main/a\
@@ -80,12 +77,11 @@ jobs:
           if [ -d "assets/Images.xcassets" ]; then
             rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
             cp -r "assets/Images.xcassets" "$PROJ_DIR/fcvv/"
-            
             /usr/libexec/PlistBuddy -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName string 'AppIcon'" "$PLIST_FILE" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Set :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName 'AppIcon'" "$PLIST_FILE"
           fi
           
-          # 5. Création du Podfile
+          # 5. Création du Podfile avec HEADER_SEARCH_PATHS pour résoudre 'file not found'
           cat > "$PROJ_DIR/Podfile" <<'EOF'
           platform :ios, '13.0'
           use_modular_headers! 
@@ -101,6 +97,7 @@ jobs:
             installer.pods_project.targets.each do |target|
               target.build_configurations.each do |config|
                 config.build_settings['OTHER_LDFLAGS'] = '$(inherited) -ObjC -all_load -lc++'
+                config.build_settings['HEADER_SEARCH_PATHS'] = '$(inherited) "${PODS_ROOT}/Headers/Public"'
               end
             end
           end
