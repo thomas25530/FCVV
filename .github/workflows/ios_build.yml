@@ -51,42 +51,35 @@ jobs:
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
-          # 1. Création du projet
           toolchain create FCVV ios_src
           
-          # 2. Recherche dynamique du dossier contenant le fichier .xcodeproj
-          # Cela évite les erreurs de chemin si le nom de dossier change (fcvv vs FCVV)
+          # 1. Recherche dynamique du dossier projet et du plist
           PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "Erreur : Fichier .xcodeproj non trouvé."
-            exit 1
-          fi
           PROJ_DIR=$(dirname "$PROJECT_FILE")
-          echo "Dossier projet détecté : $PROJ_DIR"
+          # On cherche le fichier qui finit par -Info.plist
+          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -n 1)
           
-          # 3. Conversion XML sécurisée (Info.plist)
-          if [ -f "$PROJ_DIR/Info.plist" ]; then
-            plutil -convert xml1 "$PROJ_DIR/Info.plist"
-          else
-            echo "Erreur : Info.plist introuvable dans $PROJ_DIR"
-            ls -R "$PROJ_DIR"
-            exit 1
-          fi
+          echo "Dossier projet : $PROJ_DIR"
+          echo "Plist détecté : $PLIST_FILE"
           
-          # 4. Ajout des configurations manquantes
-          /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PROJ_DIR/Info.plist" 2>/dev/null || true
+          # 2. Conversion XML sécurisée
+          plutil -convert xml1 "$PLIST_FILE"
           
-          # 5. Gestion des icônes
+          # 3. Ajout des configurations
+          /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PLIST_FILE" 2>/dev/null || true
+          
+          # 4. Gestion des icônes (Cible le sous-dossier fcvv/ et non la racine)
           if [ -d "assets/Images.xcassets" ]; then
-            rm -rf "$PROJ_DIR/Images.xcassets"
-            cp -r "assets/Images.xcassets" "$PROJ_DIR/"
+            # On nettoie et on copie dans le dossier contenant le projet interne
+            rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
+            cp -r "assets/Images.xcassets" "$PROJ_DIR/fcvv/"
             
             # Forcer la configuration de l'icône dans le plist
-            /usr/libexec/PlistBuddy -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName string 'AppIcon'" "$PROJ_DIR/Info.plist" 2>/dev/null || \
-            /usr/libexec/PlistBuddy -c "Set :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName 'AppIcon'" "$PROJ_DIR/Info.plist"
+            /usr/libexec/PlistBuddy -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName string 'AppIcon'" "$PLIST_FILE" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName 'AppIcon'" "$PLIST_FILE"
           fi
           
-          # 6. Création du Podfile
+          # 5. Création du Podfile
           cat > "$PROJ_DIR/Podfile" <<'EOF'
           platform :ios, '13.0'
           use_modular_headers! 
@@ -107,7 +100,6 @@ jobs:
           end
           EOF
           
-          # 7. Installation des pods
           rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock"
           cd "$PROJ_DIR" && pod install
 
