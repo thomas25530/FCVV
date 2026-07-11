@@ -56,25 +56,26 @@ jobs:
           # 1. Recherche dynamique du dossier projet et du plist
           PROJECT_FILE=$(find . -name "*.xcodeproj" | head -n 1)
           PROJ_DIR=$(dirname "$PROJECT_FILE")
-          # On cherche le fichier qui finit par -Info.plist
           PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -n 1)
           
           echo "Dossier projet : $PROJ_DIR"
           echo "Plist détecté : $PLIST_FILE"
           
-          # 2. Conversion XML sécurisée
+          # 2. Conversion XML et mise à jour de l'ID
           plutil -convert xml1 "$PLIST_FILE"
-          
-          # 3. Ajout des configurations
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier 'org.fcvv.fcvv'" "$PLIST_FILE"
           /usr/libexec/PlistBuddy -c "Add :UIApplicationSupportsIndirectInputEvents bool true" "$PLIST_FILE" 2>/dev/null || true
           
-          # 4. Gestion des icônes (Cible le sous-dossier fcvv/ et non la racine)
+          # 3. Injection automatique de Firebase dans le code natif (main.m)
+          # Cela garantit que les classes FIRApp sont chargées et visibles par pyobjus
+          sed -i '' '1i #import <FirebaseCore/FirebaseCore.h>' "$PROJ_DIR/main.m"
+          sed -i '' '/int main/a \    [FIRApp configure];' "$PROJ_DIR/main.m"
+          
+          # 4. Gestion des icônes
           if [ -d "assets/Images.xcassets" ]; then
-            # On nettoie et on copie dans le dossier contenant le projet interne
             rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
             cp -r "assets/Images.xcassets" "$PROJ_DIR/fcvv/"
             
-            # Forcer la configuration de l'icône dans le plist
             /usr/libexec/PlistBuddy -c "Add :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName string 'AppIcon'" "$PLIST_FILE" 2>/dev/null || \
             /usr/libexec/PlistBuddy -c "Set :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName 'AppIcon'" "$PLIST_FILE"
           fi
@@ -100,6 +101,7 @@ jobs:
           end
           EOF
           
+          # 6. Installation des pods
           rm -rf "$PROJ_DIR/Pods" "$PROJ_DIR/Podfile.lock"
           cd "$PROJ_DIR" && pod install
 

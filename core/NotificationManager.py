@@ -119,33 +119,36 @@ class IOSNotificationManager(NotificationManager):
     def __init__(self):
         from pyobjus import autoclass
         
+        # Initialisation sécurisée par défaut
+        self.FIRApp = None
+        self.FIRMessaging = None
+        self.UNCenter = None
+        
         try:
-            # 1. Charger FIRApp en premier pour initialiser le bundle
+            # 1. Tentative de chargement de FIRApp
+            # Si cette ligne échoue, on saute au bloc 'except' immédiatement
             self.FIRApp = autoclass('FIRApp')
             
-            # 2. Configurer Firebase. 
-            # Note: Si AppDelegate.m ne le fait pas, cette ligne est OBLIGATOIRE.
-            # On vérifie si FIRApp est déjà configuré pour éviter de doubler.
+            # 2. Configuration Firebase
             if not self.FIRApp.defaultApp():
                 self.FIRApp.configure()
             
-            # 3. Charger le centre de notifications
-            self.UNCenter = autoclass('UNUserNotificationCenter').currentNotificationCenter()
-            
-            # 4. Accéder à FIRMessaging
-            # On tente d'abord 'messaging()' (méthode), sinon 'sharedInstance()'
+            # 3. Chargement sécurisé de FIRMessaging
             FIRMessagingClass = autoclass('FIRMessaging')
             if hasattr(FIRMessagingClass, 'messaging'):
                 self.FIRMessaging = FIRMessagingClass.messaging()
             else:
                 self.FIRMessaging = FIRMessagingClass.sharedInstance()
+            
+            # 4. Charger le centre de notifications
+            self.UNCenter = autoclass('UNUserNotificationCenter').currentNotificationCenter()
                 
             print("[FCM iOS] Initialisation Firebase réussie.")
             
         except Exception as e:
-            print(f"[FCM iOS Init Error] {e}")
-            # Affichage debug pour voir quelles méthodes sont disponibles
-            print(f"Debug: FIRMessaging methods: {dir(autoclass('FIRMessaging'))}")
+            print(f"[FCM iOS Init Error] Impossible de charger les classes Firebase: {e}")
+            # Ne pas appeler dir(autoclass('FIRMessaging')) ici car 
+            # si on est dans le except, c'est que l'autoclass a déjà échoué !
 
     def init_service(self):
         # On vérifie si le token est déjà disponible
