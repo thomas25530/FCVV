@@ -35,7 +35,7 @@ jobs:
       - name: Validate cache and Build
         run: |
           if [ ! -d "$HOME/.kivy-ios/build/python3" ]; then
-            toolchain build python3 kivy openssl pillow
+            toolchain build python3 kivy openssl pillow pyyaml
           fi
 
       - name: Prepare sources
