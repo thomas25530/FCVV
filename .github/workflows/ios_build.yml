@@ -47,7 +47,7 @@ jobs:
           find "$HOME/.kivy-ios" -maxdepth 3 || true
           
           echo "===== Compilation des recettes ====="
-          toolchain build python3 kivy openssl pillow pyyaml requests
+          toolchain build python3 kivy openssl pillow pyyaml
            
       
       - name: Inspect build output
