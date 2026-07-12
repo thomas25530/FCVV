@@ -230,6 +230,15 @@ jobs:
           ruby --version
           xcodebuild -version
           pod install
+          
+          echo "===== OTHER_LDFLAGS ====="
+          grep -n "OTHER_LDFLAGS" fcvv.xcodeproj/project.pbxproj || true
+          
+          echo "===== HEADER_SEARCH_PATHS ====="
+          grep -n "HEADER_SEARCH_PATHS" fcvv.xcodeproj/project.pbxproj || true
+          
+          echo "===== GCC_PREPROCESSOR_DEFINITIONS ====="
+          grep -n "GCC_PREPROCESSOR_DEFINITIONS" fcvv.xcodeproj/project.pbxproj || true
 
           echo "===== PODFILE LOCK ====="
           cat Podfile.lock
@@ -241,11 +250,9 @@ jobs:
           find Pods -iname "*Firebase*"
           
           echo "===== GOOGLE SERVICE (PROJET) ====="
-          find "$PROJ_DIR" -name "GoogleService-Info.plist" || true
+          find . -name "GoogleService-Info.plist" || true
           
-          echo "===== GOOGLE SERVICE (APP GENEREE) ====="
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | head -1)
-          find "$APP_PATH" -name "GoogleService-Info.plist" || true
+          
 
       - name: Build simulator
         run: |
@@ -266,6 +273,10 @@ jobs:
             -destination "platform=iOS Simulator,name=iPhone 15" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
+          
+          echo "===== GOOGLE SERVICE (APP GENEREE) ====="
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | head -1)
+          find "$APP_PATH" -name "GoogleService-Info.plist" || true
 
       - name: Package app
         run: |
