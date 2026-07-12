@@ -87,7 +87,8 @@ jobs:
           project '$PROJ_NAME'
 
           target 'fcvv' do
-            pod 'FirebaseMessaging'
+            pod 'FirebaseCore', '10.29.0'
+            pod 'FirebaseMessaging', '10.29.0'
           end
 
           post_install do |installer|
@@ -115,7 +116,7 @@ jobs:
           pod --version
           ruby --version
           xcodebuild -version
-          pod install --repo-update
+          pod install
 
           echo "===== PODFILE LOCK ====="
           cat Podfile.lock
