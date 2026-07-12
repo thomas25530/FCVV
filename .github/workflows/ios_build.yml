@@ -21,6 +21,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install "Cython>=3.0,<3.1" "kivy-ios>=1.3.0" pillow requests urllib3 pyyaml
 
+      - name: Clean kivy-ios cache
+        run: |
+          rm -rf ~/.kivy-ios
+      
+      
       - name: Create Kivy-iOS directory
         run: mkdir -p "$HOME/.kivy-ios"
 
@@ -47,7 +52,7 @@ jobs:
           find "$HOME/.kivy-ios" -maxdepth 3 || true
           
           echo "===== Compilation des recettes ====="
-          toolchain build python3 kivy openssl pillow pyyaml
+          toolchain build python3 kivy openssl pillow
            
       
       - name: Inspect build output
@@ -126,7 +131,7 @@ jobs:
           echo "===== Build avant create ====="
           find build -maxdepth 2 2>/dev/null || true
 
-          toolchain create FCVV ios_src
+          toolchain create FCVV ios_src --requirements=python3,kivy,openssl,pillow,pyyaml,requests,urllib3
           
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
@@ -156,7 +161,6 @@ jobs:
           find "$PROJ_DIR" -iname "PyYAML*"
           
           echo "===== FIN DEBUG ====="
-          exit 0
 
           PROJ_NAME=$(basename "$PROJECT_FILE")
 
