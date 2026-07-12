@@ -236,6 +236,12 @@ jobs:
 
           echo "===== WORKSPACE ====="
           find . -name "*.xcworkspace"
+          
+          echo "===== FIREBASE PODS ====="
+          find Pods -iname "*Firebase*"
+          
+          echo "===== GOOGLE SERVICE ====="
+          find . -name "GoogleService-Info.plist"
 
       - name: Build simulator
         run: |
