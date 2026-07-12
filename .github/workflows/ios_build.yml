@@ -81,6 +81,8 @@ jobs:
 
           cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
+          
+          use_modular_headers!
 
           project '$PROJ_NAME'
 
@@ -104,8 +106,16 @@ jobs:
           rm -rf *.xcworkspace
 
           pod deintegrate || true
+          
+          rm -rf Pods
+          rm -f Podfile.lock
+          rm -rf *.xcworkspace
+          
           pod repo update
-          pod install
+          pod --version
+          ruby --version
+          xcodebuild -version
+          pod install --repo-update
 
           echo "===== PODFILE LOCK ====="
           cat Podfile.lock
