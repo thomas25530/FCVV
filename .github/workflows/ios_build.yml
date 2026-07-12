@@ -74,20 +74,38 @@ jobs:
 
           toolchain create FCVV ios_src
           
+          
+          
+          
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
           
           PROJ_DIR=$(dirname "$PROJECT_FILE")
+          
+          echo "===== Arborescence ====="
+          find "$PROJ_DIR" -maxdepth 3
+          echo "===== Recherche Python ====="
+          find "$PROJ_DIR" -iname "*python*"
+          echo "===== Recherche site-packages ====="
+          find "$PROJ_DIR" -iname "site-packages"
+          
+          echo "===== Recherche yaml ====="
+          find "$PROJ_DIR" -iname "*yaml*" || true
+          echo "===== Recherche requests ====="
+          find "$PROJ_DIR" -iname "*requests*" || true
+          echo "===== Recherche lib ====="
+          find "$PROJ_DIR" -type d -name "lib"
+          echo "===== Taille du projet ====="
+          du -sh "$PROJ_DIR"
           
           echo "===== Vérification du bundle Python ====="
           find "$PROJ_DIR" -type d -name "site-packages"
           find "$PROJ_DIR" -iname "yaml"
           find "$PROJ_DIR" -iname "_yaml*"
           find "$PROJ_DIR" -iname "PyYAML*"
-          find "$PROJ_DIR" | grep python3 | head -100
           
           echo "===== FIN DEBUG ====="
-          exit 1
+          exit 0
 
           PROJ_NAME=$(basename "$PROJECT_FILE")
 
