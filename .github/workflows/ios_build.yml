@@ -29,31 +29,33 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v3-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-kivy-ios-v4-python310
           restore-keys: |
-            ${{ runner.os }}-kivy-ios-v3-
-            ${{ runner.os }}-kivy-ios-
+            ${{ runner.os }}-kivy-ios-v4-
             
       - name: Validate cache and Build
         run: |
           set -euxo pipefail
-          echo "===== Vérification du cache ====="
-          ls -la "$HOME/.kivy-ios" || true
           
-          if [ ! -d "$HOME/.kivy-ios/build/python3" ]; then
-            echo ">>> Cache trouvé : Python déjà compilé"
-          else
-            echo ">>> Aucune compilation trouvée : build des recettes"
-            toolchain build python3 kivy openssl pillow pyyaml
-          fi
+          echo "===== Informations kivy-ios ====="
+          which toolchain
+          toolchain recipes
+          toolchain status || true
+          
+          
+          echo "===== Contenu ~/.kivy-ios ====="
+          ls -la "$HOME/.kivy-ios" || true
+          find "$HOME/.kivy-ios" -maxdepth 3 || true
+          
+          echo "===== Compilation des recettes ====="
+          toolchain build python3 kivy openssl pillow pyyaml
+           
+          echo "===== Vérification des recettes ====="
+          toolchain status || true
+          
           echo "===== Vérification PyYAML ====="
           find "$HOME/.kivy-ios" -iname "*yaml*" 2>/dev/null || true
-          if [ -d "$HOME/.kivy-ios/build" ]; then
-            find "$HOME/.kivy-ios/build" -iname "*yaml*" 2>/dev/null || true
-          fi
-          if [ -d "$HOME/.kivy-ios/dist" ]; then
-            find "$HOME/.kivy-ios/dist" -iname "*yaml*" 2>/dev/null || true
-          fi
+          
           echo "===== Fin de la vérification ====="
 
       - name: Prepare sources
