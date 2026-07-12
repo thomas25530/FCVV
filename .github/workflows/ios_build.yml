@@ -53,6 +53,10 @@ jobs:
           
           echo "===== Compilation des recettes ====="
           toolchain build python3 kivy openssl pillow
+          
+          toolchain pip install pyyaml requests urllib3
+          
+          find ~/.kivy-ios -path "*site-packages*" -iname "*yaml*"
            
       
       - name: Inspect build output
@@ -131,7 +135,7 @@ jobs:
           echo "===== Build avant create ====="
           find build -maxdepth 2 2>/dev/null || true
 
-          toolchain create FCVV ios_src --requirements=python3,kivy,openssl,pillow,pyyaml,requests,urllib3
+          toolchain create FCVV ios_src
           
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
