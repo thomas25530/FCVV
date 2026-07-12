@@ -231,6 +231,13 @@ jobs:
           xcodebuild -version
           pod install
           
+          sed -i '' \
+            's/OTHER_LDFLAGS = "-all_load";/OTHER_LDFLAGS = "$(inherited) -ObjC -all_load";/g' \
+            fcvv.xcodeproj/project.pbxproj
+          
+          echo "===== VERIFICATION OTHER_LDFLAGS ====="
+          grep -n 'OTHER_LDFLAGS = ' fcvv.xcodeproj/project.pbxproj || true
+          
           echo "===== OTHER_LDFLAGS ====="
           grep -n -A10 -B10 "OTHER_LDFLAGS" fcvv.xcodeproj/project.pbxproj || true
           
