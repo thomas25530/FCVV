@@ -42,21 +42,66 @@ jobs:
           toolchain recipes
           toolchain status || true
           
-          
           echo "===== Contenu ~/.kivy-ios ====="
           ls -la "$HOME/.kivy-ios" || true
           find "$HOME/.kivy-ios" -maxdepth 3 || true
           
           echo "===== Compilation des recettes ====="
-          toolchain build python3 kivy openssl pillow pyyaml
+          toolchain build python3 kivy openssl pillow pyyaml requests
            
+      
+      - name: Inspect build output
+        run: |
+          set -euxo pipefail
           echo "===== Vérification des recettes ====="
           toolchain status || true
           
-          echo "===== Vérification PyYAML ====="
-          find "$HOME/.kivy-ios" -iname "*yaml*" 2>/dev/null || true
+          echo "===== Répertoire courant ====="
+          pwd
+          ls -la
           
-          echo "===== Fin de la vérification ====="
+          echo "===== DIST ====="
+          [ -d dist ] && du -sh dist || echo "dist absent"
+          [ -d dist ] && find dist -maxdepth 3 || true
+          
+          echo "===== BUILD ====="
+          [ -d build ] && du -sh build || echo "build absent"
+          [ -d build ] && find build -maxdepth 3 || true
+          
+          echo "===== Recherche Python ====="
+          find dist -iname "*python*" 2>/dev/null || true
+          find build -iname "*python*" 2>/dev/null || true
+          
+          echo "===== Recherche site-packages ====="
+          find dist -iname "site-packages" 2>/dev/null || true
+          find build -iname "site-packages" 2>/dev/null || true
+          
+          echo "===== Recherche yaml ====="
+          find dist -iname "*yaml*" 2>/dev/null || true
+          find build -iname "*yaml*" 2>/dev/null || true
+          
+          echo "===== Recherche requests ====="
+          find dist -iname "*requests*" 2>/dev/null || true
+          find build -iname "*requests*" 2>/dev/null || true
+          
+          echo "===== XCFramework ====="
+          find dist -iname "*.xcframework" 2>/dev/null || true
+          
+          echo "===== Librairies Python ====="
+          find dist -iname "libpython*" 2>/dev/null || true
+          
+          echo "===== PYTHON LIB SEARCH ====="
+          
+          find "$HOME/.kivy-ios" \
+            -type d \
+            -name "site-packages" \
+            -o -name "python3"
+          
+          find . \
+            -type d \
+            -name "site-packages"
+          
+          
 
       - name: Prepare sources
         run: |
@@ -71,11 +116,17 @@ jobs:
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
+          
+          echo "===== Toolchain info ====="
+          toolchain status || true
+          
+          echo "===== Dist avant create ====="
+          find dist -maxdepth 2 2>/dev/null || true
+          
+          echo "===== Build avant create ====="
+          find build -maxdepth 2 2>/dev/null || true
 
           toolchain create FCVV ios_src
-          
-          
-          
           
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
