@@ -127,14 +127,16 @@ class IOSNotificationManager(NotificationManager):
         try:
             # 1. Tentative de chargement de FIRApp
             # Si cette ligne échoue, on saute au bloc 'except' immédiatement
-            self.FIRApp = autoclass('FIRApp')
+            print("[FCM DEBUG] Recherche FIRApp...")
+            self.FIRApp = autoclass("FirebaseCore.FIRApp")
             
             # 2. Configuration Firebase
             if not self.FIRApp.defaultApp():
                 self.FIRApp.configure()
             
             # 3. Chargement sécurisé de FIRMessaging
-            FIRMessagingClass = autoclass('FIRMessaging')
+            print("[FCM DEBUG] Recherche FIRMessaging...")
+            FIRMessagingClass = autoclass("FirebaseMessaging.FIRMessaging")
             if hasattr(FIRMessagingClass, 'messaging'):
                 self.FIRMessaging = FIRMessagingClass.messaging()
             else:
