@@ -22,25 +22,39 @@ jobs:
           pip install "Cython>=3.0,<3.1" "kivy-ios>=1.3.0" pillow requests urllib3 pyyaml
 
       - name: Create Kivy-iOS directory
-        run: mkdir -p ~/.kivy-ios
+        mkdir -p "$HOME/.kivy-ios"
 
       - name: Cache kivy-ios
         id: cache
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v2-${{ hashFiles('buildozer.spec') }}
-          restore-keys: ${{ runner.os }}-kivy-ios-
-
+          key: ${{ runner.os }}-kivy-ios-v3-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            ${{ runner.os }}-kivy-ios-v3-
+            ${{ runner.os }}-kivy-ios-
+            
       - name: Validate cache and Build
         run: |
+          set -euxo pipefail
+          echo "===== Vérification du cache ====="
+          ls -la "$HOME/.kivy-ios" || true
+          
           if [ ! -d "$HOME/.kivy-ios/build/python3" ]; then
+            echo ">>> Cache trouvé : Python déjà compilé"
+          else
+            echo ">>> Aucune compilation trouvée : build des recettes"
             toolchain build python3 kivy openssl pillow pyyaml
-            echo "===== Vérification PyYAML ====="
-            find ~/.kivy-ios -iname "*yaml*"
-            find ~/.kivy-ios/dist -iname "*yaml*"
-            find ~/.kivy-ios/build -iname "*yaml*"
           fi
+          echo "===== Vérification PyYAML ====="
+          find "$HOME/.kivy-ios" -iname "*yaml*" 2>/dev/null || true
+          if [ -d "$HOME/.kivy-ios/build" ]; then
+            find "$HOME/.kivy-ios/build" -iname "*yaml*" 2>/dev/null || true
+          fi
+          if [ -d "$HOME/.kivy-ios/dist" ]; then
+            find "$HOME/.kivy-ios/dist" -iname "*yaml*" 2>/dev/null || true
+          fi
+          echo "===== Fin de la vérification ====="
 
       - name: Prepare sources
         run: |
@@ -73,6 +87,11 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Set :CFBundleIdentifier org.fcvv.fcvv" \
             "$PLIST_FILE"
+            
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string FCVV" "$PLIST_FILE"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName FCVV" "$PLIST_FILE" 2>/dev/null || \
+          /usr/libexec/PlistBuddy -c "Add :CFBundleName string FCVV" "$PLIST_FILE"
 
           sed -i '' \
             's/IPHONEOS_DEPLOYMENT_TARGET = 9.0/IPHONEOS_DEPLOYMENT_TARGET = 13.0/g' \
