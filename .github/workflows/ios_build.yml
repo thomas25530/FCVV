@@ -165,6 +165,12 @@ jobs:
           find "$PROJ_DIR" -iname "PyYAML*"
           
           echo "===== FIN DEBUG ====="
+          
+          echo "===== FIREBASE PYTHON ====="
+          grep -R "FirebaseCore.FIRApp" . || true
+          grep -R 'autoclass("FIRApp")' . || true
+          grep -R 'autoclass("FirebaseCore.FIRApp")' . || true
+          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
 
           PROJ_NAME=$(basename "$PROJECT_FILE")
 
@@ -286,6 +292,13 @@ jobs:
           
           echo "===== FIREBASE FRAMEWORKS ====="
           find "$APP_PATH" -name "*.framework"
+          
+          echo "===== FIREBASE PYTHON DANS L'APP ====="
+          find "$APP_PATH" -name "*.py" | while read f; do
+            grep -H "FirebaseCore.FIRApp" "$f" 2>/dev/null || true
+            grep -H 'autoclass("FIRApp")' "$f" 2>/dev/null || true
+            grep -H 'autoclass("FirebaseCore.FIRApp")' "$f" 2>/dev/null || true
+          done
 
       - name: Package app
         run: |
