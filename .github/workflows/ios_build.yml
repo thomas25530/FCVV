@@ -65,9 +65,6 @@ jobs:
 
           toolchain create FCVV ios_src
 
-          echo "===== Contenu du projet ====="
-
-          find . -maxdepth 4 -type f | sort
 
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
@@ -75,18 +72,13 @@ jobs:
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           PROJ_NAME=$(basename "$PROJECT_FILE")
 
-          APPDELEGATE=$(find "$PROJ_DIR" \( -name "AppDelegate.m" -o -name "AppDelegate.mm" \) | head -1)
+          echo "===== MAIN.M ====="
+          sed -n '1,250p' "$PROJ_DIR/main.m"
 
-          echo "===== APPDELEGATE ====="
-          echo "$APPDELEGATE"
-
-          [ -f "$APPDELEGATE" ] || {
-            echo "AppDelegate introuvable"
-            exit 1
-          }
-
-          echo "===== Début AppDelegate ====="
-          sed -n '1,250p' "$APPDELEGATE"
+          echo "===== BRIDGE.M ====="
+          sed -n '1,250p' "$PROJ_DIR/bridge.m"
+          
+          
 
           APP_DIR=$(find "$PROJ_DIR" -type d -name "YourApp" | head -1)
 
