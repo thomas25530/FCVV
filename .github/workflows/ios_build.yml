@@ -65,13 +65,9 @@ jobs:
 
           toolchain create FCVV ios_src
 
-          echo "===== Recherche AppDelegate ====="
+          echo "===== Contenu du projet ====="
 
-          APPDELEGATE=$(find . \( -name "AppDelegate.m" -o -name "AppDelegate.mm" \) | head -1)
-
-          echo "APPDELEGATE=$APPDELEGATE"
-
-          sed -n '1,250p' "$APPDELEGATE"
+          find . -maxdepth 4 -type f | sort
 
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
