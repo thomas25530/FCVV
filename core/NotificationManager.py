@@ -144,6 +144,8 @@ class IOSNotificationManager(NotificationManager):
             
             # 4. Charger le centre de notifications
             self.UNCenter = autoclass('UNUserNotificationCenter').currentNotificationCenter()
+            
+            self.UIApplication = autoclass("UIApplication")
                 
             print("[FCM iOS] Initialisation Firebase réussie.")
             
@@ -181,21 +183,28 @@ class IOSNotificationManager(NotificationManager):
             print(f"[FCM iOS] Erreur desabonnement : {e}")
 
     def request_permissions(self):
-        # Options: Alert (1), Badge (2), Sound (4)
-        options = 7 
+        options = 7
+
         print("[FCM iOS] Demande de permissions...")
+
         self.UNCenter.requestAuthorizationWithOptions_completionHandler_(
             options,
             self.handle_permission_response
         )
 
     def handle_permission_response(self, granted, error):
-        # Ce callback est appelé par le système iOS
+
         if granted:
             print("[FCM iOS] Permission accordee")
+
+            app = self.UIApplication.sharedApplication()
+            app.registerForRemoteNotifications()
+
+            print("[FCM iOS] registerForRemoteNotifications envoye")
+
         else:
-            err_msg = error.localizedDescription if error else "Inconnue"
-            print(f"[FCM iOS] Permission refusee : {err_msg}")
+            err = error.localizedDescription if error else "Inconnue"
+            print(f"[FCM iOS] Permission refusee : {err}")
 
 def get_notification_manager():
     if platform == 'android':

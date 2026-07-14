@@ -42,75 +42,12 @@ jobs:
         run: |
           set -euxo pipefail
           
-          echo "===== Informations kivy-ios ====="
-          which toolchain
-          toolchain recipes
-          toolchain status || true
-          
-          echo "===== Contenu ~/.kivy-ios ====="
-          ls -la "$HOME/.kivy-ios" || true
-          find "$HOME/.kivy-ios" -maxdepth 3 || true
-          
           echo "===== Compilation des recettes ====="
           toolchain build python3 kivy openssl pillow
           
           toolchain pip install pyyaml requests urllib3
           
-          find ~/.kivy-ios -path "*site-packages*" -iname "*yaml*"
-           
-      
-      - name: Inspect build output
-        run: |
-          set -euxo pipefail
-          echo "===== Vérification des recettes ====="
-          toolchain status || true
-          
-          echo "===== Répertoire courant ====="
-          pwd
-          ls -la
-          
-          echo "===== DIST ====="
-          [ -d dist ] && du -sh dist || echo "dist absent"
-          [ -d dist ] && find dist -maxdepth 3 || true
-          
-          echo "===== BUILD ====="
-          [ -d build ] && du -sh build || echo "build absent"
-          [ -d build ] && find build -maxdepth 3 || true
-          
-          echo "===== Recherche Python ====="
-          find dist -iname "*python*" 2>/dev/null || true
-          find build -iname "*python*" 2>/dev/null || true
-          
-          echo "===== Recherche site-packages ====="
-          find dist -iname "site-packages" 2>/dev/null || true
-          find build -iname "site-packages" 2>/dev/null || true
-          
-          echo "===== Recherche yaml ====="
-          find dist -iname "*yaml*" 2>/dev/null || true
-          find build -iname "*yaml*" 2>/dev/null || true
-          
-          echo "===== Recherche requests ====="
-          find dist -iname "*requests*" 2>/dev/null || true
-          find build -iname "*requests*" 2>/dev/null || true
-          
-          echo "===== XCFramework ====="
-          find dist -iname "*.xcframework" 2>/dev/null || true
-          
-          echo "===== Librairies Python ====="
-          find dist -iname "libpython*" 2>/dev/null || true
-          
-          echo "===== PYTHON LIB SEARCH ====="
-          
-          find "$HOME/.kivy-ios" \
-            -type d \
-            -name "site-packages" \
-            -o -name "python3"
-          
-          find . \
-            -type d \
-            -name "site-packages"
-          
-          
+          find ~/.kivy-ios -path "*site-packages*" -iname "*yaml*"         
 
       - name: Prepare sources
         run: |
@@ -125,58 +62,41 @@ jobs:
       - name: Create Xcode project and Pods
         run: |
           set -euxo pipefail
-          
-          echo "===== Toolchain info ====="
-          toolchain status || true
-          
-          echo "===== Dist avant create ====="
-          find dist -maxdepth 2 2>/dev/null || true
-          
-          echo "===== Build avant create ====="
-          find build -maxdepth 2 2>/dev/null || true
 
           toolchain create FCVV ios_src
-          
+
+          toolchain --version
+
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           [ -n "$PROJECT_FILE" ] || { echo "Projet Xcode introuvable"; exit 1; }
-          
+
           PROJ_DIR=$(dirname "$PROJECT_FILE")
-          
-          echo "===== Arborescence ====="
-          find "$PROJ_DIR" -maxdepth 3
-          echo "===== Recherche Python ====="
-          find "$PROJ_DIR" -iname "*python*"
-          echo "===== Recherche site-packages ====="
-          find "$PROJ_DIR" -iname "site-packages"
-          
-          echo "===== Recherche yaml ====="
-          find "$PROJ_DIR" -iname "*yaml*" || true
-          echo "===== Recherche requests ====="
-          find "$PROJ_DIR" -iname "*requests*" || true
-          echo "===== Recherche lib ====="
-          find "$PROJ_DIR" -type d -name "lib"
-          echo "===== Taille du projet ====="
-          du -sh "$PROJ_DIR"
-          
-          echo "===== Vérification du bundle Python ====="
-          find "$PROJ_DIR" -type d -name "site-packages"
-          find "$PROJ_DIR" -iname "yaml"
-          find "$PROJ_DIR" -iname "_yaml*"
-          find "$PROJ_DIR" -iname "PyYAML*"
-          
-          echo "===== FIN DEBUG ====="
-          
-          echo "===== FIREBASE PYTHON ====="
-          grep -R "FirebaseCore.FIRApp" . || true
-          grep -R 'autoclass("FIRApp")' . || true
-          grep -R 'autoclass("FirebaseCore.FIRApp")' . || true
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+          PROJ_NAME=$(basename "$PROJECT_FILE")
+
+          APPDELEGATE=$(find "$PROJ_DIR" \( -name "AppDelegate.m" -o -name "AppDelegate.mm" \) | head -1)
+
+          echo "===== APPDELEGATE ====="
+          echo "$APPDELEGATE"
+
+          [ -f "$APPDELEGATE" ] || {
+            echo "AppDelegate introuvable"
+            exit 1
+          }
+
+          echo "===== Début AppDelegate ====="
+          sed -n '1,250p' "$APPDELEGATE"
+
+          APP_DIR=$(find "$PROJ_DIR" -type d -name "YourApp" | head -1)
+
+          echo "YourApp = $APP_DIR"
+
+          find "$PROJ_DIR" -name "YourApp" -o -name "*.plist"
+
+          cp ios_src/GoogleService-Info.plist "$APP_DIR/../GoogleService-Info.plist"
 
           PROJ_NAME=$(basename "$PROJECT_FILE")
 
           PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | head -1)
-
-          echo "Projet : $PROJECT_FILE"
 
           plutil -convert xml1 "$PLIST_FILE"
 
@@ -240,27 +160,6 @@ jobs:
           sed -i '' \
             's/OTHER_LDFLAGS = "-all_load";/OTHER_LDFLAGS = "$(inherited) -ObjC -all_load";/g' \
             fcvv.xcodeproj/project.pbxproj
-          
-          echo "===== VERIFICATION OTHER_LDFLAGS ====="
-          grep -n 'OTHER_LDFLAGS = ' fcvv.xcodeproj/project.pbxproj || true
-          
-          echo "===== OTHER_LDFLAGS ====="
-          grep -n -A10 -B10 "OTHER_LDFLAGS" fcvv.xcodeproj/project.pbxproj || true
-          
-          echo "===== HEADER_SEARCH_PATHS ====="
-          grep -n "HEADER_SEARCH_PATHS" fcvv.xcodeproj/project.pbxproj || true
-          
-          echo "===== GCC_PREPROCESSOR_DEFINITIONS ====="
-          grep -n "GCC_PREPROCESSOR_DEFINITIONS" fcvv.xcodeproj/project.pbxproj || true
-
-          echo "===== PODFILE LOCK ====="
-          cat Podfile.lock
-
-          echo "===== WORKSPACE ====="
-          find . -name "*.xcworkspace"
-          
-          echo "===== FIREBASE PODS ====="
-          find Pods -iname "*Firebase*"
 
 
       - name: Build simulator
@@ -282,23 +181,6 @@ jobs:
             -destination "platform=iOS Simulator,name=iPhone 15" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
-          
-          echo "===== GOOGLE SERVICE (APP GENEREE) ====="
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "*.app" -type d | head -1)
-          find "$APP_PATH" -name "GoogleService-Info.plist" || true
-          
-          echo "===== FIREBASE SYMBOLS ====="
-          nm -gU "$APP_PATH/fcvv" | grep FIRApp || true
-          
-          echo "===== FIREBASE FRAMEWORKS ====="
-          find "$APP_PATH" -name "*.framework"
-          
-          echo "===== FIREBASE PYTHON DANS L'APP ====="
-          find "$APP_PATH" -name "*.py" | while read f; do
-            grep -H "FirebaseCore.FIRApp" "$f" 2>/dev/null || true
-            grep -H 'autoclass("FIRApp")' "$f" 2>/dev/null || true
-            grep -H 'autoclass("FirebaseCore.FIRApp")' "$f" 2>/dev/null || true
-          done
 
       - name: Package app
         run: |
