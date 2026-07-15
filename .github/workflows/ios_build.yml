@@ -131,18 +131,22 @@ jobs:
           MAIN_FILE=$(find "$PROJ_DIR" -name "main.m" | head -1)
           BRIDGE_FILE=$(find "$PROJ_DIR" -name "bridge.m" | head -1)
           
-          # Injection dans main.m
+          # 1. Injection Firebase dans main.m
           sed -i '' '1s/^/#import <Firebase.h>\n/' "$MAIN_FILE"
-          sed -i '' 's/nil, nil/nil, NSStringFromClass([AppDelegate class])/g' "$MAIN_FILE"
+          
+          # 2. Utilisation de FirebaseAppDelegate au lieu de nil, nil
+          sed -i '' 's/nil, nil/nil, NSStringFromClass([FirebaseAppDelegate class])/g' "$MAIN_FILE"
+          
+          # 3. Initialisation de FIRApp
           sed -i '' '/int main(int argc, char \*argv\[\]) {/a \
               [FIRApp configure];' "$MAIN_FILE"
           
-          # Injection dans bridge.m (AppDelegate personnalisé)
+          # 4. Injection du délégué dans bridge.m (nommé FirebaseAppDelegate pour éviter les conflits)
           cat >> "$BRIDGE_FILE" <<EOF
           
-          @interface AppDelegate : UIResponder <UIApplicationDelegate>
+          @interface FirebaseAppDelegate : UIResponder <UIApplicationDelegate>
           @end
-          @implementation AppDelegate
+          @implementation FirebaseAppDelegate
           - (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
               [FIRMessaging messaging].APNSToken = deviceToken;
           }
@@ -151,6 +155,7 @@ jobs:
           }
           @end
           EOF
+          
       - name: Verify Injection
         run: |
           echo "--- Contenu de main.m ---"
@@ -164,19 +169,30 @@ jobs:
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
-          
+          ENTITLEMENTS_PATH="$PROJ_DIR/fcvv.entitlements"
+
+          # 1. Création du fichier proprement avec cat
+          cat <<'EOF' > "$ENTITLEMENTS_PATH"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>aps-environment</key>
+              <string>development</string>
+          </dict>
+          </plist>
+          EOF
+
+          # 2. Configuration du projet avec Ruby (sans le XML complexe)
           ruby -e "
           require 'xcodeproj'
           project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
           target = project.targets.find { |t| t.name == 'fcvv' }
           
-          # Création du fichier d'entitlements
-          entitlements_path = '$PROJ_DIR/fcvv.entitlements'
-          content = "<?xml version='1.0' encoding='UTF-8'?><!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'><plist version='1.0'><dict><key>aps-environment</key><string>development</string></dict></plist>"
-          File.write(entitlements_path, content)
-          
-          # Ajout au projet et configuration
+          # Ajout du fichier au projet
           file = project.main_group.new_file('fcvv.entitlements')
+          
+          # Configuration du build setting
           target.build_configurations.each do |config|
             config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'fcvv.entitlements'
           end
