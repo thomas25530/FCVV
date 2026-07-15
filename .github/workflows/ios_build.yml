@@ -124,16 +124,16 @@ jobs:
           "
           
           # 3. Injection AppDelegate (on reste dans le répertoire racine pour le find)
-          APP_DELEGATE=$(find . -name "AppDelegate.m" | head -1)
-          sed -i '' 's/#import "AppDelegate.h"/#import "AppDelegate.h"\n#import <Firebase.h>/g' "$APP_DELEGATE"
-          sed -i '' '$d' "$APP_DELEGATE"
-          cat >> "$APP_DELEGATE" <<EOF
-          - (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
-              [FIRMessaging messaging].APNSToken = deviceToken;
-              [super application:application didRegisterForRemoteNotificationsWithDeviceToken:deviceToken];
-          }
-          @end
-          EOF
+          #APP_DELEGATE=$(find . -name "AppDelegate.m" | head -1)
+          #sed -i '' 's/#import "AppDelegate.h"/#import "AppDelegate.h"\n#import <Firebase.h>/g' "$APP_DELEGATE"
+          #sed -i '' '$d' "$APP_DELEGATE"
+          #cat >> "$APP_DELEGATE" <<EOF
+          #- (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
+          #    [FIRMessaging messaging].APNSToken = deviceToken;
+          #    [super application:application didRegisterForRemoteNotificationsWithDeviceToken:deviceToken];
+          #}
+          #@end
+          #EOF
 
       - name: Configure and Install Pods
         run: |
