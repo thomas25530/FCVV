@@ -132,7 +132,7 @@ jobs:
           BRIDGE_FILE=$(find "$PROJ_DIR" -name "bridge.m" | head -1)
           
           # 1. Injection Firebase dans main.m
-          sed -i '' '1s/^/@import Firebase;\n/' "$MAIN_FILE"
+          sed -i '' '1s/^/@import FirebaseCore;\n@import FirebaseMessaging;\n/' "$MAIN_FILE"
           
           # 2. Initialisation de FIRApp
           sed -i '' '/int main(int argc, char \*argv\[\]) {/a \
@@ -144,7 +144,8 @@ jobs:
 
           #import <UIKit/UIKit.h>
           #import <Foundation/Foundation.h>
-          @import Firebase;
+          @import FirebaseCore;
+          @import FirebaseMessaging;
 
           @interface FirebaseAppDelegate : UIResponder <UIApplicationDelegate>
           @end
@@ -237,6 +238,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string FCVV" "$PLIST_FILE"
           cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
+          use_frameworks!
           use_modular_headers!
           project '$PROJ_NAME'
           target 'fcvv' do
@@ -245,8 +247,11 @@ jobs:
           end
           EOF
           cd "$PROJ_DIR"
-          pod repo update
-          pod install
+          pod deintegrate
+          pod install --repo-update
+          ls -la
+          ls Pods
+          ls *.xcworkspace
           sed -i '' 's/OTHER_LDFLAGS = "-all_load";/OTHER_LDFLAGS = "$(inherited) -ObjC -all_load";/g' fcvv.xcodeproj/project.pbxproj
 
       - name: Debug Project State
@@ -275,7 +280,7 @@ jobs:
         run: |
           set -euxo pipefail
           # 0. Installation des pods (Nécessaire avant tout build avec workspace)
-          pod install --project-directory=fcvv-ios
+          #pod install --project-directory=fcvv-ios
 
           WORKSPACE_PATH=$(find "$PWD/fcvv-ios" -name "*.xcworkspace" | head -1)
           
@@ -283,6 +288,12 @@ jobs:
           xcrun simctl erase "iPhone 15" || true
           
           # 2. Build avec signature activée
+          xcodebuild \
+            -showBuildSettings \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv | grep CLANG_ENABLE_MODULES
+
+          
           xcodebuild clean build \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
