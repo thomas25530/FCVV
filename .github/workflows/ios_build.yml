@@ -316,6 +316,7 @@ jobs:
           
           APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" -type d | grep "Debug-iphonesimulator" | head -1)
           echo "Debug: Chemin trouvé = $APP_PATH"
+          
             
       - name: Package app
         run: |
