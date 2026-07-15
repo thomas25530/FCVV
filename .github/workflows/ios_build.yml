@@ -172,14 +172,20 @@ jobs:
           set -euxo pipefail
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           PROJ_DIR=$(dirname "$PROJECT_FILE")
-          echo "===== Arborescence ====="
+          
+          echo "===== Arborescence dans le dossier projet ====="
           find "$PROJ_DIR" -maxdepth 3
-          echo "===== Recherche Firebase ====="
-          find Pods -iname "*Firebase*"
+          
+          echo "===== Recherche Firebase dans le dossier Pods ====="
+          # On cherche dans PROJ_DIR/Pods, pas juste à la racine
+          find "$PROJ_DIR/Pods" -iname "*Firebase*" || echo "Dossier Pods non trouvé ou vide"
+          
           echo "===== Vérification LDFLAGS ====="
-          grep -n "OTHER_LDFLAGS" fcvv.xcodeproj/project.pbxproj || true
+          grep -n "OTHER_LDFLAGS" "$PROJECT_FILE/project.pbxproj" || true
+          
           echo "===== Podfile Lock ====="
           cat "$PROJ_DIR/Podfile.lock" || true
+          
           echo "===== Workspaces ====="
           find . -name "*.xcworkspace"
 
