@@ -1,5 +1,6 @@
 # core/NotificationManager.py
 from kivy.utils import platform
+from kivy.clock import Clock
 
 class NotificationManager:
     def init_service(self): raise NotImplementedError
@@ -118,67 +119,137 @@ class AndroidNotificationManager(NotificationManager):
 class IOSNotificationManager(NotificationManager):
     def __init__(self):
         from pyobjus import autoclass
-        
+
         # Initialisation sécurisée par défaut
         self.FIRApp = None
         self.FIRMessaging = None
         self.UNCenter = None
-        
+
+        # Topics en attente tant que le token FCM n'est pas disponible
+        self.pending_topics = set()
+
+        # Pour éviter de lancer plusieurs timers
+        self.waiting_for_token = False
+
         try:
-            # 1. Tentative de chargement de FIRApp
-            # Si cette ligne échoue, on saute au bloc 'except' immédiatement
             print("[FCM DEBUG] Recherche FIRApp...")
             self.FIRApp = autoclass("FIRApp")
-            
-            # 2. Configuration Firebase
+
             if not self.FIRApp.defaultApp():
                 self.FIRApp.configure()
-            
-            # 3. Chargement sécurisé de FIRMessaging
+
             print("[FCM DEBUG] Recherche FIRMessaging...")
             FIRMessagingClass = autoclass("FIRMessaging")
-            if hasattr(FIRMessagingClass, 'messaging'):
+
+            if hasattr(FIRMessagingClass, "messaging"):
                 self.FIRMessaging = FIRMessagingClass.messaging()
             else:
                 self.FIRMessaging = FIRMessagingClass.sharedInstance()
-            
-            # 4. Charger le centre de notifications
-            self.UNCenter = autoclass('UNUserNotificationCenter').currentNotificationCenter()
-            
+
+            self.UNCenter = autoclass(
+                "UNUserNotificationCenter"
+            ).currentNotificationCenter()
+
             self.UIApplication = autoclass("UIApplication")
-                
-            print("[FCM iOS] Initialisation Firebase réussie.")
-            
+
+            print("[FCM iOS] Initialisation Firebase reussie.")
+
         except Exception as e:
-            print(f"[FCM iOS Init Error] Impossible de charger les classes Firebase: {e}")
-            # Ne pas appeler dir(autoclass('FIRMessaging')) ici car 
-            # si on est dans le except, c'est que l'autoclass a déjà échoué !
+            print(f"[FCM iOS Init Error] {e}")
 
     def init_service(self):
-        # On vérifie si le token est déjà disponible
-        token = self.FIRMessaging.fcmToken
+        token = self._get_token()
+
         if token:
-            print(f"[FCM iOS] Service pret. Token: {str(token)[:10]}...")
+            print(f"[FCM iOS] Token deja disponible : {str(token)[:12]}...")
         else:
-            print("[FCM iOS] Service initialise, attente du token FCM...")
+            print("[FCM iOS] En attente du token FCM...")
 
     def _get_token(self):
-        return self.FIRMessaging.fcmToken
+
+        if not self.FIRMessaging:
+            return None
+
+        for name in (
+            "FCMToken",
+            "fcmToken",
+            "token",
+        ):
+            try:
+                attr = getattr(self.FIRMessaging, name)
+
+                token = attr() if callable(attr) else attr
+
+                if token:
+                    return token
+
+            except Exception:
+                pass
+
+        return None
+
+    def _start_waiting_for_token(self):
+        if self.waiting_for_token:
+            return
+
+        self.waiting_for_token = True
+        print("[FCM iOS] Attente automatique du token...")
+        Clock.schedule_interval(self._check_token, 1.0)
+
+    def _check_token(self, dt):
+
+        token = self._get_token()
+
+        if not token:
+            return True
+
+        print(f"[FCM iOS] Token obtenu : {str(token)[:12]}...")
+
+        self.waiting_for_token = False
+
+        for topic in list(self.pending_topics):
+            try:
+                print(f"[FCM iOS] Abonnement automatique : {topic}")
+                self.FIRMessaging.subscribeToTopic_(topic)
+            except Exception as e:
+                print(f"[FCM iOS] Erreur abonnement {topic} : {e}")
+
+        self.pending_topics.clear()
+
+        return False
 
     def subscribe_to_topic(self, topic):
-        print(f"[FCM iOS] Demande d'abonnement au topic : {topic}")
-        # Note: Si le crash persiste, le 'None' doit être remplacé par un objet
-        # conforme au protocole de completion attendu par pyobjus.
+
+        token = self._get_token()
+
+        if not token:
+            print(f"[FCM iOS] Token absent. Topic mis en attente : {topic}")
+
+            self.pending_topics.add(topic)
+
+            self._start_waiting_for_token()
+
+            return False
+
+        print(f"[FCM iOS] Abonnement au topic : {topic}")
+
         try:
             self.FIRMessaging.subscribeToTopic_(topic)
             print("[FCM iOS] Abonnement envoye")
+            return True
+
         except Exception as e:
-            print(f"[FCM iOS] Erreur abonnement : {e}")
+            print(f"[FCM iOS] Erreur : {e}")
+            return False
 
     def unsubscribe_from_topic(self, topic):
-        print(f"[FCM iOS] Desabonnement du topic : {topic}")
+        print(f"[FCM iOS] Desabonnement : {topic}")
+
+        self.pending_topics.discard(topic)
+
         try:
             self.FIRMessaging.unsubscribeFromTopic_(topic)
+
         except Exception as e:
             print(f"[FCM iOS] Erreur desabonnement : {e}")
 
@@ -202,13 +273,9 @@ class IOSNotificationManager(NotificationManager):
 
             print("[FCM iOS] registerForRemoteNotifications envoye")
 
+            # On démarre également l'attente du token
+            self._start_waiting_for_token()
+
         else:
             err = error.localizedDescription if error else "Inconnue"
             print(f"[FCM iOS] Permission refusee : {err}")
-
-def get_notification_manager():
-    if platform == 'android':
-        return AndroidNotificationManager()
-    elif platform == 'ios':
-        return IOSNotificationManager()
-    return None
