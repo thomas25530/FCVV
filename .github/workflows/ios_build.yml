@@ -123,7 +123,7 @@ jobs:
           project.save
           "
           
-      - name: Inject Firebase and AppDelegate into main.m
+      - name: Inject Firebase and AppDelegate into files
         run: |
           set -euxo pipefail
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
@@ -133,20 +133,27 @@ jobs:
           
           # 1. Injection Firebase dans main.m
           sed -i '' '1s/^/@import Firebase;\n/' "$MAIN_FILE"
-
-          # 3. Initialisation de FIRApp
+          
+          # 2. Initialisation de FIRApp
           sed -i '' '/int main(int argc, char \*argv\[\]) {/a \
               [FIRApp configure];' "$MAIN_FILE"
           
-          # 4. Injection du délégué dans bridge.m (nommé FirebaseAppDelegate pour éviter les conflits)
-          cat >> "$BRIDGE_FILE" <<EOF
-          
+          # 3. Injection du délégué dans bridge.m
+          # Le <<- permet d'indenter le code ici sans qu'il soit écrit dans le fichier
+          cat >> "$BRIDGE_FILE" <<-'EOF'
+
+          #import <UIKit/UIKit.h>
+          #import <Foundation/Foundation.h>
+          @import Firebase;
+
           @interface FirebaseAppDelegate : UIResponder <UIApplicationDelegate>
           @end
+
           @implementation FirebaseAppDelegate
           - (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
-              [FIRMessaging messaging].APNSToken = deviceToken;
+              [[FIRMessaging messaging] setAPNSToken:deviceToken];
           }
+
           - (void)application:(UIApplication *)application didFailToRegisterForRemoteNotificationsWithError:(NSError *)error {
               NSLog(@"Push Error: %@", error);
           }
@@ -267,26 +274,26 @@ jobs:
       - name: Build simulator
         run: |
           set -euxo pipefail
-          # 1. Utilisation du workspace spécifique au dossier fcvv-ios
+          # 0. Installation des pods (Nécessaire avant tout build avec workspace)
+          pod install --project-directory=fcvv-ios
+
           WORKSPACE_PATH=$(find "$PWD/fcvv-ios" -name "*.xcworkspace" | head -1)
           
-          # 2. Forcer le déploiement cible à 13.0 (compatible avec tes besoins et le SDK actuel)
-          # On nettoie le simulateur
+          # 1. Nettoyage
           xcrun simctl erase "iPhone 15" || true
           
-          # 3. Build avec IPHONEOS_DEPLOYMENT_TARGET=13.0 pour écraser les warnings de version
+          # 2. Build avec signature activée
           xcodebuild clean build \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
             -configuration Debug \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,name=iPhone 15" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
             IPHONEOS_DEPLOYMENT_TARGET=13.0 \
             CLANG_ENABLE_MODULES=YES \
-            COMPILER_INDEX_STORE_ENABLE=NO
-        
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            -allowProvisioningUpdates
+          
           APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" -type d | grep "Debug-iphonesimulator" | head -1)
           echo "Debug: Chemin trouvé = $APP_PATH"
             
