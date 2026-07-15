@@ -151,6 +151,12 @@ jobs:
           }
           @end
           EOF
+      - name: Verify Injection
+        run: |
+          echo "--- Contenu de main.m ---"
+          cat ./fcvv-ios/main.m
+          echo -e "\n--- Contenu de bridge.m ---"
+          cat ./fcvv-ios/bridge.m
 
       - name: Configure Xcode Entitlements for Push
         run: |
@@ -166,7 +172,7 @@ jobs:
           
           # Création du fichier d'entitlements
           entitlements_path = '$PROJ_DIR/fcvv.entitlements'
-          content = \"<?xml version='1.0' encoding='UTF-8'?><!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'><plist version='1.0'><dict><key>aps-environment</key><string>development</string></dict></plist>\"
+          content = "<?xml version='1.0' encoding='UTF-8'?><!DOCTYPE plist PUBLIC '-//Apple//DTD PLIST 1.0//EN' 'http://www.apple.com/DTDs/PropertyList-1.0.dtd'><plist version='1.0'><dict><key>aps-environment</key><string>development</string></dict></plist>"
           File.write(entitlements_path, content)
           
           # Ajout au projet et configuration
@@ -176,6 +182,11 @@ jobs:
           end
           project.save
           "
+
+      - name: Verify Entitlements
+        run: |
+          echo "--- Contenu de fcvv.entitlements ---"
+          cat ./fcvv-ios/fcvv.entitlements
 
       - name: Configure and Install Pods
         run: |
