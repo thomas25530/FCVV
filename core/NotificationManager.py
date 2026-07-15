@@ -254,6 +254,11 @@ class IOSNotificationManager(NotificationManager):
             print(f"[FCM iOS] Erreur desabonnement : {e}")
 
     def request_permissions(self):
+
+        if not self.UNCenter:
+            print("[FCM iOS] Centre de notifications indisponible")
+            return
+
         options = 7
 
         print("[FCM iOS] Demande de permissions...")
@@ -279,3 +284,11 @@ class IOSNotificationManager(NotificationManager):
         else:
             err = error.localizedDescription if error else "Inconnue"
             print(f"[FCM iOS] Permission refusee : {err}")
+            
+
+def get_notification_manager():
+    if platform == 'android':
+        return AndroidNotificationManager()
+    elif platform == 'ios':
+        return IOSNotificationManager()
+    return None
