@@ -117,28 +117,33 @@ class AndroidNotificationManager(NotificationManager):
 
 
 class IOSNotificationManager(NotificationManager):
+
     def __init__(self):
         from pyobjus import autoclass
 
-        # Initialisation sécurisée par défaut
         self.FIRApp = None
         self.FIRMessaging = None
         self.UNCenter = None
+        self.UIApplication = None
 
-        # Topics en attente tant que le token FCM n'est pas disponible
         self.pending_topics = set()
 
-        # Pour éviter de lancer plusieurs timers
         self.waiting_for_token = False
+        self.token_wait_count = 0
+        self.max_token_wait = 60
 
         try:
-            print("[FCM DEBUG] Recherche FIRApp...")
+            print("[FCM DEBUG] Chargement Firebase...")
+
             self.FIRApp = autoclass("FIRApp")
 
+            # Firebase est déjà configuré dans main.m
             if not self.FIRApp.defaultApp():
+                print("[FCM iOS] FIRApp absent, tentative configure")
                 self.FIRApp.configure()
 
-            print("[FCM DEBUG] Recherche FIRMessaging...")
+            print("[FCM DEBUG] Chargement FIRMessaging...")
+
             FIRMessagingClass = autoclass("FIRMessaging")
 
             if hasattr(FIRMessagingClass, "messaging"):
@@ -146,39 +151,52 @@ class IOSNotificationManager(NotificationManager):
             else:
                 self.FIRMessaging = FIRMessagingClass.sharedInstance()
 
+
             self.UNCenter = autoclass(
                 "UNUserNotificationCenter"
             ).currentNotificationCenter()
 
-            self.UIApplication = autoclass("UIApplication")
+            self.UIApplication = autoclass(
+                "UIApplication"
+            )
 
-            print("[FCM iOS] Initialisation Firebase reussie.")
+            print("[FCM iOS] Initialisation Firebase OK")
+
 
         except Exception as e:
             print(f"[FCM iOS Init Error] {e}")
 
+
     def init_service(self):
+
         token = self._get_token()
 
         if token:
-            print(f"[FCM iOS] Token deja disponible : {str(token)[:12]}...")
+            print(
+                f"[FCM iOS] Token déjà disponible : {str(token)[:12]}..."
+            )
         else:
-            print("[FCM iOS] En attente du token FCM...")
+            print(
+                "[FCM iOS] En attente du token FCM (APNS nécessaire)..."
+            )
+
 
     def _get_token(self):
 
         if not self.FIRMessaging:
             return None
 
+
+        # Accès direct propriété
         for name in (
             "FCMToken",
             "fcmToken",
-            "token",
         ):
             try:
-                attr = getattr(self.FIRMessaging, name)
+                token = getattr(self.FIRMessaging, name)
 
-                token = attr() if callable(attr) else attr
+                if callable(token):
+                    token = token()
 
                 if token:
                     return token
@@ -186,44 +204,110 @@ class IOSNotificationManager(NotificationManager):
             except Exception:
                 pass
 
+
+        # Fallback méthode Firebase
+        try:
+            if hasattr(
+                self.FIRMessaging,
+                "tokenWithCompletion_"
+            ):
+
+                result = []
+
+                def callback(token, error):
+                    if token:
+                        result.append(token)
+
+                self.FIRMessaging.tokenWithCompletion_(callback)
+
+                if result:
+                    return result[0]
+
+        except Exception:
+            pass
+
+
         return None
 
+
     def _start_waiting_for_token(self):
+
         if self.waiting_for_token:
             return
 
         self.waiting_for_token = True
-        print("[FCM iOS] Attente automatique du token...")
-        Clock.schedule_interval(self._check_token, 1.0)
+        self.token_wait_count = 0
+
+        print("[FCM iOS] Surveillance token démarrée")
+
+        Clock.schedule_interval(
+            self._check_token,
+            1.0
+        )
+
 
     def _check_token(self, dt):
 
+        self.token_wait_count += 1
+
         token = self._get_token()
 
+
         if not token:
+
+            if self.token_wait_count >= self.max_token_wait:
+
+                print(
+                    "[FCM iOS] Timeout attente token FCM"
+                )
+
+                self.waiting_for_token = False
+                return False
+
             return True
 
-        print(f"[FCM iOS] Token obtenu : {str(token)[:12]}...")
+
+        print(
+            f"[FCM iOS] Token obtenu : {str(token)[:12]}..."
+        )
+
 
         self.waiting_for_token = False
 
+
         for topic in list(self.pending_topics):
+
             try:
-                print(f"[FCM iOS] Abonnement automatique : {topic}")
+                print(
+                    f"[FCM iOS] Abonnement automatique : {topic}"
+                )
+
                 self.FIRMessaging.subscribeToTopic_(topic)
+
+
             except Exception as e:
-                print(f"[FCM iOS] Erreur abonnement {topic} : {e}")
+
+                print(
+                    f"[FCM iOS] Erreur topic {topic}: {e}"
+                )
+
 
         self.pending_topics.clear()
 
         return False
 
+
+
     def subscribe_to_topic(self, topic):
 
         token = self._get_token()
 
+
         if not token:
-            print(f"[FCM iOS] Token absent. Topic mis en attente : {topic}")
+
+            print(
+                f"[FCM iOS] Token absent -> attente topic : {topic}"
+            )
 
             self.pending_topics.add(topic)
 
@@ -231,59 +315,97 @@ class IOSNotificationManager(NotificationManager):
 
             return False
 
-        print(f"[FCM iOS] Abonnement au topic : {topic}")
 
         try:
+
+            print(
+                f"[FCM iOS] Abonnement topic : {topic}"
+            )
+
             self.FIRMessaging.subscribeToTopic_(topic)
-            print("[FCM iOS] Abonnement envoye")
+
             return True
 
+
         except Exception as e:
-            print(f"[FCM iOS] Erreur : {e}")
+
+            print(
+                f"[FCM iOS] Erreur abonnement : {e}"
+            )
+
             return False
 
+
+
     def unsubscribe_from_topic(self, topic):
-        print(f"[FCM iOS] Desabonnement : {topic}")
 
         self.pending_topics.discard(topic)
 
         try:
+
             self.FIRMessaging.unsubscribeFromTopic_(topic)
 
         except Exception as e:
-            print(f"[FCM iOS] Erreur desabonnement : {e}")
+
+            print(
+                f"[FCM iOS] Erreur désabonnement : {e}"
+            )
+
+
 
     def request_permissions(self):
 
         if not self.UNCenter:
-            print("[FCM iOS] Centre de notifications indisponible")
+            print(
+                "[FCM iOS] UNUserNotificationCenter absent"
+            )
             return
 
-        options = 7
 
-        print("[FCM iOS] Demande de permissions...")
+        print(
+            "[FCM iOS] Demande permissions..."
+        )
+
 
         self.UNCenter.requestAuthorizationWithOptions_completionHandler_(
-            options,
+            7,
             self.handle_permission_response
         )
+
+
 
     def handle_permission_response(self, granted, error):
 
         if granted:
-            print("[FCM iOS] Permission accordee")
+
+            print(
+                "[FCM iOS] Permission accordée"
+            )
 
             app = self.UIApplication.sharedApplication()
+
             app.registerForRemoteNotifications()
 
-            print("[FCM iOS] registerForRemoteNotifications envoye")
 
-            # On démarre également l'attente du token
+            print(
+                "[FCM iOS] registerForRemoteNotifications envoyé"
+            )
+
+
             self._start_waiting_for_token()
 
+
         else:
-            err = error.localizedDescription if error else "Inconnue"
-            print(f"[FCM iOS] Permission refusee : {err}")
+
+            err = (
+                error.localizedDescription
+                if error
+                else "Inconnue"
+            )
+
+            print(
+                f"[FCM iOS] Permission refusée : {err}"
+            )
             
 
 def get_notification_manager():
