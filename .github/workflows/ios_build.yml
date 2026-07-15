@@ -209,12 +209,28 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             IPHONEOS_DEPLOYMENT_TARGET=13.0
+        
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" -type d | grep "Debug-iphonesimulator" | head -1)
+          echo "Debug: Chemin trouvé = $APP_PATH"
             
       - name: Package app
         run: |
-          APP_PATH=$(find ./build -name "*.app" -type d | head -1)
+          # 1. On cherche spécifiquement fcvv.app dans le dossier DerivedData 
+          # C'est l'emplacement standard où Xcode place le build final
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" -type d | grep "Build/Products/Debug-iphonesimulator" | head -1)
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "Erreur: fcvv.app introuvable dans DerivedData"
+            exit 1
+          fi
+          
+          echo "Zippage de : $APP_PATH"
+          
+          # 2. On se déplace dans le dossier contenant l'app
           cd "$(dirname "$APP_PATH")"
-          zip -r "$GITHUB_WORKSPACE/fcvv.zip" "$(basename "$APP_PATH")"
+          
+          # 3. On crée le zip
+          zip -r "$GITHUB_WORKSPACE/fcvv.zip" "fcvv.app"
 
       - uses: actions/upload-artifact@v4
         with:
