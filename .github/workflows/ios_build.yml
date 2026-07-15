@@ -288,10 +288,19 @@ jobs:
           xcrun simctl erase "iPhone 15" || true
           
           # 2. Build avec signature activée
+          echo "Workspace = $WORKSPACE_PATH"
+
+          ls -la fcvv-ios
+          ls -la fcvv-ios/*.xcworkspace
+          cat fcvv-ios/Podfile.lock
+          
+          xcodebuild -list \
+            -workspace "$WORKSPACE_PATH"
+
           xcodebuild \
             -showBuildSettings \
             -workspace "$WORKSPACE_PATH" \
-            -scheme fcvv | grep CLANG_ENABLE_MODULES
+            -scheme fcvv
 
           
           xcodebuild clean build \
