@@ -208,19 +208,18 @@ jobs:
             -destination "platform=iOS Simulator,name=iPhone 15" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            IPHONEOS_DEPLOYMENT_TARGET=13.0
+            IPHONEOS_DEPLOYMENT_TARGET=13.0 \
+            SYMROOT="$PWD/build"
           
-          # 4. Correction du find : on cherche dans fcvv-ios/build pour éviter les faux positifs
-          APP_PATH=$(find ./fcvv-ios/build -name "fcvv.app" -type d | head -1)
+          # 3. Maintenant, le fichier est forcément dans le dossier "build" à la racine
+          APP_PATH=$(find "$PWD/build" -name "fcvv.app" -type d | head -1)
           
           echo "APP_PATH trouvé : $APP_PATH"
           
           if [ -d "$APP_PATH" ] && [ -f "$APP_PATH/GoogleService-Info.plist" ]; then
             echo "SUCCESS: GoogleService-Info.plist trouvé dans le bundle."
           else
-            echo "ERROR: Bundle ou Plist introuvable dans $APP_PATH"
-            # Debug pour comprendre pourquoi
-            ls -R ./fcvv-ios/build | grep -i "fcvv.app" || true
+            echo "ERROR: Bundle ou Plist introuvable."
             exit 1
           fi
 
