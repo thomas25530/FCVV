@@ -99,18 +99,31 @@ jobs:
         run: |
           set -euxo pipefail
           toolchain create FCVV ios_src
+          
+          # Localisation précise du projet
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           PROJ_NAME=$(basename "$PROJECT_FILE")
+          
+          # 1. Copie du plist dans le dossier du projet
           cp ios_src/GoogleService-Info.plist "$PROJ_DIR/"
+          
+          # 2. Utilisation du chemin complet pour Ruby afin d'éviter les erreurs de contexte
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
+          
           ruby -e "
           require 'xcodeproj'
-          project = Xcodeproj::Project.open('$PROJ_NAME')
+          # Ouverture avec le chemin complet
+          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
           target = project.targets.find { |t| t.name == 'fcvv' }
+          
+          # Ajout du fichier situé dans PROJ_DIR
           file = project.main_group.new_file('GoogleService-Info.plist')
           target.add_resources([file])
           project.save
           "
+          
+          # 3. Injection AppDelegate (on reste dans le répertoire racine pour le find)
           APP_DELEGATE=$(find . -name "AppDelegate.m" | head -1)
           sed -i '' 's/#import "AppDelegate.h"/#import "AppDelegate.h"\n#import <Firebase.h>/g' "$APP_DELEGATE"
           sed -i '' '$d' "$APP_DELEGATE"
