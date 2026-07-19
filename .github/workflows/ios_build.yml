@@ -245,8 +245,14 @@ jobs:
           # Réinstallation du catalogue d'icônes iOS
           if [ -d "assets/Images.xcassets" ]; then
             echo "[iOS] Installation Images.xcassets"
-            rm -rf "fcvv/Images.xcassets"
-            cp -R "assets/Images.xcassets" "fcvv/"
+            rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
+            cp -R assets/Images.xcassets "$PROJ_DIR/fcvv/"
+            
+            echo "===== Vérification Images.xcassets ====="
+            find "$PROJ_DIR/fcvv/Images.xcassets" -maxdepth 2
+            
+            echo "===== Vérification AppIcon ====="
+            find "$PROJ_DIR/fcvv/Images.xcassets/AppIcon.appiconset"
           else
             echo "[iOS] Images.xcassets introuvable"
           fi
