@@ -297,7 +297,11 @@ class IOSNotificationManager(NotificationManager):
         return False
 
 
-
+    def apns_token_received(self):
+        print("[FCM iOS] APNS recu, demarrage attente FCM")
+        self._start_waiting_for_token()
+    
+    
     def subscribe_to_topic(self, topic):
 
         token = self._get_token()
@@ -392,7 +396,9 @@ class IOSNotificationManager(NotificationManager):
             )
 
 
-            self._start_waiting_for_token()
+            print(
+                "[FCM iOS] Attente du token APNS avant FCM"
+            )
 
 
         else:
