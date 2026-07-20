@@ -173,11 +173,11 @@ class IOSNotificationManager(NotificationManager):
 
         if token:
             print(
-                f"[FCM iOS] Token déjà disponible : {str(token)[:12]}..."
+                f"[FCM iOS] Token deja disponible : {str(token)[:12]}..."
             )
         else:
             print(
-                "[FCM iOS] En attente du token FCM (APNS nécessaire)..."
+                "[FCM iOS] En attente du token FCM (APNS necessaire)..."
             )
 
 
@@ -238,7 +238,7 @@ class IOSNotificationManager(NotificationManager):
         self.waiting_for_token = True
         self.token_wait_count = 0
 
-        print("[FCM iOS] Surveillance token démarrée")
+        print("[FCM iOS] Surveillance token demarree")
 
         Clock.schedule_interval(
             self._check_token,
@@ -348,7 +348,7 @@ class IOSNotificationManager(NotificationManager):
         except Exception as e:
 
             print(
-                f"[FCM iOS] Erreur désabonnement : {e}"
+                f"[FCM iOS] Erreur desabonnement : {e}"
             )
 
 
@@ -379,7 +379,7 @@ class IOSNotificationManager(NotificationManager):
         if granted:
 
             print(
-                "[FCM iOS] Permission accordée"
+                "[FCM iOS] Permission accordee"
             )
 
             app = self.UIApplication.sharedApplication()
@@ -388,7 +388,7 @@ class IOSNotificationManager(NotificationManager):
 
 
             print(
-                "[FCM iOS] registerForRemoteNotifications envoyé"
+                "[FCM iOS] registerForRemoteNotifications envoye"
             )
 
 
@@ -404,7 +404,7 @@ class IOSNotificationManager(NotificationManager):
             )
 
             print(
-                f"[FCM iOS] Permission refusée : {err}"
+                f"[FCM iOS] Permission refusee : {err}"
             )
             
 

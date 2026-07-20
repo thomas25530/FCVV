@@ -23,6 +23,8 @@ import os, hashlib
 #import urllib3
 from datetime import datetime, timedelta
 
+import traceback
+
 from constants import LANGUAGES
 
 from kivy.utils import platform
@@ -813,10 +815,11 @@ class MyApp(App):
                     Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"), 5.0)
                     if self.authorized_vestiaires:
                         Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires), 8.0)
-                except Exception as e:
-                    print(f"[FCM ERROR] Initialisation : {e}")
+                except Exception:
+                    print("[FCM ERROR] Initialisation")
+                    traceback.print_exc()
         else:
-            print("[INFO] Environnement Windows/Desktop : Notifications FCM ignorées.")
+            print("[INFO] Environnement Windows/Desktop : Notifications FCM ignorees.")
 
         # 3. Reste de l'initialisation
         if platform == 'android' and 'customize_android_bars' in globals():
@@ -1139,8 +1142,9 @@ class MyApp(App):
                 self.notifier.subscribe_to_topic("TournoiVercel")
                 print("[FCM] Synchro terminee via NotificationManager")
 
-            except Exception as e:
-                print(f"[FCM ERROR] Erreur lors de la synchro FCM : {e}")
+            except Exception:
+                print("[FCM ERROR] Erreur lors de la synchro FCM")
+                traceback.print_exc()
 
         # On déclenche sur le thread principal
         Clock.schedule_once(do_fcm_work, 0.5)
