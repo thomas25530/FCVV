@@ -138,10 +138,8 @@ jobs:
           echo "MAIN_FILE=$MAIN_FILE"
           echo "APPDELEGATE_FILE=$APPDELEGATE_FILE"
 
-
           # 1. Firebase dans main.m
           sed -i '' '1s/^/@import FirebaseCore;\n@import FirebaseMessaging;\n/' "$MAIN_FILE"
-
 
           # 2. Configure Firebase dans main.m
           sed -i '' '/int main(int argc, char \*argv\[\]) {/a\
@@ -152,53 +150,51 @@ jobs:
             [[UIApplication sharedApplication] registerForRemoteNotifications];\
             NSLog(@"[FCM iOS] APNS registration");' "$MAIN_FILE"
 
-
-          # 3. Ajout APNS -> FCM dans SDL (le vrai delegate iOS)
+          # 3. Firebase APNS -> FCM dans le vrai delegate SDL
           sed -i '' '1s/^/#import <UserNotifications\/UserNotifications.h>\n@import FirebaseMessaging;\n/' "$APPDELEGATE_FILE"
 
-
-          cat >> "$APPDELEGATE_FILE" <<'EOF'
-
-
-          @implementation SDLUIKitDelegate (FirebasePush)
-
-          - (void)application:(UIApplication *)application
-          didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
-          {
-          NSLog(@"[FCM iOS] APNS token recu");
-
-          [FIRMessaging messaging].APNSToken = deviceToken;
-
-          [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error)
-          {
-            if(error)
-            {
-                NSLog(@"[FCM iOS] Erreur FCM %@", error);
-            }
-            else
-            {
-                NSLog(@"[FCM iOS] Token FCM %@", token);
-            }
-          }];
-          }
-
-          - (void)application:(UIApplication *)application
-          didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
-          {
-             NSLog(@"[FCM iOS] Erreur APNS %@", error);
-          }
-
-          @end
-
-          EOF
+          grep -q "APNS token recu" "$APPDELEGATE_FILE" || sed -i '' '/@implementation SDLUIKitDelegate {/a\
+          \
+          - (void)application:(UIApplication *)application\
+          didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken\
+          {\
+            NSLog(@"[FCM iOS] APNS token recu");\
+          \
+            [FIRMessaging messaging].APNSToken = deviceToken;\
+          \
+            [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error)\
+            {\
+                if(error)\
+                {\
+                    NSLog(@"[FCM iOS] Erreur FCM %@", error);\
+                }\
+                else\
+                {\
+                    NSLog(@"[FCM iOS] Token FCM %@", token);\
+                }\
+            }];\
+          }\
+          \
+          - (void)application:(UIApplication *)application\
+          didFailToRegisterForRemoteNotificationsWithError:(NSError *)error\
+          {\
+            NSLog(@"[FCM iOS] Erreur APNS %@", error);\
+          }\
+          ' "$APPDELEGATE_FILE"
            
           
       - name: Verify Injection
         run: |
           echo "--- Contenu de main.m ---"
           cat ./fcvv-ios/main.m
-          echo -e "\n--- Contenu de bridge.m ---"
-          cat ./fcvv-ios/bridge.m
+          
+          echo -e "\n--- Contenu SDL_uikitappdelegate.m ---"
+          cat "$APPDELEGATE_FILE"
+          
+          echo -e "\n--- Recherche callbacks APNS ---"
+          grep -n "didRegisterForRemoteNotificationsWithDeviceToken" "$APPDELEGATE_FILE" || true
+          
+          grep -n "FIRMessaging" "$APPDELEGATE_FILE" || true
 
       - name: Configure Xcode Entitlements for Push
         run: |

@@ -397,8 +397,10 @@ class IOSNotificationManager(NotificationManager):
 
 
             print(
-                "[FCM iOS] Attente du token APNS avant FCM"
+                "[FCM iOS] Attente du token FCM"
             )
+
+            self._start_waiting_for_token()
 
 
         else:
