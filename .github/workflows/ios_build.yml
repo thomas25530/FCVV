@@ -148,10 +148,11 @@ jobs:
                 NSLog(@"[FCM iOS] Firebase configure");\
             }\
             [[UIApplication sharedApplication] registerForRemoteNotifications];\
-            NSLog(@"[FCM iOS] APNS registration");' "$MAIN_FILE"
+            NSLog(@"[FCM iOS] APNS registration");\
+            ' "$MAIN_FILE"
 
           # 3. Firebase APNS -> FCM dans le vrai delegate SDL
-          sed -i '' '1s/^/#import <UserNotifications\/UserNotifications.h>\n@import FirebaseMessaging;\n/' "$APPDELEGATE_FILE"
+          sed -i '' '1s/^/@import FirebaseMessaging;\n/' "$APPDELEGATE_FILE"
 
           grep -q "APNS token recu" "$APPDELEGATE_FILE" || sed -i '' '/@implementation SDLUIKitDelegate {/a\
           \
@@ -164,12 +165,9 @@ jobs:
           \
             [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error)\
             {\
-                if(error)\
-                {\
+                if(error) {\
                     NSLog(@"[FCM iOS] Erreur FCM %@", error);\
-                }\
-                else\
-                {\
+                } else {\
                     NSLog(@"[FCM iOS] Token FCM %@", token);\
                 }\
             }];\
@@ -188,8 +186,13 @@ jobs:
           echo "--- Contenu de main.m ---"
           cat ./fcvv-ios/main.m
           
+          APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" | head -1)
+          
           echo -e "\n--- Contenu SDL_uikitappdelegate.m ---"
           cat "$APPDELEGATE_FILE"
+          
+          echo -e "\n--- Contenu cibler 30 lignes SDL_uikitappdelegate.m ---"
+          grep -n -A80 -B5 "@implementation SDLUIKitDelegate" "$APPDELEGATE_FILE"
           
           echo -e "\n--- Recherche callbacks APNS ---"
           grep -n "didRegisterForRemoteNotificationsWithDeviceToken" "$APPDELEGATE_FILE" || true
