@@ -107,11 +107,34 @@ class LoginScreen(Screen):
         vestiaires = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
         self.cat_spinner.values = [item.get("categorie") for item in vestiaires if item.get("categorie")]
 
+    def enregistrer_parent_firebase(self, nom):
+        try:
+            r = requests.post(
+                f"https://fcvv-api.onrender.com/users/register",
+                json={
+                    "nom": nom
+                },
+                timeout=5
+            )
+            
+            if r.status_code == 200:
+                print(f"Parent enregistre : {r.json()}")
+            else:
+                print(
+                    f"Erreur enregistrement parent : "
+                    f"{r.status_code} {r.text}"
+                )
+        except Exception as e:
+            print(f"Erreur connexion enregistrement parent : {e}")
+    
+    
+    
     def check_login(self, instance):
         app = App.get_running_app()
         cat = self.cat_spinner.text
         pwd = self.pwd_input.text.strip()
         nom = self.name_input.text.strip()
+        nom = " ".join(nom.upper().split())
         
         if not nom or not pwd:
             self.show_popup("Erreur", "Veuillez remplir votre nom et le mot de passe.")
@@ -128,6 +151,7 @@ class LoginScreen(Screen):
         
         if super_admin_item and saisie_hash == super_admin_item["password_super_admin_hash"]:
             app.config.set('User', 'nom_parent', nom)
+            self.enregistrer_parent_firebase(nom)
             
             # Récupérer TOUTES les catégories valides dans le YAML
             toutes_cats = []
@@ -161,6 +185,7 @@ class LoginScreen(Screen):
         role = app.check_vestiaire_password(cat, pwd)
         if role:
             app.config.set('User', 'nom_parent', nom)
+            self.enregistrer_parent_firebase(nom)
             app.add_authorized_vestiaire(cat, role, saisie_hash, save=True)
             app.gerer_abonnements_fcm(app.authorized_vestiaires)
             
