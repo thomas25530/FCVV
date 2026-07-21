@@ -154,30 +154,37 @@ jobs:
           # 3. Firebase APNS -> FCM dans le vrai delegate SDL
           sed -i '' '1s/^/@import FirebaseMessaging;\n/' "$APPDELEGATE_FILE"
 
-          grep -q "APNS token recu" "$APPDELEGATE_FILE" || sed -i '' '/@implementation SDLUIKitDelegate {/a\
-          \
-          - (void)application:(UIApplication *)application\
-          didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken\
-          {\
-            NSLog(@"[FCM iOS] APNS token recu");\
-          \
-            [FIRMessaging messaging].APNSToken = deviceToken;\
-          \
-            [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error)\
-            {\
-                if(error) {\
-                    NSLog(@"[FCM iOS] Erreur FCM %@", error);\
-                } else {\
-                    NSLog(@"[FCM iOS] Token FCM %@", token);\
-                }\
-            }];\
-          }\
-          \
-          - (void)application:(UIApplication *)application\
-          didFailToRegisterForRemoteNotificationsWithError:(NSError *)error\
-          {\
-            NSLog(@"[FCM iOS] Erreur APNS %@", error);\
-          }\
+          grep -q "APNS token recu" "$APPDELEGATE_FILE" || perl -0pi -e '
+          s/
+          \}
+          (\s*\/\* convenience method \*\/)
+          /
+          }
+
+          - (void)application:(UIApplication *)application
+          didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+          {
+            NSLog(@"[FCM iOS] APNS token recu");
+
+            [FIRMessaging messaging].APNSToken = deviceToken;
+
+            [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error) {
+                if (error) {
+                    NSLog(@"[FCM iOS] Erreur FCM %@", error);
+                } else {
+                    NSLog(@"[FCM iOS] Token FCM %@", token);
+                }
+            }];
+          }
+
+          - (void)application:(UIApplication *)application
+          didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
+          {
+            NSLog(@"[FCM iOS] Erreur APNS %@", error);
+          }
+
+          $1
+          /s;
           ' "$APPDELEGATE_FILE"
            
           
