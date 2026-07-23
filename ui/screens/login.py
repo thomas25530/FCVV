@@ -9,6 +9,10 @@ from kivy.uix.popup import Popup
 from kivy.app import App
 from kivy.metrics import dp
 
+from kivy.uix.checkbox import CheckBox
+from kivy.core.clipboard import Clipboard
+import webbrowser
+
 import hashlib
 import requests
 
@@ -74,8 +78,64 @@ class LoginScreen(Screen):
             size_hint_y=None, height=dp(60), halign='center'
         ))
         
+        #############################################################################
+        # Acceptation CGU / Politique confidentialité
+        cgu_layout = BoxLayout(
+            orientation='horizontal',
+            size_hint_y=None,
+            height=dp(70),
+            spacing=dp(10)
+        )
+        
+        self.cgu_checkbox = CheckBox(
+            size_hint=(None, None),
+            size=(dp(40), dp(40))
+        )
+        
+        self.cgu_checkbox.bind(
+            active=self.update_cgu_state
+        )
+        
+        cgu_layout.add_widget(self.cgu_checkbox)
+        
+        
+        self.cgu_label = Label(
+            text=(
+                "J'ai lu et j'accepte les "
+                "[ref=cgu][u]Conditions Générales d'Utilisation[/u][/ref]\n"
+                "et la "
+                "[ref=privacy][u]Politique de confidentialité[/u][/ref]\n"
+                "du FCVV."
+            ),
+            markup=True,
+            font_size='14sp',
+            halign="left",
+            valign="middle"
+        )
+        
+        self.cgu_label.bind(
+            size=self.cgu_label.setter('text_size')
+        )
+        
+        self.cgu_label.bind(
+            on_ref_press=self.open_legal_page
+        )
+        
+        cgu_layout.add_widget(self.cgu_label)
+        
+        self.layout.add_widget(cgu_layout)
+        
+        #########################################################################
+        
         # Bouton Aller au Vestiaire en GRAS
         btn_go = Button(text="[b]Aller au Vestiaire[/b]", markup=True, font_size='18sp', size_hint_y=None, height=dp(60), background_color=(0, 0.7, 0, 1))
+        btn_go.disabled = True
+
+        self.btn_go_vestiaire = btn_go
+        
+        self.cgu_checkbox.bind(
+            active=self.enable_vestiaire_button
+        )
         btn_go.bind(on_release=self.go_to_vestiaire)
         self.layout.add_widget(btn_go)
         
@@ -83,10 +143,56 @@ class LoginScreen(Screen):
         self.layout.add_widget(BoxLayout()) 
         
         self.add_widget(self.layout)
+        
+    def enable_vestiaire_button(self, checkbox, value):
+        self.btn_go_vestiaire.disabled = not value
+        
+    def update_cgu_state(self, checkbox, value):
+        app = App.get_running_app()
+    
+        app.config.set(
+            'User',
+            'vestiaire_cgu_accept',
+            '1' if value else '0'
+        )
+    
+        app.config.write()
+            
+    def open_legal_page(self, instance, ref):
+
+        if ref == "cgu":
+    
+            url = "https://sites.google.com/view/fcvv-application/conditions-utilisation"
+    
+        elif ref == "privacy":
+    
+            url = "https://sites.google.com/view/fcvv-application/confidentialite"
+    
+        else:
+            return
+    
+        webbrowser.open(url)
     
     def go_to_vestiaire(self, instance):
+
         app = App.get_running_app()
-        root = app.root 
+
+        # Vérification acceptation CGU
+        accepte = app.config.get(
+            'User',
+            'vestiaire_cgu_accept',
+            fallback='0'
+        )
+
+        if accepte != '1':
+            self.show_popup(
+                "Conditions obligatoires",
+                "Vous devez accepter les CGU et la politique de confidentialité\navant d'accéder au vestiaire."
+            )
+            return
+
+        root = app.root
+
         if hasattr(root, 'switch_screen'):
             root.switch_screen('vestiaire')
         else:
@@ -106,7 +212,16 @@ class LoginScreen(Screen):
             
         vestiaires = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
         self.cat_spinner.values = [item.get("categorie") for item in vestiaires if item.get("categorie")]
+        
+        # Restaurer l'état d'acceptation CGU
+        accepte = app.config.get(
+            'User',
+            'vestiaire_cgu_accept',
+            fallback='0'
+        )
 
+        self.cgu_checkbox.active = (accepte == '1')
+    
     def enregistrer_parent_firebase(self, nom):
         try:
             r = requests.post(
@@ -116,7 +231,6 @@ class LoginScreen(Screen):
                 },
                 timeout=5
             )
-            
             if r.status_code == 200:
                 print(f"Parent enregistre : {r.json()}")
             else:
@@ -126,9 +240,7 @@ class LoginScreen(Screen):
                 )
         except Exception as e:
             print(f"Erreur connexion enregistrement parent : {e}")
-    
-    
-    
+
     def check_login(self, instance):
         app = App.get_running_app()
         cat = self.cat_spinner.text

@@ -160,16 +160,18 @@ class ConvocationCard(StyledCard):
         fs = get_user_font_size()
         details = BoxLayout(orientation='vertical', spacing=dp(5), size_hint_y=None)
         details.bind(minimum_height=details.setter('height'))
-        
+
         def create_label(text, font_size, color=(1, 1, 1, 1), height=dp(30)):
             lbl = Label(text=text, markup=True, font_size=f"{font_size}sp", color=color, size_hint_y=None, height=height, halign='left', valign='middle', size_hint_x=1)
             lbl.bind(width=lambda i, w: setattr(i, 'text_size', (w, None)))
             return lbl
-            
+
         details.add_widget(create_label(text=f"[b]Contre :[/b] {data.get('adversaire', 'À définir')}", font_size=fs))
         details.add_widget(create_label(text=f"[b]Date :[/b] {data.get('date', 'N/C')}", font_size=fs-2))
-        details.add_widget(create_label(text=f"[b]RDV :[/b] {data.get('heure_rdv', 'N/C')} | [b]Coup d'envoi :[/b] {data.get('heure_match', 'N/C')}", font_size=fs-2, color=(1, 0.7, 0.7, 1)))
+        details.add_widget(create_label(text=f"[b]RDV :[/b] {data.get('heure_rdv', 'N/C')}",font_size=fs-2,color=(1, 0.7, 0.7, 1)))
+        details.add_widget(create_label(text=f"[b]Coup d'envoi :[/b] {data.get('heure_match', 'N/C')}",font_size=fs-2,color=(1, 0.7, 0.7, 1)))
         details.add_widget(create_label(text=f"[b]Lieu :[/b] {data.get('lieu', 'N/C')}", font_size=fs-2))
+        details.add_widget(create_label(text=f"[b]Entraîneurs :[/b] {data.get('entraineurs', 'N/C')}", font_size=fs-2))
         self.add_widget(details)
 
 class JoueurItem(BoxLayout):
@@ -514,7 +516,7 @@ class VestiaireScreen(Screen):
             size_hint_x=None,
             height=dp(70),
             spacing=dp(8),
-            padding=[dp(10), 0]
+            padding=[dp(10), dp(10)]
         )
         
         self.cat_bar.bind(minimum_width=self.cat_bar.setter("width"))
@@ -1398,70 +1400,81 @@ class VestiaireScreen(Screen):
             print(f"Erreur connexion suppression: {e}")
     
     def ouvrir_gestion_convocations(self, match_id, match_info):
+
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(15))
-        
         # Titre interne
-        content.add_widget(Label(text="Informations du match", size_hint_y=None, height=dp(30), bold=True))
-        
+        content.add_widget(Label(text="Informations de la convocation", size_hint_y=None, height=dp(30), bold=True))
         # 1. Champ Nom équipe
         nom_equipe_input = TextInput(
-            text=match_id if match_id != "Nouvelle Équipe" else "", 
-            hint_text="Nom de l'équipe (ex: U11 - Match A)", 
+            text=match_id if match_id != "Nouvelle Équipe" else "",
+            hint_text="Nom de l'équipe (ex: U11 - Match A)",
             multiline=False, size_hint_y=None, height=dp(40)
         )
         content.add_widget(nom_equipe_input)
-        
         # 2. Formulaire compact (Grid)
-        fields_labels = ["Adversaire", "Date", "RDV", "Match", "Lieu", "Entraineurs"]
+        fields_labels = [ "Adversaire", "Date", "Heure RDV", "Heure Match", "Lieu", "Entraineurs" ]
         inputs = {}
         form_grid = GridLayout(cols=2, size_hint_y=None, height=dp(210), spacing=dp(5))
-        
+
         for label in fields_labels:
             form_grid.add_widget(Label(text=label, size_hint_x=0.3, halign='left'))
-            ti = TextInput(text=match_info.get(label.lower().replace("rdv", "heure_rdv").replace("match", "heure_match"), ''), 
-                           multiline=False)
+            # Correspondance entre les noms d'affichage et les clés du dictionnaire
+            key = label.lower()
+            key = key.replace("heure rdv", "heure_rdv")
+            key = key.replace("heure match", "heure_match")
+            key = key.replace(" ", "_")
+            # Exemples affichés si le champ est vide
+            exemples = {
+                "adversaire": "ex : FCSM",
+                "date": "ex : 15/09/2026",
+                "heure_rdv": "ex : 13h30 à Valdahon ou 14h00 directement",
+                "heure_match": "ex : 15h00",
+                "lieu": "ex : Stade municipal",
+                "entraineurs": "ex : Dupont / Martin"
+            }
+            ti = TextInput(
+                text=match_info.get(key, ""),
+                hint_text=exemples.get(key, ""),
+                multiline=False,
+                size_hint_y=None,
+                height=dp(40)
+            )
             inputs[label] = ti
             form_grid.add_widget(ti)
         content.add_widget(form_grid)
-        
         # 3. Section Joueurs
         content.add_widget(Label(text="Joueurs :", size_hint_y=None, height=dp(30), bold=True))
-    
         # --- Bloc Ajout Manuel ---
         add_manual_box = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(5))
         cat_input = TextInput(hint_text="Cat", multiline=False, size_hint_x=0.2)
         nom_input = TextInput(hint_text="Prénom Nom", multiline=False)
-        
         # Liste pour stocker les checkboxes (incluant les ajoutés manuellement)
         checkboxes = []
-        
+
         def ajouter_joueur_manuel(instance):
             nom_complet_saisi = nom_input.text.strip()
             cat = cat_input.text.strip().upper()
+
             if nom_complet_saisi:
                 parts = nom_complet_saisi.split(' ', 1)
                 prenom = parts[0]
                 nom = parts[1] if len(parts) > 1 else ""
-                
                 # Format uniforme : Prénom NOM (Catégorie)
                 # On met le NOM en majuscules pour le distinguer
                 label_text = f"{prenom} {nom.upper()} ({cat})" if cat else f"{prenom} {nom.upper()}"
-                
                 box = BoxLayout(size_hint_y=None, height=dp(40))
                 cb = CheckBox(size_hint_x=0.2, active=True)
                 cb.nom_joueur = nom
                 cb.prenom_joueur = prenom
                 cb.categorie = cat
                 cb.est_manuel = True
-                
                 box.add_widget(cb)
                 box.add_widget(Label(text=label_text, halign='left'))
                 grid_joueurs.add_widget(box)
                 checkboxes.append(cb)
-                
                 nom_input.text = ""
                 cat_input.text = ""
-    
+
         btn_add = Button(text="+", size_hint_x=0.15)
         btn_add.bind(on_release=ajouter_joueur_manuel)
         add_manual_box.add_widget(cat_input)
@@ -1469,11 +1482,9 @@ class VestiaireScreen(Screen):
         add_manual_box.add_widget(btn_add)
         content.add_widget(add_manual_box)
         # --------------------------
-    
         scroll = ScrollView()
         grid_joueurs = GridLayout(cols=1, size_hint_y=None, spacing=dp(2))
         grid_joueurs.bind(minimum_height=grid_joueurs.setter('height'))
-        
         tous_joueurs = self._cache_data.get(self.current_cat, {}).get('tous_les_joueurs', [])
         joueurs_convoques_data = match_info.get('joueurs_convoques', [])
         convoques_noms_complets = [f"{j.get('prenom', '')} {j.get('nom', '')}".strip() for j in joueurs_convoques_data]
@@ -1483,27 +1494,25 @@ class VestiaireScreen(Screen):
             prenom = joueur.get('prenom', '')
             nom = joueur.get('nom', '')
             nom_complet = f"{prenom} {nom}".strip()
-            
             cb = CheckBox(size_hint_x=0.2, active=(nom_complet in convoques_noms_complets))
             cb.nom_joueur = nom
             cb.prenom_joueur = prenom
             cb.est_manuel = False # Catégorie par défaut pour les joueurs de la liste
-            
             box.add_widget(cb)
             box.add_widget(Label(text=nom_complet, halign='left'))
             grid_joueurs.add_widget(box)
             checkboxes.append(cb)
-        
+
         scroll.add_widget(grid_joueurs)
         content.add_widget(scroll)
-        
+
         # 4. Boutons en bas
         btn_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         btn_save = Button(text="Enregistrer", background_color=(0, 0.7, 0, 1))
         btn_save.bind(on_release=lambda x: self.sauvegarder_tout_match(nom_equipe_input.text, inputs, checkboxes))
         btn_close = Button(text="Fermer", background_color=(0.5, 0.5, 0.5, 1))
         btn_close.bind(on_release=lambda x: self.convoc_popup.dismiss())
-        
+
         btn_box.add_widget(btn_save)
         btn_box.add_widget(btn_close)
         content.add_widget(btn_box)
@@ -1539,8 +1548,8 @@ class VestiaireScreen(Screen):
         data = {
             "adversaire": get_val(fields["Adversaire"]),
             "date": get_val(fields["Date"]),
-            "heure_rdv": get_val(fields["RDV"]),
-            "heure_match": get_val(fields["Match"]),
+            "heure_rdv": get_val(fields["Heure RDV"]),
+            "heure_match": get_val(fields["Heure Match"]),
             "lieu": get_val(fields["Lieu"]),
             "entraineurs": get_val(fields["Entraineurs"]),
             "joueurs_convoques": liste_joueurs

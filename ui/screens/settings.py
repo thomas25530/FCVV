@@ -399,7 +399,10 @@ class SettingsScreen(Screen):
             app.config.set('User', 'news_period', '15')
             app.config.set('User', 'dark_mode', '0')
             app.config.set('User', 'authorized_list', '') 
-            app.config.set('User', 'nom_parent', '') 
+            app.config.set('User', 'nom_parent', '')
+            
+            # Réinitialisation acceptation CGU / Politique confidentialité
+            app.config.set('User', 'vestiaire_cgu_accept', '0')
             
             # 2. Suppression TOTALE de la section 'Roles'
             # Cela supprime tous les hashs et rôles stockés localement

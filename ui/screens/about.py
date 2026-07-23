@@ -17,9 +17,12 @@ from kivy.metrics import dp
 from kivy.utils import platform
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.animation import Animation
+from kivy.uix.button import Button
 
 # Mettez à jour ce numéro à chaque nouvelle publication d'APK
-CURRENT_VERSION = "2026.1.0.6"
+CURRENT_VERSION = "2026.1.1.0"
+URL_CGU = "https://sites.google.com/view/fcvv-application/conditions-utilisation"
+URL_CONFIDENTIALITE = "https://sites.google.com/view/fcvv-application/confidentialite"
 
 def _(key):
     app = App.get_running_app()
@@ -69,6 +72,9 @@ class AboutScreen(Screen):
 
     def on_enter(self):
         self.update_ui_from_config()
+    
+    def open_url(self, url):
+        webbrowser.open(url)
 
     def bind_label(self, lbl):
         """Fonction utilitaire pour gérer le redimensionnement du texte."""
@@ -138,6 +144,58 @@ class AboutScreen(Screen):
             )
             self.bind_label(lbl)
             self.info_list.add_widget(lbl)
+            
+        
+        lbl_update = Label(
+            text="[color=bbbbbb]Documents légaux mis à jour le :[/color] [b]22 juillet 2026[/b]",
+            markup=True,
+            font_size=f"{user_size}sp",
+            halign='center',
+            size_hint_y=None
+        )
+        
+        self.bind_label(lbl_update)
+        self.info_list.add_widget(lbl_update)
+        # 4. Boutons documents légaux
+        lbl_legal = Label(
+            text="[b]Documents légaux[/b]",
+            markup=True,
+            font_size=f"{user_size + 4}sp",
+            halign='center',
+            size_hint_y=None,
+            height=dp(40)
+        )
+        self.info_list.add_widget(lbl_legal)
+
+
+        btn_cgu = Button(
+            text="Conditions Générales d'Utilisation",
+            font_size=f"{user_size + 2}sp",
+            size_hint_y=None,
+            height=dp(60),
+            background_color=(0.2, 0.5, 1, 1)
+        )
+
+        btn_cgu.bind(
+            on_release=lambda x: self.open_url(URL_CGU)
+        )
+
+        self.info_list.add_widget(btn_cgu)
+
+
+        btn_conf = Button(
+            text="Politique de confidentialité",
+            font_size=f"{user_size + 2}sp",
+            size_hint_y=None,
+            height=dp(60),
+            background_color=(0.2, 0.5, 1, 1)
+        )
+
+        btn_conf.bind(
+            on_release=lambda x: self.open_url(URL_CONFIDENTIALITE)
+        )
+
+        self.info_list.add_widget(btn_conf)
 
     def download_external_image(self, url):
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)

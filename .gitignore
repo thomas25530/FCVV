@@ -31,6 +31,7 @@ bin/
 save/
 *.yaml
 *.txt
+*.docx
 fcvv_release.keystore
 
 1_apk/
@@ -38,6 +39,7 @@ fcvv_release.keystore
 2_backup/
 5_release/
 fcvv_api/
+publication/
 *.apk
 *.zip
 .settings/

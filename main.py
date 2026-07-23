@@ -768,7 +768,8 @@ class MyApp(App):
             'news_period': '15',
             'vestiaire_auth': '0',
             'authorized_list': '',
-            'nom_parent': ''
+            'nom_parent': '',
+            'vestiaire_cgu_accept': '0'
         })
         
         # Initialisation de la section 'Roles' pour éviter les erreurs lors du premier démarrage
