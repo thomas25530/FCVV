@@ -10,7 +10,7 @@ NotificationChannel = autoclass('android.app.NotificationChannel')
 Notification = autoclass('android.app.Notification')
 
 def start_foreground_service():
-    channel_id = "fcvv_service_channel"
+    channel_id = "fcvv_high_priority_v1"
     channel_name = "FCVV Notifications"
     
     # Création du canal (obligatoire pour Android 8+)
