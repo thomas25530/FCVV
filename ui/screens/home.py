@@ -554,35 +554,24 @@ class HomeScreen(Screen):
         return 15 
     
     def _build_news_signature(self, news_list):
+        if not news_list:
+            return "empty"
+    
+        stable_data = []
+        for item in news_list:
+            if isinstance(item, dict):
+                # On ne conserve que les champs stables/textuels de chaque news
+                stable_data.append({
+                    "id": str(item.get("id") or item.get("title") or ""),
+                    "date": str(item.get("date") or ""),
+                    "title": str(item.get("title") or ""),
+                    "summary": str(item.get("summary") or item.get("content") or ""),
+                    "type": str(item.get("type") or "")
+                })
+    
         return hashlib.md5(
-            json.dumps(news_list, sort_keys=True).encode("utf-8")
+            json.dumps(stable_data, sort_keys=True).encode("utf-8")
         ).hexdigest()
-
-    def update_ui_from_config(self, *args, force=False):
-        print(f"[DEBUG] update_ui_from_config (force={force})")
-        if self.is_updating:
-            return False
-        app = App.get_running_app()
-        if not hasattr(app, "app_config") or not app.app_config:
-            Clock.schedule_once(lambda dt: self.update_ui_from_config(force=force), 0.5)
-            return False
-        self.is_updating = True
-        fcvv_data = app.app_config.get("fcvv", {})
-        news_list = fcvv_data.get("appli", {}).get("news", [])
-        if self.current_max_days == 0:
-            self.current_max_days = self._get_step_days()
-        self._filter_news_by_date(news_list)
-        current_hash = self._build_news_signature(self.filtered_news_cache)
-        # SI LE CONTENU EST IDENTIQUE : Annulation immédiate, aucun clignotement possible
-        if not force and current_hash == self.last_config_hash and len(self.news_layout.children) > 0:
-            self.is_updating = False
-            self.show_main_loader(False)
-            return False
-            
-        self.last_config_hash = current_hash
-        self.show_main_loader(True)
-        Clock.schedule_once(lambda dt: self._generate_news_ui(clear_all=True), 0.1)
-        return True
 
     def load_next_period(self, instance):
         if self.is_generating or self.has_reached_end: 
@@ -595,7 +584,9 @@ class HomeScreen(Screen):
         def background_period_check():
             try:
                 if hasattr(app, 'load_remote_config'): 
-                    app.load_remote_config()
+                    #app.load_remote_config()
+                    print(f"[DEBUG] Simple elargissement du filtre de date sur les donnees deja telechargees et en memoire")
+                    
             finally:
                 raw_news = app.app_config.get("fcvv", {}).get("appli", {}).get("news", []) if hasattr(app, "app_config") else []
                 self._filter_news_by_date(raw_news)
@@ -622,52 +613,86 @@ class HomeScreen(Screen):
     def _update_bg(self, instance, value):
         self.rect_bg.pos = instance.pos
         self.rect_bg.size = instance.size
+        
+    def update_ui_from_config(self, *args, force=False):
+        
+        if self.is_updating:
+            return False
+            
+        app = App.get_running_app()
+        has_config = hasattr(app, "app_config") and bool(app.app_config)
+        
+        if not has_config:
+            Clock.schedule_once(lambda dt: self.update_ui_from_config(force=force), 0.5)
+            return False
+
+        # --- CORRECTION 1 : Récupérer le réglage utilisateur actuel ---
+        configured_step = self._get_step_days()
+        
+        period_changed = False
+        if self.current_max_days == 0 or (force and self.current_max_days != configured_step):
+            self.current_max_days = configured_step
+            period_changed = True
+
+        fcvv_data = app.app_config.get("fcvv", {})
+        news_list = fcvv_data.get("appli", {}).get("news", [])
+        self._filter_news_by_date(news_list)
+        current_hash = self._build_news_signature(self.filtered_news_cache)
+        num_children = len(self.news_layout.children)
+
+        # --- CORRECTION 2 : ANTI-FLASH INTELLIGENT ---
+        if current_hash == getattr(self, 'last_config_hash', None) and num_children > 0 and not period_changed:
+            self.is_updating = False
+            self.show_main_loader(False)
+            return False
+            
+        self.is_updating = True
+        self.last_config_hash = current_hash
+        self.show_main_loader(True)
+        Clock.schedule_once(lambda dt: self._generate_news_ui(clear_all=True), 0.1)
+        return True
 
     def on_enter(self, dt=None):
         app = App.get_running_app()
-        
-        # --- CORRECTION : Réinitialisation de sécurité ---
-        # Si on entre dans la page, on veut repartir sur une base saine
-        self.is_fetching_remote = False
-        if hasattr(app, 'is_fetching_remote'):
-            app.is_fetching_remote = False
-        # ------------------------------------------------
-        
-        # 0. SÉCURITÉ RE-ENTRÉE : Si l'interface est déjà construite, on s'assure de couper le loader visuel
+
+        # Récupération de la période configurée actuellement
+        configured_step = self._get_step_days()
+
+        # Si l'utilisateur est allé dans les paramètres et a changé la période
+        # On invalide pour forcer la prise en compte de la nouvelle période
+        if getattr(self, 'current_max_days', 0) != configured_step and configured_step > 0:
+            print(f"[UI] Retour sur Home avec nouvelle periode configuree ({configured_step} jours)")
+            self.current_max_days = configured_step
+            self.update_ui_from_config(force=True)
+            return
+
+        # 0. SÉCURITÉ RE-ENTRÉE : Si l'interface contient déjà des cartes et que la période n'a pas changé
         if len(self.news_layout.children) > 0:
             self.show_main_loader(False)
             self.is_updating = False
             self.is_generating = False
-            self.is_fetching_remote = False
-            # Optionnel : On rafraîchit sans forcer pour vérifier s'il y a du neuf en tâche de fond
             self.update_ui_from_config(force=False)
             return
-        # 1. SÉCURITÉ ANTI-CONFLIT : Si l'application ou l'écran est déjà en train de charger
-        if self.is_updating or self.is_fetching_remote or getattr(app, 'is_fetching_remote', False):
+
+        # 1. ANTI-CONFLIT : Si le réseau est déjà en train de télécharger dans main.py
+        if self.is_updating or getattr(app, 'is_fetching_remote', False):
             self.show_main_loader(True)
             return
-        # 2. CAS OÙ LA CONFIG N'EST PAS ENCORE DISPONIBLE
+
+        # 2. CAS OÙ LA CONFIG N'EST PAS ENCORE DISPONIBLE (Premier lancement à froid)
         if not hasattr(app, "app_config") or not app.app_config:
-            self.is_fetching_remote = True
-            if hasattr(app, 'is_fetching_remote'):
-                app.is_fetching_remote = True
             self.show_main_loader(True)
-            if hasattr(app, 'load_remote_config'): 
-                threading.Thread(target=app.load_remote_config, daemon=True).start()
+            if hasattr(app, 'start_network_tasks'): 
+                app.start_network_tasks()
             Clock.schedule_once(lambda dt: self.on_enter(), 0.5)
             return
-        # 3. LA CONFIG EST DISPONIBLE
-        self.is_fetching_remote = False
-        if hasattr(app, 'is_fetching_remote'):
-            app.is_fetching_remote = False
-        # 4. INITIALISATION DES PARAMÈTRES DE TEMPS
-        if getattr(self, 'current_max_days', 0) == 0:
-            self.current_max_days = self._get_step_days()
-        # 5. MISE À JOUR DU BOUTON
+
+        # 3. INITIALISATION STANDARD
         self.more_btn.disabled = self.has_reached_end
         self.more_btn.text = "Fin des actualités" if self.has_reached_end else "Plus d'actualités"
-        # 6. RENDER DE L'UI INITIAL (L'écran est forcément vide ici grâce au point 0)
-        self.update_ui_from_config(force=True)
+
+        # 4. Affichage initial des données
+        self.update_ui_from_config(force=False)
 
     # ================= FUSION UNIQUE ET NETTOYAGE =================
     def _generate_news_ui(self, clear_all=True):

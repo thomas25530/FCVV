@@ -151,8 +151,8 @@ jobs:
             NSLog(@"[FCM iOS] APNS registration");\
             ' "$MAIN_FILE"
 
-          # 3. Firebase APNS -> FCM dans le vrai delegate SDL
-          sed -i '' '1s/^/@import FirebaseMessaging;\n/' "$APPDELEGATE_FILE"
+          # 3. Firebase APNS -> FCM + Foreground Popups dans le vrai delegate SDL
+          sed -i '' '1s/^/@import FirebaseMessaging;\n@import UserNotifications;\n/' "$APPDELEGATE_FILE"
 
           grep -q "APNS token recu" "$APPDELEGATE_FILE" || perl -0pi -e '
           s/
@@ -160,14 +160,14 @@ jobs:
           (\s*\/\* convenience method \*\/)
           /
           }
+          
+          #pragma mark - FCM & Notifications Push
 
           - (void)application:(UIApplication *)application
           didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
           {
             NSLog(@"[FCM iOS] APNS token recu");
-
             [FIRMessaging messaging].APNSToken = deviceToken;
-
             [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error) {
                 if (error) {
                     NSLog(@"[FCM iOS] Erreur FCM %@", error);
@@ -175,6 +175,11 @@ jobs:
                     NSLog(@"[FCM iOS] Token FCM %@", token);
                 }
             }];
+
+            // Definir le delegate pour les notifications au premier plan
+            if (@available(iOS 10.0, *)) {
+              [UNUserNotificationCenter currentNotificationCenter].delegate = (id<UNUserNotificationCenterDelegate>)self;
+            }
           }
 
           - (void)application:(UIApplication *)application
@@ -183,6 +188,19 @@ jobs:
             NSLog(@"[FCM iOS] Erreur APNS %@", error);
           }
 
+          // FORCE L'AFFICHAGE DE LA BANNIÈRE + SON EN PREMIER PLAN (FOREGROUND)
+          - (void)userNotificationCenter:(UNUserNotificationCenter *)center
+                 willPresentNotification:(UNNotification *)notification
+                   withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler API_AVAILABLE(ios(10.0))
+          {
+            NSLog(@"[FCM iOS] Notification recue au premier plan !");
+            // 7 = UNNotificationPresentationOptionBanner (ou Alert) + Sound + Badge
+            if (@available(iOS 14.0, *)) {
+                completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge);
+            } else {
+                completionHandler(UNNotificationPresentationOptionAlert | UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge);
+            }
+          }
           $1
           /s;
           ' "$APPDELEGATE_FILE"

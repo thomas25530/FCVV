@@ -89,23 +89,42 @@ class LoginScreen(Screen):
         
         self.cgu_checkbox = CheckBox(
             size_hint=(None, None),
-            size=(dp(40), dp(40))
+            size=(dp(30), dp(30)),
+            color=(0, 0, 0, 1), # Coche noire
+            pos_hint={'center_y': 0.5}
         )
-        
-        self.cgu_checkbox.bind(
-            active=self.update_cgu_state
-        )
+
+        # Taille ajustée au millimètre pour épouser la case interne (16dp au lieu de 20dp)
+        BOX_SIZE = dp(16)
+
+        from kivy.graphics import Color, Rectangle
+        with self.cgu_checkbox.canvas.before:
+            Color(1, 1, 1, 1) # Blanc opaque
+            self.cgu_checkbox_rect = Rectangle(
+                pos=(
+                    self.cgu_checkbox.center_x - BOX_SIZE / 2,
+                    self.cgu_checkbox.center_y - BOX_SIZE / 2
+                ), 
+                size=(BOX_SIZE, BOX_SIZE)
+            )
+
+        def update_rect(instance, value):
+            self.cgu_checkbox_rect.pos = (
+                instance.center_x - BOX_SIZE / 2,
+                instance.center_y - BOX_SIZE / 2
+            )
+
+        self.cgu_checkbox.bind(pos=update_rect, size=update_rect)
+        self.cgu_checkbox.bind(active=self.update_cgu_state)
         
         cgu_layout.add_widget(self.cgu_checkbox)
-        
         
         self.cgu_label = Label(
             text=(
                 "J'ai lu et j'accepte les "
-                "[ref=cgu][u]Conditions Générales d'Utilisation[/u][/ref]\n"
+                "[ref=cgu][u][color=#FFFF00]Conditions Générales d'Utilisation[/color][/u][/ref]\n"
                 "et la "
-                "[ref=privacy][u]Politique de confidentialité[/u][/ref]\n"
-                "du FCVV."
+                "[ref=privacy][u][color=#FFFF00]Politique de confidentialité[/color][/u][/ref] du FCVV."
             ),
             markup=True,
             font_size='14sp',
@@ -124,7 +143,6 @@ class LoginScreen(Screen):
         cgu_layout.add_widget(self.cgu_label)
         
         self.layout.add_widget(cgu_layout)
-        
         #########################################################################
         
         # Bouton Aller au Vestiaire en GRAS

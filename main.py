@@ -23,8 +23,6 @@ import os, hashlib
 #import urllib3
 from datetime import datetime, timedelta
 
-import traceback
-
 from constants import LANGUAGES
 
 from kivy.utils import platform
@@ -818,7 +816,6 @@ class MyApp(App):
                         Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires), 8.0)
                 except Exception:
                     print("[FCM ERROR] Initialisation")
-                    traceback.print_exc()
         else:
             print("[INFO] Environnement Windows/Desktop : Notifications FCM ignorees.")
 
@@ -1145,7 +1142,6 @@ class MyApp(App):
 
             except Exception:
                 print("[FCM ERROR] Erreur lors de la synchro FCM")
-                traceback.print_exc()
 
         # On déclenche sur le thread principal
         Clock.schedule_once(do_fcm_work, 0.5)
