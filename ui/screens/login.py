@@ -264,7 +264,7 @@ class LoginScreen(Screen):
         cat = self.cat_spinner.text
         pwd = self.pwd_input.text.strip()
         nom = self.name_input.text.strip()
-        nom = " ".join(nom.upper().split())
+        #nom = " ".join(nom.upper().split())
         
         if not nom or not pwd:
             self.show_popup("Erreur", "Veuillez remplir votre nom et le mot de passe.")
