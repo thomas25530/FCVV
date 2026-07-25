@@ -294,6 +294,19 @@ jobs:
 
           echo "--- Structure fin SDLUIKitDelegate ---"
           grep -n "@implementation SDLUIKitDelegate\|@end" "$APPDELEGATE_FILE" | tail -10
+          
+          echo -e "\n--- Vérification SDL_uikitappdelegate.h ---"
+
+          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" | head -1)
+
+          echo "HEADER_FILE=$HEADER_FILE"
+
+          grep -n "@interface SDLUIKitDelegate" "$HEADER_FILE" || true
+          grep -n "UNUserNotificationCenterDelegate" "$HEADER_FILE" || true
+          grep -n "UserNotifications" "$HEADER_FILE" || true
+
+          echo -e "\n--- Début du header ---"
+          head -30 "$HEADER_FILE"
 
       - name: Configure Xcode Entitlements for Push
         run: |
