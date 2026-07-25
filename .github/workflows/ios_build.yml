@@ -132,42 +132,97 @@ jobs:
 
           MAIN_FILE=$(find "$PROJ_DIR" -name "main.m" | head -1)
           APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" | head -1)
-          
+
           grep -n "@implementation" "$APPDELEGATE_FILE"
 
           echo "MAIN_FILE=$MAIN_FILE"
           echo "APPDELEGATE_FILE=$APPDELEGATE_FILE"
 
-          # 1. Firebase dans main.m
-          sed -i '' '1s/^/@import FirebaseCore;\n@import FirebaseMessaging;\n/' "$MAIN_FILE"
+          # 1. Firebase imports dans main.m
+          python3 - "$MAIN_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          content = path.read_text()
+
+          imports = "@import FirebaseCore;\n@import FirebaseMessaging;\n"
+
+          if "FirebaseCore" not in content:
+            content = imports + content
+
+          path.write_text(content)
+          PY
+
 
           # 2. Configure Firebase dans main.m
-          sed -i '' '/int main(int argc, char \*argv\[\]) {/a\
-            if ([FIRApp defaultApp] == nil) {\
-                [FIRApp configure];\
-                NSLog(@"[FCM iOS] Firebase configure");\
-            }\
-            [[UIApplication sharedApplication] registerForRemoteNotifications];\
-            NSLog(@"[FCM iOS] APNS registration");\
-            ' "$MAIN_FILE"
+          python3 - "$MAIN_FILE" <<'PY'
+          from pathlib import Path
+          import sys
 
-          # 3. Firebase APNS -> FCM + Foreground Popups dans le vrai delegate SDL
-          sed -i '' $'1s/^/@import FirebaseMessaging;\n@import UserNotifications;\n/' "$APPDELEGATE_FILE"
+          path = Path(sys.argv[1])
+          content = path.read_text()
 
-          grep -q "APNS token recu" "$APPDELEGATE_FILE" || perl -0pi -e '
-          s/
-          \}
-          (\s*\/\* convenience method \*\/)
-          /
+          code = r'''
+          if ([FIRApp defaultApp] == nil) {
+              [FIRApp configure];
+              NSLog(@"[FCM iOS] Firebase configure");
           }
-          
+
+          [[UIApplication sharedApplication] registerForRemoteNotifications];
+          NSLog(@"[FCM iOS] APNS registration");
+          '''
+
+          marker = "int main(int argc, char *argv[]) {"
+
+          if "[FIRApp configure]" not in content:
+            content = content.replace(
+                marker,
+                marker + "\n" + code
+            )
+
+          path.write_text(content)
+          PY
+
+
+          # 3. Imports Firebase/UserNotifications dans SDL delegate
+          python3 - "$APPDELEGATE_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          content = path.read_text()
+
+          imports = "@import FirebaseMessaging;\n@import UserNotifications;\n"
+
+          if "FirebaseMessaging" not in content:
+            content = imports + content
+
+          path.write_text(content)
+          PY
+
+
+          # 4. Injection delegate FCM + notifications foreground
+          python3 - "$APPDELEGATE_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          content = path.read_text()
+
+          if "APNS token recu" not in content:
+
+            injection = r'''
+
           #pragma mark - FCM & Notifications Push
 
           - (void)application:(UIApplication *)application
           didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
           {
             NSLog(@"[FCM iOS] APNS token recu");
+
             [FIRMessaging messaging].APNSToken = deviceToken;
+
             [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error) {
                 if (error) {
                     NSLog(@"[FCM iOS] Erreur FCM %@", error);
@@ -176,11 +231,12 @@ jobs:
                 }
             }];
 
-            // Definir le delegate pour les notifications au premier plan
             if (@available(iOS 10.0, *)) {
-              [UNUserNotificationCenter currentNotificationCenter].delegate = (id<UNUserNotificationCenterDelegate>)self;
+                [UNUserNotificationCenter currentNotificationCenter].delegate =
+                    (id<UNUserNotificationCenterDelegate>)self;
             }
           }
+
 
           - (void)application:(UIApplication *)application
           didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
@@ -188,22 +244,36 @@ jobs:
             NSLog(@"[FCM iOS] Erreur APNS %@", error);
           }
 
-          // FORCE L'AFFICHAGE DE LA BANNIÈRE + SON EN PREMIER PLAN (FOREGROUND)
+
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
-                 willPresentNotification:(UNNotification *)notification
-                   withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
+               willPresentNotification:(UNNotification *)notification
+                 withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
           {
             NSLog(@"[FCM iOS] Notification recue au premier plan !");
-            // 7 = UNNotificationPresentationOptionBanner (ou Alert) + Sound + Badge
+
             if (@available(iOS 14.0, *)) {
-                completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge);
+                completionHandler(
+                    UNNotificationPresentationOptionBanner |
+                    UNNotificationPresentationOptionSound |
+                    UNNotificationPresentationOptionBadge
+                );
             } else {
-                completionHandler(UNNotificationPresentationOptionAlert | UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge);
+                completionHandler(
+                    UNNotificationPresentationOptionAlert |
+                    UNNotificationPresentationOptionSound |
+                    UNNotificationPresentationOptionBadge
+                );
             }
           }
-          $1
-          /s;
-          ' "$APPDELEGATE_FILE"
+          '''
+
+          # injecte avant la dernière accolade de l'implementation SDLUIKitDelegate
+          pos = content.rfind("\n}")
+          if pos != -1:
+              content = content[:pos] + injection + content[pos:]
+
+          path.write_text(content)
+          PY
            
           
       - name: Verify Injection
