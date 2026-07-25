@@ -152,7 +152,7 @@ jobs:
             ' "$MAIN_FILE"
 
           # 3. Firebase APNS -> FCM + Foreground Popups dans le vrai delegate SDL
-          sed -i '' '1s/^/@import FirebaseMessaging;\n@import UserNotifications;\n/' "$APPDELEGATE_FILE"
+          sed -i '' $'1s/^/@import FirebaseMessaging;\n@import UserNotifications;\n/' "$APPDELEGATE_FILE"
 
           grep -q "APNS token recu" "$APPDELEGATE_FILE" || perl -0pi -e '
           s/
@@ -191,7 +191,7 @@ jobs:
           // FORCE L'AFFICHAGE DE LA BANNIÈRE + SON EN PREMIER PLAN (FOREGROUND)
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
                  willPresentNotification:(UNNotification *)notification
-                   withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler API_AVAILABLE(ios(10.0))
+                   withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
           {
             NSLog(@"[FCM iOS] Notification recue au premier plan !");
             // 7 = UNNotificationPresentationOptionBanner (ou Alert) + Sound + Badge
