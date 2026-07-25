@@ -277,6 +277,36 @@ jobs:
 
           path.write_text(content)
           PY
+          
+          # 5. Déclare UNUserNotificationCenterDelegate dans SDL_uikitappdelegate.h
+          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" | head -1)
+
+          echo "HEADER_FILE=$HEADER_FILE"
+
+          python3 - "$HEADER_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          content = path.read_text()
+
+          # Ajoute l'import UserNotifications
+          if "#import <UserNotifications/UserNotifications.h>" not in content:
+              content = content.replace(
+                  "#import <UIKit/UIKit.h>",
+                  "#import <UIKit/UIKit.h>\n#import <UserNotifications/UserNotifications.h>"
+              )
+
+          # Ajoute le protocole UNUserNotificationCenterDelegate
+          old = "@interface SDLUIKitDelegate : NSObject<UIApplicationDelegate>"
+          new = "@interface SDLUIKitDelegate : NSObject<UIApplicationDelegate, UNUserNotificationCenterDelegate>"
+
+          if old in content:
+              content = content.replace(old, new)
+
+          path.write_text(content)
+          PY
+          
            
           
       - name: Verify Injection
@@ -307,6 +337,11 @@ jobs:
 
           echo -e "\n--- Début du header ---"
           head -30 "$HEADER_FILE"
+          
+          echo -e "\n--- Vérification SDL_uikitappdelegate.h ---"
+
+          grep -n "UserNotifications" "$HEADER_FILE" || true
+          grep -n "@interface SDLUIKitDelegate" "$HEADER_FILE" || true
 
       - name: Configure Xcode Entitlements for Push
         run: |
