@@ -212,7 +212,7 @@ jobs:
 
           if "APNS token recu" not in content:
 
-            injection = r'''
+              injection = r'''
 
           #pragma mark - FCM & Notifications Push
 
@@ -267,10 +267,13 @@ jobs:
           }
           '''
 
-          # injecte avant la dernière accolade de l'implementation SDLUIKitDelegate
-          pos = content.rfind("\n}")
-          if pos != -1:
-              content = content[:pos] + injection + content[pos:]
+          # Cherche le vrai @end de SDLUIKitDelegate
+          pos = content.rfind("\n@end")
+
+          if pos == -1:
+            raise RuntimeError("Impossible de trouver @end SDLUIKitDelegate")
+
+          content = content[:pos] + injection + content[pos:]
 
           path.write_text(content)
           PY
@@ -278,21 +281,19 @@ jobs:
           
       - name: Verify Injection
         run: |
-          echo "--- Contenu de main.m ---"
-          cat ./fcvv-ios/main.m
-          
           APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" | head -1)
-          
-          echo -e "\n--- Contenu SDL_uikitappdelegate.m ---"
-          cat "$APPDELEGATE_FILE"
-          
-          echo -e "\n--- Contenu cibler 30 lignes SDL_uikitappdelegate.m ---"
-          grep -n -A80 -B5 "@implementation SDLUIKitDelegate" "$APPDELEGATE_FILE"
-          
-          echo -e "\n--- Recherche callbacks APNS ---"
-          grep -n "didRegisterForRemoteNotificationsWithDeviceToken" "$APPDELEGATE_FILE" || true
-          
-          grep -n "FIRMessaging" "$APPDELEGATE_FILE" || true
+
+          echo "--- main.m Firebase ---"
+          grep -n "Firebase\|FIRApp\|registerForRemote" ./fcvv-ios/main.m || true
+
+          echo "--- SDL Firebase imports ---"
+          head -10 "$APPDELEGATE_FILE"
+
+          echo "--- Callbacks FCM ---"
+          grep -n "APNS token recu\|didRegisterForRemoteNotificationsWithDeviceToken\|willPresentNotification\|FIRMessaging" "$APPDELEGATE_FILE" || true
+
+          echo "--- Structure fin SDLUIKitDelegate ---"
+          grep -n "@implementation SDLUIKitDelegate\|@end" "$APPDELEGATE_FILE" | tail -10
 
       - name: Configure Xcode Entitlements for Push
         run: |
