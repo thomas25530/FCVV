@@ -247,7 +247,7 @@ class LoginScreen(Screen):
                 json={
                     "nom": nom
                 },
-                timeout=5
+                timeout=30
             )
             if r.status_code == 200:
                 print(f"Parent enregistre : {r.json()}")
