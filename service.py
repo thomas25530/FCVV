@@ -14,7 +14,7 @@ def start_foreground_service():
     channel_name = "FCVV Notifications"
     
     # Création du canal (obligatoire pour Android 8+)
-    channel = NotificationChannel(channel_id, channel_name, NotificationManager.IMPORTANCE_DEFAULT)
+    channel = NotificationChannel(channel_id, channel_name, NotificationManager.IMPORTANCE_HIGH)
     manager = service.getSystemService(Context.NOTIFICATION_SERVICE)
     manager.createNotificationChannel(channel)
     
