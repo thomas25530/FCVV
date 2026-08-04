@@ -99,9 +99,11 @@ class AndroidNotificationManager(NotificationManager):
         ])
 
 
+from kivy.clock import Clock
+
 class IOSNotificationManager(NotificationManager):
     def __init__(self):
-        from pyobjus import autoclass, objc_method
+        from pyobjus import autoclass
         self.FIRApp = None
         self.FIRMessaging = None
         self.UNCenter = None
@@ -110,82 +112,55 @@ class IOSNotificationManager(NotificationManager):
         self.waiting_for_token = False
         self.token_wait_count = 0
         self.max_token_wait = 60
+
         try:
             print("[FCM DEBUG] Chargement Firebase...")
             self.FIRApp = autoclass("FIRApp")
-            # Firebase est déjà configuré dans main.m
+            
+            # Firebase est deja configure dans main.m
             if not self.FIRApp.defaultApp():
                 print("[FCM iOS] FIRApp absent, tentative configure")
                 self.FIRApp.configure()
+
             print("[FCM DEBUG] Chargement FIRMessaging...")
             FIRMessagingClass = autoclass("FIRMessaging")
-            if hasattr(FIRMessagingClass, "messaging"):
+            
+            # Recuperation de l'instance FIRMessaging
+            try:
                 self.FIRMessaging = FIRMessagingClass.messaging()
-            else:
+            except Exception:
                 self.FIRMessaging = FIRMessagingClass.sharedInstance()
-            self.UNCenter = autoclass(
-                "UNUserNotificationCenter"
-            ).currentNotificationCenter()
+
+            self.UNCenter = autoclass("UNUserNotificationCenter").currentNotificationCenter()
             self.UIApplication = autoclass("UIApplication")
-            # --- AJOUT : Configuration des options d'affichage en premier plan ---
-            self._setup_foreground_notifications()
+            
             print("[FCM iOS] Initialisation Firebase OK")
         except Exception as e:
             print(f"[FCM iOS Init Error] {e}")
 
-    def _setup_foreground_notifications(self):
-        """
-        Configuration pour qu'iOS affiche le Pop-up même si l'appli est au premier plan.
-        """
-        try:
-            # Si le delegate est géré dans votre main.m / AppDelegate Objective-C,
-            # assurez-vous d'implémenter userNotificationCenter:willPresentNotification:withCompletionHandler:
-            # En Python/pyobjus, la demande de permission avec option 7 (Alert+Sound+Badge)
-            # combinée à la config APNs de l'API FastAPI déclenchera les bannières en arrière-plan.
-            pass
-        except Exception as e:
-            print(f"[FCM iOS] Erreur setup foreground : {e}")
-
     def init_service(self):
         token = self._get_token()
         if token:
-            print(
-                f"[FCM iOS] Token deja disponible : {str(token)[:12]}..."
-            )
+            print(f"[FCM iOS] Token deja disponible : {str(token)[:12]}...")
         else:
-            print(
-                "[FCM iOS] En attente du token FCM (APNS necessaire)..."
-            )
+            print("[FCM iOS] En attente du token FCM (APNS necessaire)...")
 
     def _get_token(self):
+        """Recuperation synchrone et securisee du token FCM"""
         if not self.FIRMessaging:
             return None
 
-        # Accès direct propriété
         for name in ("FCMToken", "fcmToken"):
             try:
                 token = getattr(self.FIRMessaging, name)
                 if callable(token):
                     token = token()
                 if token:
-                    return token
+                    # Conversion en string Python au cas ou Pyobjus renvoie un NSString
+                    return str(token)
             except Exception:
                 pass
-
-        # Fallback méthode Firebase
-        try:
-            if hasattr(self.FIRMessaging, "tokenWithCompletion_"):
-                result = []
-                def callback(token, error):
-                    if token:
-                        result.append(token)
-                self.FIRMessaging.tokenWithCompletion_(callback)
-                if result:
-                    return result[0]
-        except Exception:
-            pass
         return None
- 
 
     def _start_waiting_for_token(self):
         if self.waiting_for_token:
@@ -198,23 +173,27 @@ class IOSNotificationManager(NotificationManager):
     def _check_token(self, dt):
         self.token_wait_count += 1
         token = self._get_token()
+        
         if not token:
             if self.token_wait_count >= self.max_token_wait:
                 print("[FCM iOS] Timeout attente token FCM")
                 self.waiting_for_token = False
-                return False
-            return True
+                return False  # Stoppe le Clock
+            return True       # Continue d'attendre
 
         print(f"[FCM iOS] Token obtenu : {str(token)[:12]}...")
         self.waiting_for_token = False
+        
+        # Inscription aux topics en attente
         for topic in list(self.pending_topics):
             try:
                 print(f"[FCM iOS] Abonnement automatique : {topic}")
                 self.FIRMessaging.subscribeToTopic_(topic)
             except Exception as e:
                 print(f"[FCM iOS] Erreur topic {topic}: {e}")
+                
         self.pending_topics.clear()
-        return False
+        return False  # Stoppe le Clock
 
     def apns_token_received(self):
         print("[FCM iOS] APNS recu, demarrage attente FCM")
@@ -244,30 +223,28 @@ class IOSNotificationManager(NotificationManager):
             print(f"[FCM iOS] Erreur desabonnement : {e}")
 
     def request_permissions(self):
+        """
+        Demande de permission et reenregistrement APNs securise pour Pyobjus.
+        """
         if not self.UNCenter:
             print("[FCM iOS] UNUserNotificationCenter absent")
             return
-        print("[FCM iOS] Demande permissions...")
-        # Option 7 = UNAuthorizationOptionBadge (1) | UNAuthorizationOptionSound (2) | UNAuthorizationOptionAlert (4)
-        self.UNCenter.requestAuthorizationWithOptions_completionHandler_(
-            7, self.handle_permission_response
-        )
-
-    def handle_permission_response(self, granted, error):
-        if granted:
-            print("[FCM iOS] Permission accordee")
-            # Réenregistrement sur le thread principal Kivy / iOS pour éviter un crash
-            Clock.schedule_once(self._register_remote_notifications, 0)
-        else:
-            err = error.localizedDescription if error else "Inconnue"
-            print(f"[FCM iOS] Permission refusee : {err}")
+            
+        try:
+            print("[FCM iOS] Demande permissions et enregistrement APNs...")
+            # 1. Demande d'autorisation (7 = Alert + Sound + Badge)
+            self.UNCenter.requestAuthorizationWithOptions_completionHandler_(7, None)
+            
+            # 2. Enregistrement aupres d'APNs sur le thread principal Kivy
+            Clock.schedule_once(self._register_remote_notifications, 0.5)
+        except Exception as e:
+            print(f"[FCM iOS] Erreur request_permissions : {e}")
 
     def _register_remote_notifications(self, dt=None):
         try:
             app = self.UIApplication.sharedApplication()
             app.registerForRemoteNotifications()
             print("[FCM iOS] registerForRemoteNotifications envoye avec succes")
-            print("[FCM iOS] Attente du token FCM")
             self._start_waiting_for_token()
         except Exception as e:
             print(f"[FCM iOS Error] registerForRemoteNotifications : {e}")
