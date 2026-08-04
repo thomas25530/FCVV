@@ -80,8 +80,23 @@ class MessageBubble(BoxLayout):
         self.bubble.add_widget(self.content)
         
         # 3. Timestamp
-        dt = datetime.fromisoformat(msg_data.get('timestamp', '').replace('Z', '+00:00')) if msg_data.get('timestamp') else None
-        ts_str = dt.strftime("%H:%M") if dt else ""
+        ts_raw = msg_data.get('timestamp', '')
+        ts_str = ""
+        
+        if ts_raw:
+            try:
+                # On lit la date en s'assurant qu'elle soit interprétée en UTC (+00:00)
+                dt = datetime.fromisoformat(ts_raw.replace('Z', '+00:00'))
+                
+                # .astimezone() convertit automatiquement vers l'heure locale du téléphone (ex: Europe/Paris = UTC+2)
+                dt_local = dt.astimezone()
+                
+                ts_str = dt_local.strftime("%H:%M")
+            except Exception as e:
+                print(f"Erreur de parsing date: {e}")
+        
+        
+        
         self.timestamp = Label(text=f"[color={'FFFFFF' if is_me or est_admin else 'AAAAAA'}]{ts_str}[/color]", 
                                markup=True, size_hint=(None, None), height=dp(15), halign="right")
         self.bubble.add_widget(self.timestamp)
@@ -385,9 +400,10 @@ class ChatView(BoxLayout):
         last_date = None
         
         for msg in self.cached_messages[-self.limit:]:
+            # Dans render_messages dans ChatView :
             try:
                 msg_ts = msg.get('timestamp', '')
-                dt = datetime.fromisoformat(msg_ts.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(msg_ts.replace('Z', '+00:00')).astimezone() # <-- Ajout de .astimezone()
                 current_date = dt.strftime("%d/%m/%Y")
             except:
                 current_date = None
@@ -432,7 +448,16 @@ class ChatView(BoxLayout):
 
     def fetch_messages(self, *args):
         try:
-            r = requests.get(f"https://fcvv-api.onrender.com/chat/{self.categorie}", timeout=5)
+            mon_nom = self._get_user()
+            # On passe le nom du parent dans les headers pour FastAPI
+            headers = {"nom_parent": mon_nom}
+            
+            r = requests.get(
+                f"https://fcvv-api.onrender.com/chat/{self.categorie}", 
+                headers=headers, 
+                timeout=5
+            )
+            
             if r.status_code == 200:
                 data = r.json()
                 new_hash = hashlib.md5(str(data).encode()).hexdigest()
@@ -441,7 +466,12 @@ class ChatView(BoxLayout):
                     self.cached_messages = data
                     self.save_cache()
                     self.render_messages(scroll_to_bottom_trigger=True)
-        except Exception as e: print(f"Erreur fetch: {e}")
+            elif r.status_code == 403:
+                print("Compte exclu : Impossible de charger les messages.")
+            else:
+                print(f"Erreur API Chat: statut {r.status_code}")
+        except Exception as e: 
+            print(f"Erreur fetch: {e}")
 
     def save_cache(self):
         with open(self.get_cache_path(), "w", encoding="utf-8") as f:
@@ -455,27 +485,30 @@ class ChatView(BoxLayout):
                 self.render_messages(scroll_to_bottom_trigger=True)
 
     def send_message(self, *args):
-        # Sécurité supplémentaire côté client avant l'envoi
         if self.is_admin_only and self.user_role != "ADMIN":
             return
         text = self.input_field.text.strip()
         if text:
             app = App.get_running_app()
-            # On récupère le rôle de l'utilisateur pour cette catégorie
             user_role = app.get_role_for_cat(self.categorie)
+            mon_nom = self._get_user()
             
-            # Envoi du message avec le rôle inclus
+            headers = {"nom_parent": mon_nom}
+            
             requests.post(
                 f"https://fcvv-api.onrender.com/chat/{self.categorie}", 
+                headers=headers,
                 json={
-                    "auteur": self._get_user(), 
+                    "auteur": mon_nom, 
                     "contenu": text,
                     "role": user_role
-                }
+                },
+                timeout=5
             )
             
             self.input_field.text = ""
             self.fetch_messages()
+            
     def get_cache_path(self): return os.path.join(App.get_running_app().user_data_dir, f"chat_{self.categorie}.json")
     def _get_user(self): return App.get_running_app().config.get("User", "nom_parent", fallback="Inconnu")
     def on_parent(self, *args): 
@@ -883,7 +916,8 @@ class VestiaireScreen(Screen):
                     font_size=f"{fs + 4}sp",
                     size_hint_y=None, 
                     height=dp(50), 
-                    background_color=(0.8, 0.5, 0, 1)
+                    background_color=(0.8, 0.5, 0, 1),
+                    background_normal=''
                 )
                 btn_admin.bind(on_release=lambda x: self.ouvrir_gestion_convocations_admin(calendrier))
                 layout.add_widget(btn_admin)
@@ -971,6 +1005,13 @@ class VestiaireScreen(Screen):
             # Extraction de la liste
             joueurs = data.get('tous_les_joueurs', [])
             
+            # --- TRI ALPHABÉTIQUE ---
+            # Trie d'abord par le NOM (en majuscules pour éviter les soucis de casse), puis par le PRÉNOM
+            joueurs = sorted(
+                joueurs, 
+                key=lambda j: (j.get('nom', '').strip().upper(), j.get('prenom', '').strip().upper())
+            )
+            
             if not joueurs:
                 layout.add_widget(Label(
                     text="Aucun joueur enregistré pour cette catégorie.", 
@@ -1032,70 +1073,67 @@ class VestiaireScreen(Screen):
         Clock.schedule_once(lambda dt: self.scroll_content.canvas.ask_update(), 0.1)
  
     def fetch_and_show_sondages(self, layout):
-
         requested_cat = self.current_cat
         requested_tab = self.current_sub_tab
-    
+        
+        # Récupération sécurisée du nom de l'utilisateur
+        mon_nom = self.get_user_header()
+
         import threading
-    
+
         def run_request():
-    
             try:
+                # CORRECTION ERREUR 422 : Ajout des headers
                 response = requests.get(
                     f"https://fcvv-api.onrender.com/sondages/{requested_cat}",
+                    headers=mon_nom,
                     timeout=8
                 )
-    
+
                 def apply(dt):
-    
-                    # ignorer si l'utilisateur a changé d'écran
                     if (
                         requested_cat != self.current_cat
                         or requested_tab != self.current_sub_tab
                         or self.current_sub_tab != "SONDAGES"
                     ):
                         return
-    
+
                     self.display_sondages(layout, response)
-    
+
                 Clock.schedule_once(apply)
-    
+
             except requests.Timeout:
-    
                 def show_timeout(dt):
-    
                     if (
                         requested_cat != self.current_cat
                         or requested_tab != self.current_sub_tab
                     ):
                         return
-    
+
                     self.show_error(
                         layout,
                         "Le chargement prend plus de temps que prévu."
                     )
-    
+
                 Clock.schedule_once(show_timeout)
-    
+
             except Exception as e:
-    
                 print(f"Erreur sondages : {e}")
-    
+
                 def show_error_safe(dt):
-    
                     if (
                         requested_cat != self.current_cat
                         or requested_tab != self.current_sub_tab
                     ):
                         return
-    
+
                     self.show_error(
                         layout,
                         "Impossible de charger les sondages."
                     )
-    
+
                 Clock.schedule_once(show_error_safe)
-    
+
         threading.Thread(
             target=run_request,
             daemon=True
@@ -1179,11 +1217,11 @@ class VestiaireScreen(Screen):
         layout.opacity = 1
 
     def envoyer_vote(self, id_match, choix):
-        app = App.get_running_app()
-        nom_parent = app.config.get('User', 'nom_parent', fallback='')
+        headers = self.get_user_header()
+        nom_parent = headers.get('nom_parent', '')
         
-        if not nom_parent or nom_parent.strip() == "":
-            print("Erreur : Aucun nom de parent configure.")
+        if not nom_parent or nom_parent == 'anonymous':
+            print("Erreur : Aucun nom de parent configuré.")
             return
 
         url = f"https://fcvv-api.onrender.com/voter/{self.current_cat}"
@@ -1194,9 +1232,10 @@ class VestiaireScreen(Screen):
         }
         
         try:
-            response = requests.post(url, json=payload, timeout=5)
+            # Envoi avec headers et payload
+            response = requests.post(url, json=payload, headers=headers, timeout=5)
             if response.status_code == 200:
-                self.update_ui() 
+                self.render_content(getattr(self, '_cache_data', {}).get(self.current_cat, {}))
             else:
                 print(f"Erreur serveur : {response.status_code}")
         except Exception as e:
@@ -1302,7 +1341,8 @@ class VestiaireScreen(Screen):
     def ouvrir_gestion_admin(self):
         # 1. On récupère les données à jour avant d'ouvrir la fenêtre
         try:
-            r = requests.get(f"https://fcvv-api.onrender.com/sondages/{self.current_cat}", timeout=5)
+            headers = self.get_user_header()
+            r = requests.get(f"https://fcvv-api.onrender.com/sondages/{self.current_cat}", headers=headers, timeout=5)
             sondages = r.json() if r.status_code == 200 else {}
         except:
             sondages = {}
@@ -1401,33 +1441,49 @@ class VestiaireScreen(Screen):
     
     def ouvrir_gestion_convocations(self, match_id, match_info):
 
-        content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(15))
-        # Titre interne
-        content.add_widget(Label(text="Informations de la convocation", size_hint_y=None, height=dp(30), bold=True))
-        # 1. Champ Nom équipe
+        content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
+        
+        # 1. En-tête : Titre interne + Compteur Dynamique
+        content.add_widget(Label(text="Informations de la convocation", size_hint_y=None, height=dp(25), bold=True))
+        
+        lbl_compteur = Label(
+            text="[b]Joueurs (0 sélectionnés)[/b]", 
+            markup=True,
+            color=self.YELLOW, 
+            size_hint_y=None, 
+            height=dp(25),
+            font_size=dp(15)
+        )
+        content.add_widget(lbl_compteur)
+        
+        checkboxes = []
+
+        def mettre_a_jour_compteur(*args):
+            nb_coches = sum(1 for cb in checkboxes if cb.active)
+            lbl_compteur.text = f"[b]Joueurs ({nb_coches} sélectionné{'s' if nb_coches > 1 else ''})[/b]"
+
+        # 2. Champ Nom équipe
         nom_equipe_input = TextInput(
             text=match_id if match_id != "Nouvelle Équipe" else "",
             hint_text="Nom de l'équipe (ex: U11 - Match A)",
-            multiline=False, size_hint_y=None, height=dp(40)
+            multiline=False, size_hint_y=None, height=dp(35)
         )
         content.add_widget(nom_equipe_input)
-        # 2. Formulaire compact (Grid)
+        
+        # 3. Formulaire compact (Grid avec HAUTEUR DYNAMIQUE AUTO)
         fields_labels = [ "Adversaire", "Date", "Heure RDV", "Heure Match", "Lieu", "Entraineurs" ]
         inputs = {}
-        form_grid = GridLayout(cols=2, size_hint_y=None, height=dp(210), spacing=dp(5))
+        form_grid = GridLayout(cols=2, size_hint_y=None, spacing=dp(5))
+        # 💡 La grille calcule elle-même sa hauteur nécessaire pour ne pas déborder sur la suite
+        form_grid.bind(minimum_height=form_grid.setter('height'))
 
         for label in fields_labels:
-            form_grid.add_widget(Label(text=label, size_hint_x=0.3, halign='left'))
-            # Correspondance entre les noms d'affichage et les clés du dictionnaire
-            key = label.lower()
-            key = key.replace("heure rdv", "heure_rdv")
-            key = key.replace("heure match", "heure_match")
-            key = key.replace(" ", "_")
-            # Exemples affichés si le champ est vide
+            form_grid.add_widget(Label(text=label, size_hint_x=0.3, halign='left', size_hint_y=None, height=dp(35)))
+            key = label.lower().replace("heure rdv", "heure_rdv").replace("heure match", "heure_match").replace(" ", "_")
             exemples = {
                 "adversaire": "ex : FCSM",
                 "date": "ex : 15/09/2026",
-                "heure_rdv": "ex : 13h30 à Valdahon ou 14h00 directement",
+                "heure_rdv": "ex : 13h30 ou 14h00 direct",
                 "heure_match": "ex : 15h00",
                 "lieu": "ex : Stade municipal",
                 "entraineurs": "ex : Dupont / Martin"
@@ -1437,19 +1493,27 @@ class VestiaireScreen(Screen):
                 hint_text=exemples.get(key, ""),
                 multiline=False,
                 size_hint_y=None,
-                height=dp(40)
+                height=dp(35)
             )
             inputs[label] = ti
             form_grid.add_widget(ti)
+            
         content.add_widget(form_grid)
-        # 3. Section Joueurs
-        content.add_widget(Label(text="Joueurs :", size_hint_y=None, height=dp(30), bold=True))
-        # --- Bloc Ajout Manuel ---
-        add_manual_box = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(5))
-        cat_input = TextInput(hint_text="Cat", multiline=False, size_hint_x=0.2)
-        nom_input = TextInput(hint_text="Prénom Nom", multiline=False)
-        # Liste pour stocker les checkboxes (incluant les ajoutés manuellement)
-        checkboxes = []
+
+        # 4. Separateur / Titre section d'ajout
+        content.add_widget(Label(
+            text="Ajout manuel rapide :", 
+            size_hint_y=None, 
+            height=dp(25), 
+            halign='left', 
+            font_size=dp(13), 
+            color=(0.8, 0.8, 0.8, 1)
+        ))
+
+        # 5. Bloc Ajout Manuel
+        add_manual_box = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(5))
+        cat_input = TextInput(hint_text="Cat", multiline=False, size_hint_x=0.25)
+        nom_input = TextInput(hint_text="Nom Prénom", multiline=False)
 
         def ajouter_joueur_manuel(instance):
             nom_complet_saisi = nom_input.text.strip()
@@ -1457,57 +1521,82 @@ class VestiaireScreen(Screen):
 
             if nom_complet_saisi:
                 parts = nom_complet_saisi.split(' ', 1)
-                prenom = parts[0]
-                nom = parts[1] if len(parts) > 1 else ""
-                # Format uniforme : Prénom NOM (Catégorie)
-                # On met le NOM en majuscules pour le distinguer
-                label_text = f"{prenom} {nom.upper()} ({cat})" if cat else f"{prenom} {nom.upper()}"
-                box = BoxLayout(size_hint_y=None, height=dp(40))
+                nom = parts[0].upper()
+                prenom = parts[1].capitalize() if len(parts) > 1 else ""
+                
+                label_text = f"[{cat}] {nom} {prenom}".strip() if cat else f"{nom} {prenom}".strip()
+                
+                box = BoxLayout(size_hint_y=None, height=dp(35))
                 cb = CheckBox(size_hint_x=0.2, active=True)
                 cb.nom_joueur = nom
                 cb.prenom_joueur = prenom
                 cb.categorie = cat
                 cb.est_manuel = True
+                
+                cb.bind(active=mettre_a_jour_compteur)
+                
                 box.add_widget(cb)
-                box.add_widget(Label(text=label_text, halign='left'))
-                grid_joueurs.add_widget(box)
-                checkboxes.append(cb)
+                box.add_widget(Label(text=label_text, halign='left', color=(1, 1, 1, 1)))
+                
+                grid_joueurs.add_widget(box, index=len(grid_joueurs.children))
+                checkboxes.insert(0, cb)
+                
                 nom_input.text = ""
                 cat_input.text = ""
+                
+                mettre_a_jour_compteur()
 
         btn_add = Button(text="+", size_hint_x=0.15)
         btn_add.bind(on_release=ajouter_joueur_manuel)
         add_manual_box.add_widget(cat_input)
         add_manual_box.add_widget(nom_input)
         add_manual_box.add_widget(btn_add)
+        
         content.add_widget(add_manual_box)
-        # --------------------------
-        scroll = ScrollView()
+        
+        # 6. Liste déroulante des joueurs
+        scroll = ScrollView(size_hint_y=1)
         grid_joueurs = GridLayout(cols=1, size_hint_y=None, spacing=dp(2))
         grid_joueurs.bind(minimum_height=grid_joueurs.setter('height'))
+        
         tous_joueurs = self._cache_data.get(self.current_cat, {}).get('tous_les_joueurs', [])
         joueurs_convoques_data = match_info.get('joueurs_convoques', [])
-        convoques_noms_complets = [f"{j.get('prenom', '')} {j.get('nom', '')}".strip() for j in joueurs_convoques_data]
         
-        for joueur in tous_joueurs:
-            box = BoxLayout(size_hint_y=None, height=dp(40))
-            prenom = joueur.get('prenom', '')
-            nom = joueur.get('nom', '')
-            nom_complet = f"{prenom} {nom}".strip()
-            cb = CheckBox(size_hint_x=0.2, active=(nom_complet in convoques_noms_complets))
+        convoques_noms_complets = [
+            f"{j.get('nom', '').strip().upper()} {j.get('prenom', '').strip()}" 
+            for j in joueurs_convoques_data
+        ]
+        
+        joueurs_tries = sorted(
+            tous_joueurs, 
+            key=lambda j: (j.get('nom', '').strip().upper(), j.get('prenom', '').strip().upper())
+        )
+        
+        for joueur in joueurs_tries:
+            box = BoxLayout(size_hint_y=None, height=dp(35))
+            nom = joueur.get('nom', '').strip().upper()
+            prenom = joueur.get('prenom', '').strip()
+            nom_affiche = f"{nom} {prenom}".strip()
+            
+            cb = CheckBox(size_hint_x=0.2, active=(nom_affiche in convoques_noms_complets))
             cb.nom_joueur = nom
             cb.prenom_joueur = prenom
-            cb.est_manuel = False # Catégorie par défaut pour les joueurs de la liste
+            cb.est_manuel = False
+            
+            cb.bind(active=mettre_a_jour_compteur)
+            
             box.add_widget(cb)
-            box.add_widget(Label(text=nom_complet, halign='left'))
+            box.add_widget(Label(text=nom_affiche, halign='left', color=(1, 1, 1, 1)))
             grid_joueurs.add_widget(box)
             checkboxes.append(cb)
 
         scroll.add_widget(grid_joueurs)
         content.add_widget(scroll)
+        
+        mettre_a_jour_compteur()
 
-        # 4. Boutons en bas
-        btn_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
+        # 7. Boutons d'action
+        btn_box = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(10))
         btn_save = Button(text="Enregistrer", background_color=(0, 0.7, 0, 1))
         btn_save.bind(on_release=lambda x: self.sauvegarder_tout_match(nom_equipe_input.text, inputs, checkboxes))
         btn_close = Button(text="Fermer", background_color=(0.5, 0.5, 0.5, 1))
@@ -1517,7 +1606,7 @@ class VestiaireScreen(Screen):
         btn_box.add_widget(btn_close)
         content.add_widget(btn_box)
         
-        self.convoc_popup = Popup(title=f"Gestion : {match_id}", content=content, size_hint=(0.8, 0.8))
+        self.convoc_popup = Popup(title=f"Gestion : {match_id}", content=content, size_hint=(0.9, 0.95))
         self.convoc_popup.open()
     
     def sauvegarder_tout_match(self, match_id, fields, checkboxes):

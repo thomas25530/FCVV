@@ -408,6 +408,20 @@ jobs:
             exit 1
           fi
           plutil -convert xml1 "$PLIST_FILE"
+          
+          # --- GESTION DE LA VERSION DE L'APP ---
+          # 1. Version commerciale / Marketing (ex: 1.0.0)
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleShortVersionString" "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0.1" "$PLIST_FILE"
+
+          # 2. Numéro de Build interne (ex: 2 ou ${{ github.run_number }})
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleVersion" "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${{ github.run_number }}" "$PLIST_FILE"
+          # --------------------------------------
+          
+          
+          
+          
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier org.fcvv.fcvv" "$PLIST_FILE"
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST_FILE" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string FCVV" "$PLIST_FILE"

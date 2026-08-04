@@ -186,28 +186,49 @@ class DiversScreen(Screen):
         if self.current_tab == "stages":
             stages = divers_data.get("stages", [])
             if not stages:
-                self.content_layout.add_widget(Label(text=tr("no_stages_available"), size_hint_y=None, height=dp(100)))
+                self.content_layout.add_widget(Label(
+                    text="Aucun stage disponible pour le moment", 
+                    size_hint_y=None, 
+                    height=dp(100),
+                    font_size=f"{user_size}sp",
+                    color=(1, 1, 1, 1)
+                ))
             else:
                 for s in stages:
                     self.content_layout.add_widget(StageCard(stage_data=s))
         else: # Onglet Documents
             docs = divers_data.get("documents", [])
-            if not docs:
-                self.content_layout.add_widget(Label(text=tr("no_docs"), size_hint_y=None, height=dp(100)))
-            else:
-                for doc in docs:
-                    nom = doc.get("nom")
-                    url = doc.get("url")
-                    
-                    if nom and url:
-                        btn = Button(
-                            text=nom, 
-                            size_hint_y=None, height=dp(60),
-                            font_size=f"{user_size}sp", # Application de la taille aux boutons docs
-                            background_normal='', 
-                            background_color=(0.9, 0.9, 0.9, 1), 
-                            color=(0, 0, 0, 1)
-                        )
-                        btn.target_url = url
-                        btn.bind(on_release=lambda instance: webbrowser.open(instance.target_url))
-                        self.content_layout.add_widget(btn)
+            
+            # Compteur pour vérifier si au moins un document valide est ajouté
+            valid_docs_count = 0
+            
+            for doc in docs:
+                nom = doc.get("nom")
+                url = doc.get("url")
+                
+                if nom and url:
+                    valid_docs_count += 1
+                    btn = Button(
+                        text=nom, 
+                        size_hint_y=None, height=dp(60),
+                        font_size=f"{user_size}sp", # Application de la taille aux boutons docs
+                        background_normal='', 
+                        background_color=(0.9, 0.9, 0.9, 1), 
+                        color=(0, 0, 0, 1)
+                    )
+                    btn.target_url = url
+                    btn.bind(on_release=lambda instance: webbrowser.open(instance.target_url))
+                    self.content_layout.add_widget(btn)
+            
+            # Si aucun document ou aucun document valide
+            if valid_docs_count == 0:
+                # Utilise la fonction de traduction si la clé existe, sinon le texte explicite
+                msg_text = tr("no_docs") if tr("no_docs") != "no_docs" else "Aucun document disponible pour le moment."
+                
+                self.content_layout.add_widget(Label(
+                    text=msg_text, 
+                    size_hint_y=None, 
+                    height=dp(100),
+                    font_size=f"{user_size}sp",
+                    color=(1, 1, 1, 1)
+                ))
