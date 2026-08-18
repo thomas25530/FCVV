@@ -342,6 +342,7 @@ class SettingsScreen(Screen):
             (fl.startswith('tournoi_') and fl.endswith(('.json', '.yaml'))) or
             (fl.startswith('data_') and fl.endswith('.yaml')) or
             (fl.startswith('chat_') and fl.endswith('.json')) or
+            (fl.startswith('joueur_') and fl.endswith(('.json', '.yaml', '.png', '.jpg', '.jpeg'))) or
             fl in ['config_cache.yaml', 'config_tournoi.yaml', 'config_fcvv.yaml'] or
             (fl.startswith('sponsor_') and fl.endswith(('.png', '.jpg', '.jpeg'))) or
             (fl.startswith('img_') and fl.endswith(('.png', '.jpg', '.jpeg'))) or

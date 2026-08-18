@@ -24,7 +24,7 @@ class AndroidNotificationManager(NotificationManager):
     def init_service(self):
         try:
             # 1. NOUVEL ID : indispensable pour écraser l'ancien canal restreint
-            channel_id = "fcvv_high_priority_v1"
+            channel_id = "fcvv_high_priority_v2"
             # 2. IMPORTANCE HAUTE (4 = IMPORTANCE_HIGH -> active le pop-up / heads-up)
             importance = 4 
             channel = self.NotificationChannel(
@@ -97,9 +97,6 @@ class AndroidNotificationManager(NotificationManager):
         request_permissions([
             Permission.POST_NOTIFICATIONS
         ])
-
-
-from kivy.clock import Clock
 
 class IOSNotificationManager(NotificationManager):
     def __init__(self):

@@ -469,7 +469,7 @@ class HomeScreen(Screen):
         self.scroll_content.bind(minimum_height=self.scroll_content.setter('height'))
         self.scroll.effect_y.bind(overscroll=self._check_refresh)
         self.banner = Image(source="assets/banniere.png", size_hint=(1, None), height=dp(200), fit_mode="contain")
-        self.banner.bind(width=lambda inst, val: setattr(inst, 'height', val * 0.5625))
+        self.banner.bind(width=lambda inst, val: setattr(inst, 'height', val *  0.39375))
         self.scroll_content.add_widget(self.banner)
         self.news_layout = BoxLayout(
             orientation="vertical", 

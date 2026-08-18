@@ -10,11 +10,19 @@ from kivy.app import App
 from kivy.metrics import dp
 
 from kivy.uix.checkbox import CheckBox
-from kivy.core.clipboard import Clipboard
+from kivy.uix.scrollview import ScrollView
 import webbrowser
 
 import hashlib
 import requests
+import os
+import yaml
+import threading
+from kivy.clock import Clock
+
+# --- IMPORTS GRAPHIQUES ---
+from kivy.graphics import Color, Rectangle, RoundedRectangle
+
 
 class LargeSpinnerOption(SpinnerOption):
     """Classe personnalisée pour un menu déroulant adapté aux doigts."""
@@ -47,16 +55,12 @@ class LoginScreen(Screen):
         )
         self.layout.add_widget(self.cat_spinner)
         
-        # TextInput
         # TextInput Nom du Parent
         self.layout.add_widget(Label(text="Votre nom :", font_size='18sp', size_hint_y=None, height=dp(30)))
         self.name_input = TextInput(hint_text="Prénom NOM", font_size='18sp', multiline=False, size_hint_y=None, height=dp(60))
         self.layout.add_widget(self.name_input)
         
-        # Pré-remplir avec la valeur existante dans le fichier .ini
-        # Pré-remplir avec la valeur existante dans le fichier .ini
         app = App.get_running_app()
-        # On vérifie si la section existe pour éviter une erreur
         if app.config.has_section('User'):
             nom_sauvegarde = app.config.get('User', 'nom_parent', fallback='')
             if nom_sauvegarde:
@@ -66,7 +70,7 @@ class LoginScreen(Screen):
         self.pwd_input = TextInput(hint_text="Entrez le mot de passe", font_size='18sp', password=True, multiline=False, size_hint_y=None, height=dp(60))
         self.layout.add_widget(self.pwd_input)
         
-        # Bouton Valider en GRAS
+        # Bouton Valider
         btn_valider = Button(text="[b]Valider l'accès[/b]", markup=True, font_size='18sp', size_hint_y=None, height=dp(60))
         btn_valider.bind(on_release=self.check_login)
         self.layout.add_widget(btn_valider)
@@ -78,8 +82,7 @@ class LoginScreen(Screen):
             size_hint_y=None, height=dp(60), halign='center'
         ))
         
-        #############################################################################
-        # Acceptation CGU / Politique confidentialité
+        # Acceptation CGU
         cgu_layout = BoxLayout(
             orientation='horizontal',
             size_hint_y=None,
@@ -90,16 +93,13 @@ class LoginScreen(Screen):
         self.cgu_checkbox = CheckBox(
             size_hint=(None, None),
             size=(dp(30), dp(30)),
-            color=(0, 0, 0, 1), # Coche noire
+            color=(0, 0, 0, 1),
             pos_hint={'center_y': 0.5}
         )
 
-        # Taille ajustée au millimètre pour épouser la case interne (16dp au lieu de 20dp)
         BOX_SIZE = dp(16)
-
-        from kivy.graphics import Color, Rectangle
         with self.cgu_checkbox.canvas.before:
-            Color(1, 1, 1, 1) # Blanc opaque
+            Color(1, 1, 1, 1)
             self.cgu_checkbox_rect = Rectangle(
                 pos=(
                     self.cgu_checkbox.center_x - BOX_SIZE / 2,
@@ -116,7 +116,6 @@ class LoginScreen(Screen):
 
         self.cgu_checkbox.bind(pos=update_rect, size=update_rect)
         self.cgu_checkbox.bind(active=self.update_cgu_state)
-        
         cgu_layout.add_widget(self.cgu_checkbox)
         
         self.cgu_label = Label(
@@ -131,35 +130,21 @@ class LoginScreen(Screen):
             halign="left",
             valign="middle"
         )
-        
-        self.cgu_label.bind(
-            size=self.cgu_label.setter('text_size')
-        )
-        
-        self.cgu_label.bind(
-            on_ref_press=self.open_legal_page
-        )
-        
+        self.cgu_label.bind(size=self.cgu_label.setter('text_size'))
+        self.cgu_label.bind(on_ref_press=self.open_legal_page)
         cgu_layout.add_widget(self.cgu_label)
-        
         self.layout.add_widget(cgu_layout)
-        #########################################################################
         
-        # Bouton Aller au Vestiaire en GRAS
+        # Bouton Aller au Vestiaire
         btn_go = Button(text="[b]Aller au Vestiaire[/b]", markup=True, font_size='18sp', size_hint_y=None, height=dp(60), background_color=(0, 0.7, 0, 1))
         btn_go.disabled = True
-
         self.btn_go_vestiaire = btn_go
         
-        self.cgu_checkbox.bind(
-            active=self.enable_vestiaire_button
-        )
+        self.cgu_checkbox.bind(active=self.enable_vestiaire_button)
         btn_go.bind(on_release=self.go_to_vestiaire)
         self.layout.add_widget(btn_go)
         
-        # Ressort pour remonter le tout
         self.layout.add_widget(BoxLayout()) 
-        
         self.add_widget(self.layout)
         
     def enable_vestiaire_button(self, checkbox, value):
@@ -167,57 +152,27 @@ class LoginScreen(Screen):
         
     def update_cgu_state(self, checkbox, value):
         app = App.get_running_app()
-    
-        app.config.set(
-            'User',
-            'vestiaire_cgu_accept',
-            '1' if value else '0'
-        )
-    
+        app.config.set('User', 'vestiaire_cgu_accept', '1' if value else '0')
         app.config.write()
             
     def open_legal_page(self, instance, ref):
-
-        if ref == "cgu":
-    
-            url = "https://sites.google.com/view/fcvv-application/conditions-utilisation"
-    
-        elif ref == "privacy":
-    
-            url = "https://sites.google.com/view/fcvv-application/confidentialite"
-    
-        else:
-            return
-    
+        url = "https://sites.google.com/view/fcvv-application/conditions-utilisation" if ref == "cgu" else "https://sites.google.com/view/fcvv-application/confidentialite"
         webbrowser.open(url)
     
     def go_to_vestiaire(self, instance):
-
         app = App.get_running_app()
-
-        # Vérification acceptation CGU
-        accepte = app.config.get(
-            'User',
-            'vestiaire_cgu_accept',
-            fallback='0'
-        )
-
+        accepte = app.config.get('User', 'vestiaire_cgu_accept', fallback='0')
         if accepte != '1':
-            self.show_popup(
-                "Conditions obligatoires",
-                "Vous devez accepter les CGU et la politique de confidentialité\navant d'accéder au vestiaire."
-            )
+            self.show_popup("Conditions obligatoires", "Vous devez accepter les CGU avant d'accéder au vestiaire.")
             return
 
         root = app.root
-
         if hasattr(root, 'switch_screen'):
             root.switch_screen('vestiaire')
         else:
             print(f"[ERROR] switch_screen introuvable sur {root}.")
     
     def on_pre_enter(self):
-        # Le texte est effacé avant même que l'utilisateur ne voie l'écran
         self.pwd_input.text = ""
 
     def on_enter(self):
@@ -231,107 +186,283 @@ class LoginScreen(Screen):
         vestiaires = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
         self.cat_spinner.values = [item.get("categorie") for item in vestiaires if item.get("categorie")]
         
-        # Restaurer l'état d'acceptation CGU
-        accepte = app.config.get(
-            'User',
-            'vestiaire_cgu_accept',
-            fallback='0'
-        )
-
-        self.cgu_checkbox.active = (accepte == '1')
+        accepte = app.config.get('User', 'vestiaire_cgu_accept', fallback='0')
+        is_accepted = (accepte == '1')
+        self.cgu_checkbox.active = is_accepted
+        self.btn_go_vestiaire.disabled = not is_accepted
     
-    def enregistrer_parent_firebase(self, nom):
+    def enregistrer_parent_firebase(self, nom, categorie, joueur_associe=None):
         try:
+            payload = {"nom": nom, "categorie": categorie}
+            if joueur_associe:
+                payload["joueur_associe"] = joueur_associe
+            
             r = requests.post(
-                f"https://fcvv-api.onrender.com/users/register",
-                json={
-                    "nom": nom
-                },
+                "https://fcvv-api.onrender.com/users/register",
+                json=payload,
                 timeout=30
             )
-            if r.status_code == 200:
-                print(f"Parent enregistre : {r.json()}")
-            else:
-                print(
-                    f"Erreur enregistrement parent : "
-                    f"{r.status_code} {r.text}"
-                )
         except Exception as e:
-            print(f"Erreur connexion enregistrement parent : {e}")
+            print(f"[DEBUG LOGIN] EXCEPTION connexion enregistrement parent : {e}")
+
+    def demander_joueur_associe(self, nom, cat_selectionnee, callback_final):
+        app = App.get_running_app()
+        vestiaires = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
+        cat_item = next((item for item in vestiaires if str(item.get("categorie")).strip().lower() == str(cat_selectionnee).strip().lower()), {})
+        path = os.path.join(getattr(app, "user_data_dir", "."), f"data_{cat_selectionnee}.yaml")
+
+        def afficher_popup_selection(liste_joueurs):
+            noms_joueurs = [f"{j.get('nom', '').upper()} {j.get('prenom', '')}".strip() for j in liste_joueurs if isinstance(j, dict)]
+            
+            # --- CONTENEUR PRINCIPAL ---
+            content = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(10))
+            with content.canvas.before:
+                Color(0.95, 0.95, 0.97, 1)
+                self_bg = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(20)])
+            content.bind(
+                pos=lambda obj, val: setattr(self_bg, 'pos', val),
+                size=lambda obj, val: setattr(self_bg, 'size', val)
+            )
+
+            lbl_titre_popup = Label(
+                text=f"[b]Catégorie : {cat_selectionnee}[/b]\nCochez vos rôles ou vos joueurs :",
+                markup=True,
+                size_hint_y=None,
+                height=dp(50),
+                font_size=dp(16),
+                color=(0.1, 0.1, 0.15, 1),
+                halign="center"
+            )
+            lbl_titre_popup.bind(size=lbl_titre_popup.setter('text_size'))
+            content.add_widget(lbl_titre_popup)
+            
+            scroll = ScrollView(bar_width=0, size_hint=(1, 1))
+            list_layout = BoxLayout(orientation='vertical', spacing=dp(10), size_hint_y=None)
+            list_layout.bind(minimum_height=list_layout.setter('height'))
+            
+            checkboxes_dict = {}
+            
+            def toggle_bold_label(checkbox, value, label_widget, original_text):
+                if value:
+                    label_widget.text = f"[b]{original_text}[/b]"
+                else:
+                    label_widget.text = original_text
+
+            # Option COACH (rendue unique par utilisateur : COACH_prenom)
+            box_coach = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), spacing=dp(10))
+            chk_coach = CheckBox(size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1), pos_hint={'center_y': 0.5})
+            
+            # Extraire uniquement le premier prénom de l'utilisateur et le formater
+            prenom_utilisateur = nom.strip().split()[0] if nom else "Coach"
+            nom_formate = prenom_utilisateur.replace(" ", "_")
+            key_coach = f"COACH_{nom_formate}"
+            
+            checkboxes_dict[key_coach] = chk_coach
+            box_coach.add_widget(chk_coach)
+            
+            lbl_coach = Label(text="COACH / STAFF", markup=True, font_size='16sp', color=(0.2, 0.2, 0.25, 1), halign='left', valign='middle')
+            lbl_coach.bind(size=lambda lbl, sz: setattr(lbl, 'text_size', sz))
+            chk_coach.bind(active=lambda chk, val: toggle_bold_label(chk, val, lbl_coach, "COACH / STAFF"))
+            box_coach.add_widget(lbl_coach)
+            list_layout.add_widget(box_coach)
+            
+            if noms_joueurs:
+                for j_nom in noms_joueurs:
+                    box_j = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), spacing=dp(10))
+                    chk = CheckBox(size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1), pos_hint={'center_y': 0.5})
+                    checkboxes_dict[j_nom] = chk
+                    box_j.add_widget(chk)
+                    
+                    lbl_j = Label(text=j_nom, markup=True, font_size='16sp', color=(0.2, 0.2, 0.25, 1), halign='left', valign='middle')
+                    lbl_j.bind(size=lambda lbl, sz: setattr(lbl, 'text_size', sz))
+                    chk.bind(active=lambda chk, val, l=lbl_j, t=j_nom: toggle_bold_label(chk, val, l, t))
+                    
+                    box_j.add_widget(lbl_j)
+                    list_layout.add_widget(box_j)
+            else:
+                box_vide = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40))
+                box_vide.add_widget(Label(text="[i]Aucun joueur dans cette catégorie[/i]", markup=True, font_size='14sp', color=(0.8, 0.2, 0.2, 1)))
+                list_layout.add_widget(box_vide)
+                
+            scroll.add_widget(list_layout)
+            content.add_widget(scroll)
+            
+            btn_valider_liaison = Button(
+                text="Valider la sélection", 
+                font_size='16sp', 
+                size_hint_y=None, 
+                height=dp(45),
+                background_normal="",
+                background_color=(0.15, 0.65, 0.35, 1), 
+                color=(1, 1, 1, 1), 
+                bold=True
+            )
+            
+            def on_valider(instance):
+                selectionnes = [cle for cle, chk in checkboxes_dict.items() if chk.active]
+                app = App.get_running_app()
+                
+                if not selectionnes:
+                    self.enregistrer_parent_firebase(nom, cat_selectionnee, joueur_associe=None)
+                else:
+                    for item_choisi in selectionnes:
+                        self.enregistrer_parent_firebase(nom, cat_selectionnee, joueur_associe=item_choisi)
+                    
+                    if hasattr(app, "set_joueur_associe_pour_cat"):
+                        tous_les_choix = ", ".join(selectionnes)
+                        app.set_joueur_associe_pour_cat(cat_selectionnee, tous_les_choix)
+                    
+                popup.dismiss()
+                callback_final()
+                
+            btn_valider_liaison.bind(on_release=on_valider)
+            content.add_widget(btn_valider_liaison)
+            
+            # --- POPUP SANS FOND PAR DÉFAUT (ÉVITE LES ANGLES DROITS) ---
+            popup = Popup(
+                title="", 
+                content=content, 
+                size_hint=(0.85, 0.7), 
+                auto_dismiss=False,
+                separator_height=0,
+                background="",
+                background_color=(0, 0, 0, 0)
+            )
+            popup.open()
+
+        liste_joueurs = cat_item.get("tous_les_joueurs", [])
+        
+        if not liste_joueurs and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data_yaml = yaml.safe_load(f) or {}
+                    liste_joueurs = data_yaml.get("tous_les_joueurs", [])
+            except Exception as e:
+                print(f"[DEBUG LOGIN] Erreur lecture YAML local : {e}")
+
+        if not liste_joueurs and cat_item.get("file_id"):
+            loading_content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
+            with loading_content.canvas.before:
+                Color(0.95, 0.95, 0.97, 1)
+                load_bg = RoundedRectangle(pos=loading_content.pos, size=loading_content.size, radius=[dp(20)])
+            loading_content.bind(
+                pos=lambda obj, val: setattr(load_bg, 'pos', val),
+                size=lambda obj, val: setattr(load_bg, 'size', val)
+            )
+            
+            loading_content.add_widget(Label(text="Téléchargement des données de l'équipe...", font_size='16sp', color=(0.1, 0.1, 0.15, 1), halign="center"))
+            
+            loading_popup = Popup(
+                title="", 
+                content=loading_content, 
+                size_hint=(0.7, 0.3), 
+                auto_dismiss=False, 
+                separator_height=0, 
+                background="",
+                background_color=(0, 0, 0, 0)
+            )
+            loading_popup.open()
+
+            def background_download():
+                try:
+                    url = f"https://docs.google.com/uc?id={cat_item.get('file_id')}&export=download"
+                    r = requests.get(url, timeout=10)
+                    if r.status_code == 200:
+                        with open(path, "wb") as f:
+                            f.write(r.content)
+                        with open(path, "r", encoding="utf-8") as f:
+                            data_yaml = yaml.safe_load(f) or {}
+                            final_joueurs = data_yaml.get("tous_les_joueurs", [])
+                    else:
+                        final_joueurs = []
+                except Exception as e:
+                    final_joueurs = []
+
+                def finish_loading(dt):
+                    loading_popup.dismiss()
+                    afficher_popup_selection(final_joueurs)
+                
+                Clock.schedule_once(finish_loading)
+
+            threading.Thread(target=background_download, daemon=True).start()
+        else:
+            afficher_popup_selection(liste_joueurs)
 
     def check_login(self, instance):
         app = App.get_running_app()
         cat = self.cat_spinner.text
         pwd = self.pwd_input.text.strip()
         nom = self.name_input.text.strip()
-        #nom = " ".join(nom.upper().split())
-        
+
         if not nom or not pwd:
             self.show_popup("Erreur", "Veuillez remplir votre nom et le mot de passe.")
             return
 
-        # Calcul du hash de la saisie
         saisie_hash = hashlib.sha256(pwd.encode()).hexdigest()
-        
-        # Récupération de la config globale (pour trouver le hash du super admin)
         vestiaires_cfg = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
         
-        # --- 1. Vérification SUPER_ADMIN ---
         super_admin_item = next((item for item in vestiaires_cfg if "password_super_admin_hash" in item), None)
-        
         if super_admin_item and saisie_hash == super_admin_item["password_super_admin_hash"]:
             app.config.set('User', 'nom_parent', nom)
-            self.enregistrer_parent_firebase(nom)
+            self.enregistrer_parent_firebase(nom, "TOUTES", joueur_associe="SUPER_ADMIN")
             
-            # Récupérer TOUTES les catégories valides dans le YAML
             toutes_cats = []
             for item in vestiaires_cfg:
                 cat_nom = item.get("categorie")
                 if cat_nom:
                     toutes_cats.append(cat_nom)
-                    
-                    # RÉCUPÉRATION DU HASH RÉEL DE LA CATÉGORIE
-                    # On cherche le hash admin dans l'objet catégorie spécifique
                     cat_hash = item.get("password_admin_hash") or item.get("password_hash")
-                    
-                    # On enregistre avec le VRAI hash de la catégorie
                     app.add_authorized_vestiaire(cat_nom, "ADMIN", cat_hash, save=False)
             
-            # Mise à jour finale
             app.authorized_vestiaires = toutes_cats
             app.config.set('User', 'authorized_list', ','.join(toutes_cats))
             app.config.set('User', 'vestiaire_auth', '1')
             app.config.write()
-            
             app.gerer_abonnements_fcm(toutes_cats)
             self.show_popup("Succès", "Mode SUPER_ADMIN : Accès total accordé.")
             return
 
-        # 2. TEST STANDARD (Si pas Super Admin)
         if cat == "Sélectionner...":
             self.show_popup("Erreur", "Veuillez choisir une catégorie.")
             return
 
         role = app.check_vestiaire_password(cat, pwd)
+
         if role:
-            app.config.set('User', 'nom_parent', nom)
-            self.enregistrer_parent_firebase(nom)
-            app.add_authorized_vestiaire(cat, role, saisie_hash, save=True)
-            app.gerer_abonnements_fcm(app.authorized_vestiaires)
-            
-            self.show_popup("Succès", f"Accès {role} accordé pour {cat}.")
-            self.active_label.text = f"Connecté : {', '.join(app.authorized_vestiaires)}"
+            def finaliser_connexion():
+                app.config.set('User', 'nom_parent', nom)
+                app.add_authorized_vestiaire(cat, role, saisie_hash, save=True)
+                app.gerer_abonnements_fcm(app.authorized_vestiaires)
+                self.show_popup("Succès", f"Accès {role} accordé pour {cat}.")
+                self.active_label.text = f"Connecté : {', '.join(app.authorized_vestiaires)}"
+
+            self.demander_joueur_associe(nom, cat, finaliser_connexion)
         else:
             self.show_popup("Erreur", "Mot de passe incorrect.")
 
     def show_popup(self, title, message):
-        # On définit un Label avec une police plus grande
-        content_label = Label(text=message, font_size='18sp')
+        content = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(10))
+        with content.canvas.before:
+            Color(0.95, 0.95, 0.97, 1)
+            pop_bg = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(20)])
+        content.bind(
+            pos=lambda obj, val: setattr(pop_bg, 'pos', val),
+            size=lambda obj, val: setattr(pop_bg, 'size', val)
+        )
+
+        if title:
+            lbl_title = Label(text=f"[b]{title}[/b]", markup=True, font_size=dp(18), size_hint_y=None, height=dp(30), color=(0.1, 0.1, 0.15, 1), halign="center")
+            content.add_widget(lbl_title)
+
+        content.add_widget(Label(text=message, font_size=dp(16), color=(0.2, 0.2, 0.25, 1), halign="center"))
         
-        # On crée le popup avec ce contenu
+        # --- POPUP SANS FOND PAR DÉFAUT (ÉVITE LES ANGLES DROITS) ---
         popup = Popup(
-            title=title, 
-            content=content_label, 
-            size_hint=(0.8, 0.3)
+            title="", 
+            content=content, 
+            size_hint=(0.8, 0.3), 
+            separator_height=0, 
+            background="",
+            background_color=(0, 0, 0, 0)
         )
         popup.open()

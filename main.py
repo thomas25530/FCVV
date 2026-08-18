@@ -395,7 +395,7 @@ class RootLayout(FloatLayout):
             width=self.menu_width,
             x=-self.menu_width,
             do_scroll_x=False,
-            bar_width=dp(4)
+            bar_width=0
         )
         self.menu_panel = BoxLayout(
             orientation="vertical", 
@@ -784,6 +784,40 @@ class MyApp(App):
         # Écriture effective dans le fichier .ini
         self.config.write()
         print(f"[DEBUG] Role '{role}' sauvegarde pour la categorie '{cat}'.")
+        
+    def set_joueur_associe_pour_cat(self, cat, nom_joueur):
+        """Sauvegarde le joueur ou les rôles associés pour une catégorie donnée dans le fichier config."""
+        if not self.config.has_section('Roles'):
+            self.config.add_section('Roles')
+        
+        # On normalise la catégorie en minuscules pour correspondre au format du fichier .ini
+        cat_key = f"{cat.lower()}_joueur"
+        self.config.set('Roles', cat_key, str(nom_joueur))
+        self.config.write()
+        print(f"[DEBUG] elements associes '{nom_joueur}' sauvegardes pour la categorie '{cat}'.")
+
+    def get_joueur_associe_pour_cat(self, cat):
+        """Récupère le joueur associé stocké localement pour la catégorie."""
+        if self.config.has_section('Roles') and self.config.has_option('Roles', f'{cat}_joueur'):
+            return self.config.get('Roles', f'{cat}_joueur')
+        return ""
+    
+    def rafraichir_donnees(self):
+        try:
+            # Supposons que ton RootLayout stocke le ScreenManager dans une variable 'sm' ou 'screen_manager'
+            # Adapte 'sm' selon le nom de l'attribut dans ton RootLayout
+            screen_manager = getattr(self.root, 'sm', None) or getattr(self.root, 'screen_manager', None)
+            
+            if screen_manager and hasattr(screen_manager, 'current'):
+                current_screen = screen_manager.get_screen(screen_manager.current)
+                if hasattr(current_screen, 'rafraichir'):
+                    current_screen.rafraichir()
+                elif hasattr(current_screen, 'charger_donnees'):
+                    current_screen.charger_donnees()
+            else:
+                print("[ATTENTION] Impossible de trouver le ScreenManager dans le RootLayout.")
+        except Exception as e:
+            print(f"[ERREUR] echec du rafraichissement : {e}")
 
     def get_role_for_cat(self, cat):
         """Récupère le rôle stocké pour la catégorie. Retourne 'USER' par défaut."""
@@ -1147,17 +1181,16 @@ class MyApp(App):
         Clock.schedule_once(do_fcm_work, 0.5)
     
     def warmup_server(self):
-        """Réveille le serveur API si celui-ci est en veille (Render cold start)."""
+        """Reveille le serveur API Render en arriere-plan."""
         import requests
-        # URL cible : une route légère, idéalement une route /ping ou /health
-        # Si vous n'en avez pas, la racine ou l'endpoint des sondages convient.
         url = "https://fcvv-api.onrender.com/" 
         try:
-            # On utilise un timeout court : on veut juste provoquer le réveil, pas attendre la réponse
-            requests.get(url, timeout=5)
-            print("[WARMUP] Requete envoyee au serveur.")
+            print("[WARMUP] Ping de reveil envoye au serveur...")
+            response = requests.get(url, timeout=35)
+            if response.status_code == 200:
+                print("[WARMUP] Serveur Render eveille et pret !")
         except Exception as e:
-            print(f"[WARMUP] Le serveur est peut etre deja actif ou indisponible : {e}")
+            print(f"[WARMUP] Attente de demarrage ou indisponibilite : {e}")
 
 if __name__ == "__main__":
     MyApp().run()

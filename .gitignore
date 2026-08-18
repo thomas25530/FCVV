@@ -40,6 +40,7 @@ fcvv_release.keystore
 5_release/
 fcvv_api/
 publication/
+res/
 *.apk
 *.zip
 .settings/
