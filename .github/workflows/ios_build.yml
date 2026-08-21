@@ -470,6 +470,12 @@ jobs:
           echo "===== Configuration du Launch Screen iOS ====="
 
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun fichier .xcodeproj trouvé"
+            exit 1
+          fi
+
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
 
@@ -544,6 +550,7 @@ jobs:
                               <view key="view" contentMode="scaleToFill" id="LaunchScreenView">
                                   <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                                   <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+
                                   <subviews>
                                       <imageView
                                           clipsSubviews="YES"
@@ -560,9 +567,17 @@ jobs:
 
                                   <viewLayoutGuide key="safeArea" id="SafeArea"/>
 
-                                  <color key="backgroundColor" red="0.117647" green="0.227451" blue="0.541176" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                  <color
+                                      key="backgroundColor"
+                                      red="0.117647"
+                                      green="0.227451"
+                                      blue="0.541176"
+                                      alpha="1"
+                                      colorSpace="custom"
+                                      customColorSpace="sRGB"/>
 
                                   <constraints>
+
                                       <constraint
                                           firstItem="LaunchLogo"
                                           firstAttribute="centerX"
@@ -588,21 +603,42 @@ jobs:
                                           firstAttribute="height"
                                           constant="200"
                                           id="LogoHeight"/>
+
                                   </constraints>
                               </view>
 
-                              <viewControllerLayoutGuide type="top" id="TopGuide"/>
-                              <viewControllerLayoutGuide type="bottom" id="BottomGuide"/>
+                              <viewControllerLayoutGuide
+                                  type="top"
+                                  id="TopGuide"/>
+
+                              <viewControllerLayoutGuide
+                                  type="bottom"
+                                  id="BottomGuide"/>
+
                           </viewController>
-                          <placeholder placeholderIdentifier="IBFirstResponder" id="FirstResponder" sceneMemberID="firstResponder"/>
+
+                          <placeholder
+                              placeholderIdentifier="IBFirstResponder"
+                              id="FirstResponder"
+                              sceneMemberID="firstResponder"/>
+
                       </objects>
-                      <point key="canvasLocation" x="0.0" y="0.0"/>
+
+                      <point
+                          key="canvasLocation"
+                          x="0.0"
+                          y="0.0"/>
+
                   </scene>
               </scenes>
 
               <resources>
-                  <image name="logo_apk_fcvv" width="512" height="512"/>
+                  <image
+                      name="logo_apk_fcvv"
+                      width="512"
+                      height="512"/>
               </resources>
+
           </document>
           EOF
 
@@ -618,17 +654,15 @@ jobs:
           project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
 
           target = project.targets.find { |t| t.name == 'fcvv' }
+
           raise 'Target fcvv introuvable' unless target
 
           app_group = project.main_group.find_subpath('fcvv', true)
 
-          # ----------------------------------------------------------
           # Image presplash
-          # ----------------------------------------------------------
-
-          image_file = app_group.files.find {
-            |f| f.path == 'logo_apk_fcvv.png'
-          }
+          image_file = app_group.files.find do |f|
+            f.path == 'logo_apk_fcvv.png'
+          end
 
           unless image_file
             image_file = app_group.new_file('logo_apk_fcvv.png')
@@ -638,13 +672,10 @@ jobs:
             target.add_resources([image_file])
           end
 
-          # ----------------------------------------------------------
           # LaunchScreen.storyboard
-          # ----------------------------------------------------------
-
-          storyboard_file = app_group.files.find {
-            |f| f.path == 'LaunchScreen.storyboard'
-          }
+          storyboard_file = app_group.files.find do |f|
+            f.path == 'LaunchScreen.storyboard'
+          end
 
           unless storyboard_file
             storyboard_file = app_group.new_file('LaunchScreen.storyboard')
@@ -654,18 +685,39 @@ jobs:
             target.add_resources([storyboard_file])
           end
 
-                    # ------------------------------------------------------------
-          # Configuration du Launch Screen dans le Info.plist
+          # Configuration du Launch Screen dans les Build Settings
+          target.build_configurations.each do |config|
+            config.build_settings['UILAUNCHSTORYBOARDNAME'] = 'LaunchScreen'
+          end
+
+          project.save
+
+          puts 'Launch Screen ajouté au projet Xcode avec succès.'
+          "
+
+          # ------------------------------------------------------------
+          # 5. Recherche du Info.plist
           # ------------------------------------------------------------
 
-          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | grep -v "GoogleService" | head -1)
+          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 \
+            -name "*-Info.plist" \
+            ! -name "GoogleService-Info.plist" \
+            -print -quit)
 
           if [ -z "$PLIST_FILE" ] || [ ! -f "$PLIST_FILE" ]; then
-            echo "ERREUR : Info.plist introuvable"
+            echo "ERREUR : Info.plist introuvable dans $PROJ_DIR"
+            echo "Fichiers plist disponibles :"
+            find "$PROJ_DIR" -maxdepth 2 -name "*.plist" -print
             exit 1
           fi
 
           echo "Info.plist utilisé : $PLIST_FILE"
+
+          # ------------------------------------------------------------
+          # 6. Configuration du Launch Screen dans Info.plist
+          # ------------------------------------------------------------
+
+          echo "===== Configuration UILaunchStoryboardName ====="
 
           /usr/libexec/PlistBuddy \
             -c "Delete :UILaunchStoryboardName" \
@@ -675,34 +727,64 @@ jobs:
             -c "Add :UILaunchStoryboardName string LaunchScreen" \
             "$PLIST_FILE"
 
-          project.save
+          # Suppression de l'ancienne configuration UILaunchScreen
+          /usr/libexec/PlistBuddy \
+            -c "Delete :UILaunchScreen" \
+            "$PLIST_FILE" 2>/dev/null || true
 
-          puts 'Launch Screen configuré avec succès.'
-          "
+          echo "===== Info.plist après modification ====="
+          /usr/libexec/PlistBuddy -c "Print" "$PLIST_FILE"
+
+          # Validation du plist
+          echo "===== Validation du Info.plist ====="
+          plutil -lint "$PLIST_FILE"
 
           # ------------------------------------------------------------
-          # 5. Suppression de l'ancienne configuration UILaunchScreen
+          # 7. Vérification de l'image
           # ------------------------------------------------------------
 
-          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | grep -v "GoogleService" | head -1)
+          echo "===== Vérification image presplash ====="
 
-          if [ -n "$PLIST_FILE" ] && [ -f "$PLIST_FILE" ]; then
-            echo "Nettoyage de UILaunchScreen dans : $PLIST_FILE"
-
-            /usr/libexec/PlistBuddy \
-              -c "Delete :UILaunchScreen" \
-              "$PLIST_FILE" 2>/dev/null || true
+          if [ ! -f "$PRESPLASH_DEST" ]; then
+            echo "ERREUR : image absente du projet"
+            exit 1
           fi
 
-          # ------------------------------------------------------------
-          # 6. Vérifications
-          # ------------------------------------------------------------
-
-          echo "===== Vérification image ====="
           ls -lh "$PRESPLASH_DEST"
 
+          python3 - "$PRESPLASH_DEST" <<'PY'
+          from PIL import Image
+          import sys
+
+          path = sys.argv[1]
+          image = Image.open(path)
+
+          print(f"Image finale : {path}")
+          print(f"Dimensions finales : {image.size}")
+          print(f"Mode final : {image.mode}")
+
+          if image.size != (512, 512):
+              raise SystemExit("ERREUR : l'image finale n'est pas en 512x512")
+          PY
+
+          # ------------------------------------------------------------
+          # 8. Vérification du storyboard
+          # ------------------------------------------------------------
+
           echo "===== Vérification storyboard ====="
+
+          if [ ! -f "$LAUNCH_STORYBOARD" ]; then
+            echo "ERREUR : LaunchScreen.storyboard absent"
+            exit 1
+          fi
+
           ls -lh "$LAUNCH_STORYBOARD"
+
+          grep -n "logo_apk_fcvv" "$LAUNCH_STORYBOARD"
+
+          # ------------------------------------------------------------
+          # 9. Vérification Xcode
+          # ------------------------------------------------------------
 
           echo "===== Vérification Xcode ====="
 
@@ -710,14 +792,21 @@ jobs:
           require 'xcodeproj'
 
           project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+
           target = project.targets.find { |t| t.name == 'fcvv' }
 
           raise 'Target fcvv introuvable' unless target
 
-          puts 'UILAUNCHSTORYBOARDNAME :'
+          puts '===== Build Settings ====='
 
           target.build_configurations.each do |config|
             puts \"#{config.name} = #{config.build_settings['UILAUNCHSTORYBOARDNAME']}\"
+          end
+
+          puts '===== Ressources target ====='
+
+          target.resources_build_phase.files_references.each do |file|
+            puts file.path.to_s
           end
           "
 
