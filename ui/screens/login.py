@@ -18,6 +18,7 @@ import requests
 import os
 import yaml
 import threading
+from kivy.utils import platform
 from kivy.clock import Clock
 
 # --- IMPORTS GRAPHIQUES ---
@@ -197,11 +198,8 @@ class LoginScreen(Screen):
             if joueur_associe:
                 payload["joueur_associe"] = joueur_associe
             
-            r = requests.post(
-                "https://fcvv-api.onrender.com/users/register",
-                json=payload,
-                timeout=30
-            )
+            is_windows = (platform == 'win')
+            r = requests.post("https://fcvv-api.onrender.com/users/register",json=payload,timeout=30,verify=not is_windows)
         except Exception as e:
             print(f"[DEBUG LOGIN] EXCEPTION connexion enregistrement parent : {e}")
 
@@ -212,7 +210,7 @@ class LoginScreen(Screen):
         path = os.path.join(getattr(app, "user_data_dir", "."), f"data_{cat_selectionnee}.yaml")
 
         def afficher_popup_selection(liste_joueurs):
-            noms_joueurs = [f"{j.get('nom', '').upper()} {j.get('prenom', '')}".strip() for j in liste_joueurs if isinstance(j, dict)]
+            noms_joueurs = sorted([f"{j.get('nom', '').upper()} {j.get('prenom', '')}".strip() for j in liste_joueurs if isinstance(j, dict)])
             
             # --- CONTENEUR PRINCIPAL ---
             content = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(10))
@@ -252,7 +250,6 @@ class LoginScreen(Screen):
             box_coach = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), spacing=dp(10))
             chk_coach = CheckBox(size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1), pos_hint={'center_y': 0.5})
             
-            # Extraire uniquement le premier prénom de l'utilisateur et le formater
             prenom_utilisateur = nom.strip().split()[0] if nom else "Coach"
             nom_formate = prenom_utilisateur.replace(" ", "_")
             key_coach = f"COACH_{nom_formate}"
@@ -318,7 +315,6 @@ class LoginScreen(Screen):
             btn_valider_liaison.bind(on_release=on_valider)
             content.add_widget(btn_valider_liaison)
             
-            # --- POPUP SANS FOND PAR DÉFAUT (ÉVITE LES ANGLES DROITS) ---
             popup = Popup(
                 title="", 
                 content=content, 
@@ -330,17 +326,7 @@ class LoginScreen(Screen):
             )
             popup.open()
 
-        liste_joueurs = cat_item.get("tous_les_joueurs", [])
-        
-        if not liste_joueurs and os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data_yaml = yaml.safe_load(f) or {}
-                    liste_joueurs = data_yaml.get("tous_les_joueurs", [])
-            except Exception as e:
-                print(f"[DEBUG LOGIN] Erreur lecture YAML local : {e}")
-
-        if not liste_joueurs and cat_item.get("file_id"):
+        if cat_item.get("file_id"):
             loading_content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
             with loading_content.canvas.before:
                 Color(0.95, 0.95, 0.97, 1)
@@ -350,8 +336,13 @@ class LoginScreen(Screen):
                 size=lambda obj, val: setattr(load_bg, 'size', val)
             )
             
-            loading_content.add_widget(Label(text="Téléchargement des données de l'équipe...", font_size='16sp', color=(0.1, 0.1, 0.15, 1), halign="center"))
+            # Déterminer le message selon la présence du fichier sur l'appareil
+            if os.path.exists(path):
+                msg_chargement = "Vérification des mises à jour de l'équipe..."
+            else:
+                msg_chargement = "Téléchargement des données de l'équipe..."
             
+            loading_content.add_widget(Label(text=msg_chargement, font_size='16sp', color=(0.1, 0.1, 0.15, 1), halign="center"))
             loading_popup = Popup(
                 title="", 
                 content=loading_content, 
@@ -364,19 +355,51 @@ class LoginScreen(Screen):
             loading_popup.open()
 
             def background_download():
+                final_joueurs = []
                 try:
                     url = f"https://docs.google.com/uc?id={cat_item.get('file_id')}&export=download"
-                    r = requests.get(url, timeout=10)
-                    if r.status_code == 200:
-                        with open(path, "wb") as f:
-                            f.write(r.content)
+                    # Vérifier si l'application s'exécute sous Windows
+                    is_windows = (platform == 'win')
+                    
+                    # verify=False sous Windows (pour contourner le proxy), verify=True sur iOS/Android
+                    r = requests.get(url, timeout=10, verify=not is_windows)
+                    
+                    if r.status_code == 200 and b"<html" not in r.content[:100].lower():
+                        new_content = r.content
+                        
+                        # Lecture du contenu local existant pour comparer les hashs MD5
+                        old_content = b""
+                        if os.path.exists(path):
+                            with open(path, "rb") as f:
+                                old_content = f.read()
+                        
+                        # Utilisation de MD5 (cohérent avec le reste de votre application)
+                        if hashlib.md5(new_content).hexdigest() != hashlib.md5(old_content).hexdigest():
+                            print(f"[CONFIG] Changement detecte pour {cat_selectionnee}, mise a jour du fichier local.")
+                            with open(path, "wb") as f:
+                                f.write(new_content)
+                        else:
+                            print(f"[CONFIG] Fichier {cat_selectionnee} inchange.")
+                    
+                    # Lecture finale du fichier (qu'il vienne d'être mis à jour ou qu'il soit déjà à jour)
+                    if os.path.exists(path):
                         with open(path, "r", encoding="utf-8") as f:
                             data_yaml = yaml.safe_load(f) or {}
                             final_joueurs = data_yaml.get("tous_les_joueurs", [])
-                    else:
-                        final_joueurs = []
                 except Exception as e:
-                    final_joueurs = []
+                    print(f"[DEBUG LOGIN] Erreur reseau/telechargement : {e}")
+                    # Repli sécurisé sur le fichier local existant en cas de coupure internet
+                    if os.path.exists(path):
+                        try:
+                            with open(path, "r", encoding="utf-8") as f:
+                                data_yaml = yaml.safe_load(f) or {}
+                                final_joueurs = data_yaml.get("tous_les_joueurs", [])
+                        except Exception:
+                            pass
+                
+                # Dernier secours si tout échoue
+                if not final_joueurs:
+                    final_joueurs = cat_item.get("tous_les_joueurs", [])
 
                 def finish_loading(dt):
                     loading_popup.dismiss()
@@ -386,6 +409,14 @@ class LoginScreen(Screen):
 
             threading.Thread(target=background_download, daemon=True).start()
         else:
+            liste_joueurs = cat_item.get("tous_les_joueurs", [])
+            if not liste_joueurs and os.path.exists(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        data_yaml = yaml.safe_load(f) or {}
+                        liste_joueurs = data_yaml.get("tous_les_joueurs", [])
+                except Exception as e:
+                    print(f"[DEBUG LOGIN] Erreur lecture YAML local : {e}")
             afficher_popup_selection(liste_joueurs)
 
     def check_login(self, instance):

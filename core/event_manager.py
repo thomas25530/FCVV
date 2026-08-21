@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 import threading
 from datetime import datetime
 import requests
+from kivy.utils import platform
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
@@ -12,6 +14,7 @@ from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
 from kivy.graphics import Color, RoundedRectangle
 
 
@@ -164,14 +167,25 @@ class EventManager:
 
                             def sur_changement_groupe(spinner, texte_selectionne):
                                 if texte_selectionne in groupes_yaml:
-                                    joueurs_du_groupe = groupes_yaml[texte_selectionne]  # Liste de prénoms/noms ou chaînes
+                                    joueurs_du_groupe = groupes_yaml[texte_selectionne]  # Liste de chaînes ex: ["COULOT Quentin", ...]
+                                    
+                                    # Normalisation de la liste du groupe pour un matching facile (en minuscules)
+                                    joueurs_groupe_lower = [j.strip().lower() for j in joueurs_du_groupe]
+
                                     for cb in checkboxes_joueurs:
-                                        nom_complet_cb = f"{cb.prenom_joueur} {cb.nom_joueur}".strip()
-                                        # Vérification si le joueur est présent dans la liste du groupe YAML
+                                        nom_cb = getattr(cb, 'nom_joueur', "").strip().lower()
+                                        prenom_cb = getattr(cb, 'prenom_joueur', "").strip().lower()
+                                        
+                                        # Formats possibles dans l'application
+                                        format_1 = f"{nom_cb} {prenom_cb}".strip()         # ex: "coulot quentin"
+                                        format_2 = f"{prenom_cb} {nom_cb}".strip()         # ex: "quentin coulot"
+                                        
+                                        # On vérifie si l'un des formats correspond à une entrée du groupe YAML
                                         correspondance = any(
-                                            j.lower() in nom_complet_cb.lower() or nom_complet_cb.lower() in j.lower()
-                                            for j in joueurs_du_groupe
+                                            (format_1 in j or j in format_1) or (format_2 in j or j in format_2)
+                                            for j in joueurs_groupe_lower
                                         )
+                                        
                                         cb.active = correspondance
 
                             spinner_groupes.bind(text=sur_changement_groupe)
@@ -363,7 +377,8 @@ class EventManager:
                             "activer_convocation": chk_convocation.active,
                             "joueurs_convoques": joueurs_convoques,
                             "dernier_commit": commit_message,
-                            "timestamp_action": maintenant_str
+                            "timestamp_action": maintenant_str,
+                            "est_modification": est_une_modification
                         })
 
                         if est_une_modification:
@@ -389,7 +404,8 @@ class EventManager:
                         def do_api_save():
                             try:
                                 headers = screen_instance.get_user_header() if hasattr(screen_instance, "get_user_header") else {}
-                                requests.put(url, json=match_info_match, headers=headers, timeout=10)
+                                is_windows = (platform == 'win')
+                                requests.put(url, json=match_info_match, headers=headers, timeout=10, verify=not is_windows)
                                 Clock.schedule_once(lambda dt: screen_instance.fetch_convocations_from_firebase(data))
                             except Exception as e:
                                 print(f"Erreur sauvegarde match API : {e}")
@@ -401,15 +417,22 @@ class EventManager:
 
                     if est_une_modification:
                         content_commit = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-                        content_commit.add_widget(Label(text="[b]Message de modification (Commit)[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                         
+                        # 1. Le champ de saisie en premier (tout en haut)
                         ti_commit = TextInput(hint_text="Ex: Modification de l'heure du RDV", multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
                         content_commit.add_widget(ti_commit)
                         
+                        # 2. Le bouton juste en dessous du champ
                         btn_valider_commit = Button(text="Confirmer l'enregistrement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                         content_commit.add_widget(btn_valider_commit)
                         
-                        popup_commit = Popup(title="Git Commit", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
+                        # 3. Le label explicatif placé après
+                        content_commit.add_widget(Label(text="[b]Note de modification (optionnel)[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
+                        
+                        content_commit.add_widget(Widget())
+                        
+                        # Titre de la popup propre
+                        popup_commit = Popup(title="Motif de modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
                         def valider_avec_commit(instance):
                             msg = ti_commit.text.strip() or "Mise à jour de l'événement"
@@ -474,7 +497,8 @@ class EventManager:
                             "lieu": ti_lieu.text.strip(),
                             "sondage_actif": chk_sondage.active,
                             "dernier_commit": commit_message,
-                            "timestamp_action": maintenant_str
+                            "timestamp_action": maintenant_str,
+                            "est_modification": est_une_modification
                         })
 
                         if est_une_modification:
@@ -499,7 +523,8 @@ class EventManager:
                         def do_api_save():
                             try:
                                 headers = screen_instance.get_user_header() if hasattr(screen_instance, "get_user_header") else {}
-                                requests.put(url, json=match_info_entrainement, headers=headers, timeout=10)
+                                is_windows = (platform == 'win')
+                                requests.put(url, json=match_info_entrainement, headers=headers, timeout=10, verify=not is_windows)
                                 Clock.schedule_once(lambda dt: screen_instance.fetch_convocations_from_firebase(data))
                             except Exception as e:
                                 print(f"Erreur sauvegarde entrainement API : {e}")
@@ -511,15 +536,23 @@ class EventManager:
 
                     if est_une_modification:
                         content_commit = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-                        content_commit.add_widget(Label(text="[b]Message de modification (Commit)[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                         
+                        # 1. Le champ de saisie en premier (tout en haut)
                         ti_commit = TextInput(hint_text="Ex: Modification de l'heure", multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
                         content_commit.add_widget(ti_commit)
                         
+                        # 2. Le bouton juste en dessous du champ
                         btn_valider_commit = Button(text="Confirmer l'enregistrement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                         content_commit.add_widget(btn_valider_commit)
                         
-                        popup_commit = Popup(title="Git Commit", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
+                        # 3. Le label explicatif placé en bas (optionnel)
+                        content_commit.add_widget(Label(text="[b]Motif de la modification[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
+                        
+                        
+                        content_commit.add_widget(Widget())
+                        
+                        # Titre de la popup épuré (plus de "Git Commit")
+                        popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
                         def valider_avec_commit(instance):
                             msg = ti_commit.text.strip() or "Mise à jour de l'entraînement"
@@ -678,7 +711,8 @@ class EventManager:
                             "titre_sondage_multiple": titre_sondage_multiple,
                             "options_sondage": options_sondage,
                             "dernier_commit": commit_message,
-                            "timestamp_action": maintenant_str
+                            "timestamp_action": maintenant_str,
+                            "est_modification": est_une_modification
                         })
 
                         if est_une_modification:
@@ -702,7 +736,8 @@ class EventManager:
                         def do_api_save():
                             try:
                                 headers = screen_instance.get_user_header() if hasattr(screen_instance, "get_user_header") else {}
-                                requests.put(url, json=match_info_evenement, headers=headers, timeout=10)
+                                is_windows = (platform == 'win')
+                                requests.put(url, json=match_info_evenement, headers=headers, timeout=10, verify=not is_windows)
                                 Clock.schedule_once(lambda dt: screen_instance.fetch_convocations_from_firebase(data))
                             except Exception as e:
                                 print(f"Erreur sauvegarde evenement API : {e}")
@@ -714,15 +749,21 @@ class EventManager:
 
                     if est_une_modification:
                         content_commit = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-                        content_commit.add_widget(Label(text="[b]Message de modification (Commit)[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                         
+                        # 1. Champ de saisie tout en haut
                         ti_commit = TextInput(hint_text="Ex: Modification de l'événement", multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
                         content_commit.add_widget(ti_commit)
                         
+                        # 2. Bouton de confirmation juste en dessous
                         btn_valider_commit = Button(text="Confirmer l'enregistrement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                         content_commit.add_widget(btn_valider_commit)
                         
-                        popup_commit = Popup(title="Git Commit", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
+                        # 3. Label explicatif placé en dessous
+                        content_commit.add_widget(Label(text="[b]Motif de la modification[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
+                        
+                        content_commit.add_widget(Widget())
+                        
+                        popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
                         def valider_avec_commit(instance):
                             msg = ti_commit.text.strip() or "Mise à jour de l'événement"

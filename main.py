@@ -1183,12 +1183,19 @@ class MyApp(App):
     def warmup_server(self):
         """Reveille le serveur API Render en arriere-plan."""
         import requests
+        from kivy.utils import platform  # Garantit l'import du composant Kivy
+    
         url = "https://fcvv-api.onrender.com/" 
         try:
             print("[WARMUP] Ping de reveil envoye au serveur...")
-            response = requests.get(url, timeout=35)
+            # Kivy définit 'platform' comme une chaîne ("win", "android", "ios", etc.)
+            is_windows = (platform == 'win')
+            
+            response = requests.get(url, timeout=35, verify=not is_windows)
             if response.status_code == 200:
                 print("[WARMUP] Serveur Render eveille et pret !")
+            else:
+                print(f"[WARMUP] Reponse serveur avec statut : {response.status_code}")
         except Exception as e:
             print(f"[WARMUP] Attente de demarrage ou indisponibilite : {e}")
 

@@ -463,6 +463,267 @@ jobs:
           ls *.xcworkspace
           sed -i '' 's/OTHER_LDFLAGS = "-all_load";/OTHER_LDFLAGS = "$(inherited) -ObjC -all_load";/g' fcvv.xcodeproj/project.pbxproj
 
+      - name: Configure iOS Launch Screen (Presplash)
+        run: |
+          set -euxo pipefail
+
+          echo "===== Configuration du Launch Screen iOS ====="
+
+          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+          PROJ_DIR=$(dirname "$PROJECT_FILE")
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
+
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+
+          # ------------------------------------------------------------
+          # 1. Vérification de l'image presplash
+          # ------------------------------------------------------------
+
+          PRESPLASH_SOURCE="$PWD/assets/logo_apk_fcvv.png"
+          APP_DIR="$PROJ_DIR/fcvv"
+          PRESPLASH_DEST="$APP_DIR/logo_apk_fcvv.png"
+
+          if [ ! -f "$PRESPLASH_SOURCE" ]; then
+            echo "ERREUR : image presplash introuvable : $PRESPLASH_SOURCE"
+            exit 1
+          fi
+
+          echo "Image presplash trouvée : $PRESPLASH_SOURCE"
+
+          # Vérification des dimensions
+          python3 - "$PRESPLASH_SOURCE" <<'PY'
+          from PIL import Image
+          import sys
+
+          path = sys.argv[1]
+          image = Image.open(path)
+
+          print(f"Presplash : {path}")
+          print(f"Dimensions : {image.size}")
+          print(f"Mode : {image.mode}")
+
+          if image.size != (512, 512):
+              raise SystemExit(
+                  f"ERREUR : dimensions attendues 512x512, "
+                  f"mais trouvées {image.size}"
+              )
+          PY
+
+          # ------------------------------------------------------------
+          # 2. Copie de l'image dans le projet iOS
+          # ------------------------------------------------------------
+
+          mkdir -p "$APP_DIR"
+
+          cp "$PRESPLASH_SOURCE" "$PRESPLASH_DEST"
+
+          echo "Image copiée vers : $PRESPLASH_DEST"
+
+          # ------------------------------------------------------------
+          # 3. Création du LaunchScreen.storyboard
+          # ------------------------------------------------------------
+
+          LAUNCH_STORYBOARD="$APP_DIR/LaunchScreen.storyboard"
+
+          cat > "$LAUNCH_STORYBOARD" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+              <device id="retina6_12" orientation="portrait" appearance="light"/>
+              <dependencies>
+                  <deployment identifier="iOS"/>
+                  <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+                  <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+                  <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+              </dependencies>
+
+              <scenes>
+                  <scene sceneID="LaunchScreenScene">
+                      <objects>
+                          <viewController id="LaunchScreenViewController" sceneMemberID="viewController">
+                              <view key="view" contentMode="scaleToFill" id="LaunchScreenView">
+                                  <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                                  <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                  <subviews>
+                                      <imageView
+                                          clipsSubviews="YES"
+                                          userInteractionEnabled="NO"
+                                          contentMode="scaleAspectFit"
+                                          horizontalHuggingPriority="251"
+                                          verticalHuggingPriority="251"
+                                          image="logo_apk_fcvv"
+                                          translatesAutoresizingMaskIntoConstraints="NO"
+                                          id="LaunchLogo">
+                                          <rect key="frame" x="96.5" y="326" width="200" height="200"/>
+                                      </imageView>
+                                  </subviews>
+
+                                  <viewLayoutGuide key="safeArea" id="SafeArea"/>
+
+                                  <color key="backgroundColor" red="0.117647" green="0.227451" blue="0.541176" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+
+                                  <constraints>
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="centerX"
+                                          secondItem="LaunchScreenView"
+                                          secondAttribute="centerX"
+                                          id="CenterX"/>
+
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="centerY"
+                                          secondItem="LaunchScreenView"
+                                          secondAttribute="centerY"
+                                          id="CenterY"/>
+
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="width"
+                                          constant="200"
+                                          id="LogoWidth"/>
+
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="height"
+                                          constant="200"
+                                          id="LogoHeight"/>
+                                  </constraints>
+                              </view>
+
+                              <viewControllerLayoutGuide type="top" id="TopGuide"/>
+                              <viewControllerLayoutGuide type="bottom" id="BottomGuide"/>
+                          </viewController>
+                          <placeholder placeholderIdentifier="IBFirstResponder" id="FirstResponder" sceneMemberID="firstResponder"/>
+                      </objects>
+                      <point key="canvasLocation" x="0.0" y="0.0"/>
+                  </scene>
+              </scenes>
+
+              <resources>
+                  <image name="logo_apk_fcvv" width="512" height="512"/>
+              </resources>
+          </document>
+          EOF
+
+          echo "LaunchScreen.storyboard créé : $LAUNCH_STORYBOARD"
+
+          # ------------------------------------------------------------
+          # 4. Ajout du PNG et du storyboard au projet Xcode
+          # ------------------------------------------------------------
+
+          ruby -e "
+          require 'xcodeproj'
+
+          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+
+          target = project.targets.find { |t| t.name == 'fcvv' }
+          raise 'Target fcvv introuvable' unless target
+
+          app_group = project.main_group.find_subpath('fcvv', true)
+
+          # ----------------------------------------------------------
+          # Image presplash
+          # ----------------------------------------------------------
+
+          image_file = app_group.files.find {
+            |f| f.path == 'logo_apk_fcvv.png'
+          }
+
+          unless image_file
+            image_file = app_group.new_file('logo_apk_fcvv.png')
+          end
+
+          unless target.resources_build_phase.files_references.include?(image_file)
+            target.add_resources([image_file])
+          end
+
+          # ----------------------------------------------------------
+          # LaunchScreen.storyboard
+          # ----------------------------------------------------------
+
+          storyboard_file = app_group.files.find {
+            |f| f.path == 'LaunchScreen.storyboard'
+          }
+
+          unless storyboard_file
+            storyboard_file = app_group.new_file('LaunchScreen.storyboard')
+          end
+
+          unless target.resources_build_phase.files_references.include?(storyboard_file)
+            target.add_resources([storyboard_file])
+          end
+
+                    # ------------------------------------------------------------
+          # Configuration du Launch Screen dans le Info.plist
+          # ------------------------------------------------------------
+
+          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | grep -v "GoogleService" | head -1)
+
+          if [ -z "$PLIST_FILE" ] || [ ! -f "$PLIST_FILE" ]; then
+            echo "ERREUR : Info.plist introuvable"
+            exit 1
+          fi
+
+          echo "Info.plist utilisé : $PLIST_FILE"
+
+          /usr/libexec/PlistBuddy \
+            -c "Delete :UILaunchStoryboardName" \
+            "$PLIST_FILE" 2>/dev/null || true
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :UILaunchStoryboardName string LaunchScreen" \
+            "$PLIST_FILE"
+
+          project.save
+
+          puts 'Launch Screen configuré avec succès.'
+          "
+
+          # ------------------------------------------------------------
+          # 5. Suppression de l'ancienne configuration UILaunchScreen
+          # ------------------------------------------------------------
+
+          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | grep -v "GoogleService" | head -1)
+
+          if [ -n "$PLIST_FILE" ] && [ -f "$PLIST_FILE" ]; then
+            echo "Nettoyage de UILaunchScreen dans : $PLIST_FILE"
+
+            /usr/libexec/PlistBuddy \
+              -c "Delete :UILaunchScreen" \
+              "$PLIST_FILE" 2>/dev/null || true
+          fi
+
+          # ------------------------------------------------------------
+          # 6. Vérifications
+          # ------------------------------------------------------------
+
+          echo "===== Vérification image ====="
+          ls -lh "$PRESPLASH_DEST"
+
+          echo "===== Vérification storyboard ====="
+          ls -lh "$LAUNCH_STORYBOARD"
+
+          echo "===== Vérification Xcode ====="
+
+          ruby -e "
+          require 'xcodeproj'
+
+          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+          target = project.targets.find { |t| t.name == 'fcvv' }
+
+          raise 'Target fcvv introuvable' unless target
+
+          puts 'UILAUNCHSTORYBOARDNAME :'
+
+          target.build_configurations.each do |config|
+            puts \"#{config.name} = #{config.build_settings['UILAUNCHSTORYBOARDNAME']}\"
+          end
+          "
+
+          echo "===== Fin configuration Launch Screen ====="
+
+      
       - name: Debug Project State
         run: |
           set -euxo pipefail

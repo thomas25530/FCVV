@@ -2,6 +2,7 @@
 import socket
 import threading
 import os
+import requests
 from kivy.uix.screenmanager import Screen
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
@@ -14,6 +15,8 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.metrics import dp, sp
 from kivy.graphics.context_instructions import PushMatrix, PopMatrix, Scale
+
+API_BASE_URL = "https://fcvv-api.onrender.com"
 
 def check_internet(host="8.8.8.8", port=80, timeout=3):
     try:
@@ -201,37 +204,76 @@ class SettingsScreen(Screen):
         app = App.get_running_app()
         if app.root:
             app.root.switch_screen('login_vestiaire')
-
+    
+    
     def remove_vestiaire_access(self, category):
-        app = App.get_running_app()
-        if hasattr(app, 'authorized_vestiaires') and category in app.authorized_vestiaires:
-            
-            # 1. Sauvegarde de l'état AVANT suppression pour la comparaison FCM
-            anciennes_categories = list(app.authorized_vestiaires)
-            
-            # 2. Mise à jour de la mémoire RAM
-            app.authorized_vestiaires.remove(category)
-            
-            # 3. Gestion réseau (Désabonnement FCM)
-            # On passe les deux listes pour permettre la comparaison dans _execute_fcm_subscription
-            if hasattr(app, 'gerer_abonnements_fcm'):
-                # Note: Assurez-vous que gerer_abonnements_fcm accepte maintenant 2 arguments
+        app, cat_str = App.get_running_app(), str(category).strip()
+        if not (hasattr(app, "authorized_vestiaires") and cat_str in app.authorized_vestiaires):
+            return
+
+        anciennes_categories = list(app.authorized_vestiaires)
+        app.authorized_vestiaires.remove(cat_str)
+        if hasattr(app, "roles") and isinstance(app.roles, dict):
+            app.roles.pop(cat_str, None)
+
+        if hasattr(app, "gerer_abonnements_fcm"):
+            try:
                 app.gerer_abonnements_fcm(app.authorized_vestiaires, anciennes_categories)
-            
-            # 4. Mise à jour de la persistance (Fichier .ini)
-            if hasattr(app, 'config'):
-                new_list_str = ','.join(app.authorized_vestiaires)
-                app.config.set('User', 'authorized_list', new_list_str)
-                app.config.write()
-            
-            # 5. Rafraîchissement UI
+            except Exception as e:
+                print(f"[FCM ERROR] Erreur desabonnement local : {e}")
+
+        joueurs_a_supprimer = []
+        if hasattr(app, "roles") and isinstance(app.roles, dict):
+            j_val = (app.roles.get(cat_str) or app.roles.get(cat_str.lower(), {})).get("joueur", "")
+            if isinstance(j_val, list):
+                joueurs_a_supprimer.extend([str(x).strip() for x in j_val if x])
+            elif isinstance(j_val, str) and j_val.strip():
+                joueurs_a_supprimer.extend([x.strip() for x in j_val.split(",") if x.strip()])
+
+        if not joueurs_a_supprimer and hasattr(app, "config"):
+            for key in [f"{cat_str.lower()}_joueur", f"{cat_str}_joueur", f"joueur_{cat_str.lower()}", f"joueur_{cat_str}"]:
+                val = app.config.get("Roles", key, fallback="") if app.config.has_option("Roles", key) else app.config.get("User", key, fallback="")
+                if val:
+                    joueurs_a_supprimer.extend([x.strip() for x in val.split(",") if x.strip()])
+                    break
+        joueurs_a_supprimer = list(set(joueurs_a_supprimer))
+
+        if hasattr(app, "config"):
+            app.config.set("User", "authorized_list", ",".join(app.authorized_vestiaires))
+            if app.config.has_section("Roles"):
+                for opt in list(app.config.options("Roles")):
+                    if opt.lower() == cat_str.lower() or opt.lower().startswith(f"{cat_str.lower()}_"):
+                        app.config.remove_option("Roles", opt)
+            for key in [f"joueur_{cat_str.lower()}", f"joueur_{cat_str}", f"{cat_str.lower()}_joueur", f"{cat_str}_joueur"]:
+                if app.config.has_option("User", key):
+                    app.config.remove_option("User", key)
+            app.config.write()
+
+        nom_parent = app.config.get("User", "nom_parent", fallback="") or app.config.get("User", "nom", fallback="") if hasattr(app, "config") else ""
+        if nom_parent:
+            threading.Thread(target=self.supprimer_parent_firebase, args=(nom_parent, cat_str, joueurs_a_supprimer), daemon=True).start()
+
+        if hasattr(self, "refresh_settings_layout"):
             self.refresh_settings_layout()
-            
-            # 6. Rafraîchissement de l'écran Home
-            if app.root and hasattr(app.root, 'sm') and app.root.sm.has_screen('home'):
-                home = app.root.sm.get_screen('home')
-                if hasattr(home, 'update_ui'):
-                    home.update_ui()
+
+        if hasattr(app, "root") and app.root and hasattr(app.root, "sm") and app.root.sm.has_screen("home"):
+            home = app.root.sm.get_screen("home")
+            if hasattr(home, "update_ui"):
+                home.update_ui()
+
+    def supprimer_parent_firebase(self, nom_parent, category, joueurs_a_retirer):
+        url = f"{API_BASE_URL}/users/unregister"
+        payload = {"nom": nom_parent, "categorie": category, "joueurs_a_retirer": joueurs_a_retirer}
+        try:
+            response = requests.post(url, json=payload, timeout=5, verify=False)
+            if response.status_code == 200:
+                print(f"[API] Desinscription reussie pour {category} : {response.json()}")
+            else:
+                print(f"[API ERROR] Code {response.status_code} : {response.text}")
+        except Exception as e:
+            print(f"[API ERROR] Impossible de joindre l'API pour {category} : {e}")
+    
+    
             
     def on_pre_enter(self):
         """
