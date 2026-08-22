@@ -1073,25 +1073,358 @@ jobs:
       - name: Debug Project State
         run: |
           set -euxo pipefail
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
-          PROJ_DIR=$(dirname "$PROJECT_FILE")
-          
-          echo "===== Arborescence dans le dossier projet ====="
-          find "$PROJ_DIR" -maxdepth 3
-          
-          echo "===== Recherche Firebase dans le dossier Pods ====="
-          # On cherche dans PROJ_DIR/Pods, pas juste à la racine
-          find "$PROJ_DIR/Pods" -iname "*Firebase*" || echo "Dossier Pods non trouvé ou vide"
-          
-          echo "===== Vérification LDFLAGS ====="
-          grep -n "OTHER_LDFLAGS" "$PROJECT_FILE/project.pbxproj" || true
-          
-          echo "===== Podfile Lock ====="
-          cat "$PROJ_DIR/Podfile.lock" || true
-          
-          echo "===== Workspaces ====="
-          find . -name "*.xcworkspace"
 
+          echo "============================================================"
+          echo "===== DEBUG ÉTAT DU PROJET iOS AVANT BUILD ====="
+          echo "============================================================"
+
+          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" -print -quit)
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun .xcodeproj trouvé"
+            exit 1
+          fi
+
+          PROJ_DIR=$(dirname "$PROJECT_FILE")
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
+
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+          echo "FULL_PROJECT_PATH=$FULL_PROJECT_PATH"
+
+          # ------------------------------------------------------------
+          # 1. Arborescence projet
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Arborescence dans le dossier projet ====="
+
+          find "$PROJ_DIR" -maxdepth 4 -print | sort
+
+          # ------------------------------------------------------------
+          # 2. Vérification Launch Screen
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Launch Screen ====="
+
+          echo "--- Fichiers LaunchScreen ---"
+
+          find "$PROJ_DIR" \
+            \( -name "LaunchScreen.storyboard" \
+            -o -name "Launch Screen.storyboard" \) \
+            -print
+
+          echo "--- Références launch storyboard dans project.pbxproj ---"
+
+          grep -n -E \
+            "LaunchScreen|Launch Screen|UILAUNCHSTORYBOARDNAME|UIMainStoryboardFile|NSMainStoryboardFile" \
+            "$PROJECT_FILE/project.pbxproj" || true
+
+          # ------------------------------------------------------------
+          # 3. Vérification du PNG / Assets
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Presplash / Assets ====="
+
+          find "$PROJ_DIR" \
+            \( -name "logo_apk_fcvv.png" \
+            -o -name "fcvv_launch_logo.png" \
+            -o -name "fcvv_launch_logo.imageset" \) \
+            -print
+
+          echo "--- Images.xcassets ---"
+
+          find "$PROJ_DIR/fcvv/Images.xcassets" \
+            -maxdepth 3 \
+            -print 2>/dev/null || true
+
+          # ------------------------------------------------------------
+          # 4. Info.plist
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Info.plist ====="
+
+          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 \
+            -name "*-Info.plist" \
+            ! -name "GoogleService-Info.plist" \
+            -print -quit)
+
+          if [ -n "$PLIST_FILE" ] && [ -f "$PLIST_FILE" ]; then
+
+            echo "Info.plist trouvé : $PLIST_FILE"
+
+            echo ""
+            echo "--- Contenu Info.plist ---"
+
+            /usr/libexec/PlistBuddy \
+              -c "Print" \
+              "$PLIST_FILE" || true
+
+            echo ""
+            echo "--- Launch configuration ---"
+
+            echo "UILaunchStoryboardName:"
+            /usr/libexec/PlistBuddy \
+              -c "Print :UILaunchStoryboardName" \
+              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
+
+            echo "UIMainStoryboardFile:"
+            /usr/libexec/PlistBuddy \
+              -c "Print :UIMainStoryboardFile" \
+              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
+
+            echo "NSMainStoryboardFile:"
+            /usr/libexec/PlistBuddy \
+              -c "Print :NSMainStoryboardFile" \
+              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
+
+            echo "UIApplicationSceneManifest:"
+            /usr/libexec/PlistBuddy \
+              -c "Print :UIApplicationSceneManifest" \
+              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
+
+            echo "UISceneConfigurations:"
+            /usr/libexec/PlistBuddy \
+              -c "Print :UIApplicationSceneManifest:UISceneConfigurations" \
+              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
+
+            echo ""
+            echo "--- Validation plist ---"
+
+            plutil -lint "$PLIST_FILE"
+
+          else
+
+            echo "ATTENTION : aucun Info.plist trouvé"
+
+          fi
+
+          # ------------------------------------------------------------
+          # 5. Build Settings Xcode
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Build Settings Xcode ====="
+
+          ruby -e "
+          require 'xcodeproj'
+
+          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+
+          target = project.targets.find { |t| t.name == 'fcvv' }
+
+          raise 'Target fcvv introuvable' unless target
+
+          puts 'Target : ' + target.name
+          puts ''
+
+          target.build_configurations.each do |config|
+
+            puts '===== Configuration ' + config.name + ' ====='
+
+            keys = [
+              'PRODUCT_NAME',
+              'PRODUCT_BUNDLE_IDENTIFIER',
+              'INFOPLIST_FILE',
+              'UILAUNCHSTORYBOARDNAME',
+              'UIMAINSTORYBOARDFILE',
+              'SWIFT_VERSION',
+              'IPHONEOS_DEPLOYMENT_TARGET',
+              'TARGETED_DEVICE_FAMILY',
+              'SDKROOT',
+              'OTHER_LDFLAGS',
+              'OTHER_SWIFT_FLAGS',
+              'GCC_PREPROCESSOR_DEFINITIONS'
+            ]
+
+            keys.each do |key|
+              value = config.build_settings[key]
+
+              puts key + ' = ' + value.to_s
+            end
+
+            puts ''
+          end
+          "
+
+          # ------------------------------------------------------------
+          # 6. Ressources du target
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Ressources du target fcvv ====="
+
+          ruby -e "
+          require 'xcodeproj'
+
+          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+
+          target = project.targets.find { |t| t.name == 'fcvv' }
+
+          raise 'Target fcvv introuvable' unless target
+
+          target.resources_build_phase.files_references.each do |file|
+
+            puts file.real_path.to_s
+
+          end
+          "
+
+          # ------------------------------------------------------------
+          # 7. Recherche SDL
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Recherche SDL ====="
+
+          grep -Rni \
+            -E "SDL_UIKitRunApp|SDLMain|SDL_main|SDL_SetMainReady|SDLAppDelegate" \
+            "$PROJ_DIR" \
+            --include="*.m" \
+            --include="*.mm" \
+            --include="*.h" \
+            --include="*.swift" \
+            --include="*.plist" \
+            --exclude-dir=DerivedData \
+            --exclude-dir=build \
+            2>/dev/null || true
+
+          # ------------------------------------------------------------
+          # 8. Recherche UIApplication / UIScene
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Recherche UIApplication / UIScene ====="
+
+          grep -Rni \
+            -E "UIApplicationMain|UIApplicationDelegate|UISceneDelegate|UISceneConfiguration|configurationForConnectingSceneSession" \
+            "$PROJ_DIR" \
+            --include="*.m" \
+            --include="*.mm" \
+            --include="*.h" \
+            --include="*.swift" \
+            --include="*.plist" \
+            --exclude-dir=DerivedData \
+            --exclude-dir=build \
+            2>/dev/null || true
+
+          # ------------------------------------------------------------
+          # 9. Recherche Firebase
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Recherche Firebase dans le dossier Pods ====="
+
+          find "$PROJ_DIR/Pods" \
+            -iname "*Firebase*" \
+            -print 2>/dev/null || \
+            echo "Dossier Pods non trouvé ou vide"
+
+          # ------------------------------------------------------------
+          # 10. LDFLAGS
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Vérification LDFLAGS ====="
+
+          grep -n "OTHER_LDFLAGS" \
+            "$PROJECT_FILE/project.pbxproj" || true
+
+          # ------------------------------------------------------------
+          # 11. Podfile.lock
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Podfile Lock ====="
+
+          if [ -f "$PROJ_DIR/Podfile.lock" ]; then
+            cat "$PROJ_DIR/Podfile.lock"
+          else
+            echo "Podfile.lock absent"
+          fi
+
+          # ------------------------------------------------------------
+          # 12. Workspaces
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Workspaces ====="
+
+          find . -name "*.xcworkspace" -print
+
+          # ------------------------------------------------------------
+          # 13. Fichiers Swift / Objective-C principaux
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Fichiers source iOS ====="
+
+          find "$PROJ_DIR" \
+            \( -name "*.swift" \
+            -o -name "*.m" \
+            -o -name "*.mm" \
+            -o -name "*.h" \) \
+            -not -path "*/Pods/*" \
+            -not -path "*/DerivedData/*" \
+            -print | sort
+
+          # ------------------------------------------------------------
+          # 14. Vérification spécifique du Launch Screen
+          # ------------------------------------------------------------
+
+          echo ""
+          echo "===== Vérification finale Launch Screen ====="
+
+          if [ -f "$PROJ_DIR/LaunchScreen.storyboard" ]; then
+
+            echo "LaunchScreen.storyboard présent."
+
+            echo "--- Référence image ---"
+
+            grep -n \
+              -E "fcvv_launch_logo|logo_apk_fcvv" \
+              "$PROJ_DIR/LaunchScreen.storyboard" || true
+
+          else
+
+            echo "ERREUR : LaunchScreen.storyboard absent"
+
+          fi
+
+          # ------------------------------------------------------------
+          # 15. Vérification imageset
+          # ------------------------------------------------------------
+
+          IMAGESET="$PROJ_DIR/fcvv/Images.xcassets/fcvv_launch_logo.imageset"
+
+          echo ""
+          echo "===== Vérification imageset ====="
+
+          if [ -d "$IMAGESET" ]; then
+
+            echo "Imageset : $IMAGESET"
+
+            ls -lah "$IMAGESET"
+
+            echo ""
+            echo "--- Contents.json ---"
+
+            cat "$IMAGESET/Contents.json"
+
+          else
+
+            echo "ERREUR : imageset absent : $IMAGESET"
+
+          fi
+
+          echo ""
+          echo "============================================================"
+          echo "===== FIN DEBUG ÉTAT DU PROJET ====="
+          echo "============================================================"
+          
       - name: Build simulator
         run: |
           set -euxo pipefail
