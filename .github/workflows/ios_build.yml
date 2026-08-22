@@ -466,104 +466,117 @@ jobs:
       - name: Configure iOS Launch Screen (Presplash)
         run: |
           set -euxo pipefail
-     
+
           echo "===== Configuration du Launch Screen iOS ====="
-     
+
           # ------------------------------------------------------------
           # 0. Détection du projet Xcode
           # ------------------------------------------------------------
-     
+
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" -print -quit)
-     
+
           if [ -z "$PROJECT_FILE" ]; then
             echo "ERREUR : aucun fichier .xcodeproj trouvé"
             exit 1
           fi
-     
+
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
-     
+
           echo "PROJECT_FILE=$PROJECT_FILE"
           echo "PROJ_DIR=$PROJ_DIR"
           echo "FULL_PROJECT_PATH=$FULL_PROJECT_PATH"
-     
+
           # ------------------------------------------------------------
           # 1. Définition des chemins
           # ------------------------------------------------------------
-     
+
           PRESPLASH_SOURCE="$PWD/assets/logo_apk_fcvv.png"
-     
+
           APP_DIR="$PROJ_DIR/fcvv"
-     
+
           ASSETS_DIR="$APP_DIR/Images.xcassets"
-     
+
           IMAGESET_DIR="$ASSETS_DIR/fcvv_launch_logo.imageset"
-     
+
           IMAGE_DEST="$IMAGESET_DIR/fcvv_launch_logo.png"
-     
-          LAUNCH_STORYBOARD="$APP_DIR/LaunchScreen.storyboard"
-     
+
+          # IMPORTANT :
+          # Le storyboard est à la RACINE de fcvv-ios
+          # car Xcode le cherche ici.
+          LAUNCH_STORYBOARD="$PROJ_DIR/LaunchScreen.storyboard"
+
           echo "PRESPLASH_SOURCE=$PRESPLASH_SOURCE"
           echo "IMAGE_DEST=$IMAGE_DEST"
           echo "LAUNCH_STORYBOARD=$LAUNCH_STORYBOARD"
-     
+
           # ------------------------------------------------------------
           # 2. Vérification image source
           # ------------------------------------------------------------
-     
+
           echo "===== Vérification image source ====="
-     
+
           if [ ! -f "$PRESPLASH_SOURCE" ]; then
             echo "ERREUR : image source introuvable :"
             echo "$PRESPLASH_SOURCE"
             exit 1
           fi
-     
+
           python3 - "$PRESPLASH_SOURCE" <<'PY'
           from PIL import Image
           import sys
-     
+
           path = sys.argv[1]
           image = Image.open(path)
-     
+
           print(f"Image source : {path}")
           print(f"Dimensions   : {image.size}")
           print(f"Mode         : {image.mode}")
-     
+
           if image.size != (512, 512):
               raise SystemExit(
                   f"ERREUR : dimensions attendues 512x512, "
                   f"mais trouvées {image.size}"
               )
           PY
-     
+
           # ------------------------------------------------------------
-          # 3. Nettoyage des anciennes images / références physiques
+          # 3. Nettoyage physique des anciennes ressources
           # ------------------------------------------------------------
-     
-          echo "===== Nettoyage anciennes images ====="
-     
+
+          echo "===== Nettoyage anciennes ressources physiques ====="
+
+          # Anciennes images éventuelles
           rm -f "$APP_DIR/logo_apk_fcvv.png"
           rm -f "$APP_DIR/fcvv_launch_logo.png"
-     
+          rm -f "$PROJ_DIR/logo_apk_fcvv.png"
+          rm -f "$PROJ_DIR/fcvv_launch_logo.png"
+
+          # Anciennes imagesets
           rm -rf "$ASSETS_DIR/logo_apk_fcvv.imageset"
           rm -rf "$ASSETS_DIR/fcvv_launch_logo.imageset"
-     
-          # Anciennes références physiques éventuelles
-          rm -f "$PROJ_DIR/logo_apk_fcvv.png"
-     
-          echo "Anciennes images supprimées."
-     
+
+          # Ancien storyboard dans fcvv/
+          rm -f "$APP_DIR/LaunchScreen.storyboard"
+
+          # Ancien storyboard à la racine : on le recréera proprement
+          rm -f "$PROJ_DIR/LaunchScreen.storyboard"
+
+          # Ancien storyboard avec espace
+          rm -f "$PROJ_DIR/Storyboards/Launch Screen.storyboard"
+
+          echo "Anciennes ressources physiques supprimées."
+
           # ------------------------------------------------------------
-          # 4. Création du Images.xcassets / imageset
+          # 4. Création du imageset
           # ------------------------------------------------------------
-     
+
           echo "===== Création du imageset ====="
-     
+
           mkdir -p "$IMAGESET_DIR"
-     
+
           cp -f "$PRESPLASH_SOURCE" "$IMAGE_DEST"
-     
+
           cat > "$IMAGESET_DIR/Contents.json" <<'EOF'
           {
             "images" : [
@@ -579,16 +592,16 @@ jobs:
             }
           }
           EOF
-     
+
           echo "Imageset créé :"
           echo "$IMAGESET_DIR"
-     
+
           # ------------------------------------------------------------
           # 5. Création du LaunchScreen.storyboard
           # ------------------------------------------------------------
-     
+
           echo "===== Création LaunchScreen.storyboard ====="
-     
+
           cat > "$LAUNCH_STORYBOARD" <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB"
@@ -601,11 +614,11 @@ jobs:
                     useTraitCollections="YES"
                     useSafeAreas="YES"
                     colorMatched="YES">
-     
+
               <device id="retina6_12"
                       orientation="portrait"
                       appearance="light"/>
-     
+
               <dependencies>
                   <deployment identifier="iOS"/>
                   <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin"
@@ -615,35 +628,35 @@ jobs:
                   <capability name="documents saved in the Xcode 8 format"
                               minToolsVersion="8.0"/>
               </dependencies>
-     
+
               <scenes>
-     
+
                   <scene sceneID="LaunchScreenScene">
-     
+
                       <objects>
-     
+
                           <viewController
                               id="LaunchScreenViewController"
                               sceneMemberID="viewController">
-     
+
                               <view
                                   key="view"
                                   contentMode="scaleToFill"
                                   id="LaunchScreenView">
-     
+
                                   <rect key="frame"
                                         x="0.0"
                                         y="0.0"
                                         width="393"
                                         height="852"/>
-     
+
                                   <autoresizingMask
                                       key="autoresizingMask"
                                       widthSizable="YES"
                                       heightSizable="YES"/>
-     
+
                                   <subviews>
-     
+
                                       <imageView
                                           clipsSubviews="YES"
                                           userInteractionEnabled="NO"
@@ -653,21 +666,21 @@ jobs:
                                           image="fcvv_launch_logo"
                                           translatesAutoresizingMaskIntoConstraints="NO"
                                           id="LaunchLogo">
-     
+
                                           <rect key="frame"
                                                 x="96.5"
                                                 y="326"
                                                 width="200"
                                                 height="200"/>
-     
+
                                       </imageView>
-     
+
                                   </subviews>
-     
+
                                   <viewLayoutGuide
                                       key="safeArea"
                                       id="SafeArea"/>
-     
+
                                   <color
                                       key="backgroundColor"
                                       red="0.117647"
@@ -676,320 +689,384 @@ jobs:
                                       alpha="1"
                                       colorSpace="custom"
                                       customColorSpace="sRGB"/>
-     
+
                                   <constraints>
-     
+
                                       <constraint
                                           firstItem="LaunchLogo"
                                           firstAttribute="centerX"
                                           secondItem="LaunchScreenView"
                                           secondAttribute="centerX"
                                           id="CenterX"/>
-     
+
                                       <constraint
                                           firstItem="LaunchLogo"
                                           firstAttribute="centerY"
                                           secondItem="LaunchScreenView"
                                           secondAttribute="centerY"
                                           id="CenterY"/>
-     
+
                                       <constraint
                                           firstItem="LaunchLogo"
                                           firstAttribute="width"
                                           constant="200"
                                           id="LogoWidth"/>
-     
+
                                       <constraint
                                           firstItem="LaunchLogo"
                                           firstAttribute="height"
                                           constant="200"
                                           id="LogoHeight"/>
-     
+
                                   </constraints>
-     
+
                               </view>
-     
+
                               <viewControllerLayoutGuide
                                   type="top"
                                   id="TopGuide"/>
-     
+
                               <viewControllerLayoutGuide
                                   type="bottom"
                                   id="BottomGuide"/>
-     
+
                           </viewController>
-     
+
                           <placeholder
                               placeholderIdentifier="IBFirstResponder"
                               id="FirstResponder"
                               sceneMemberID="firstResponder"/>
-     
+
                       </objects>
-     
+
                       <point
                           key="canvasLocation"
                           x="0.0"
                           y="0.0"/>
-     
+
                   </scene>
-     
+
               </scenes>
-     
+
               <resources>
-     
+
                   <image
                       name="fcvv_launch_logo"
                       width="512"
                       height="512"/>
-     
+
               </resources>
-     
+
           </document>
           EOF
-     
-          echo "LaunchScreen.storyboard créé."
-     
+
+          echo "LaunchScreen.storyboard créé : $LAUNCH_STORYBOARD"
+
           # ------------------------------------------------------------
-          # 6. Nettoyage des anciennes références Xcode
+          # 6. Nettoyage et configuration du projet Xcode
           # ------------------------------------------------------------
-     
+
           echo "===== Nettoyage des références Xcode ====="
-     
+
           ruby -e "
           require 'xcodeproj'
-     
+
           project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
-     
+
           target = project.targets.find { |t| t.name == 'fcvv' }
-     
+
           raise 'Target fcvv introuvable' unless target
-     
+
           puts 'Target trouvé : ' + target.name
-     
+
           # ----------------------------------------------------------
-          # Supprimer anciennes références liées au presplash
+          # Supprimer toutes les anciennes références du presplash
           # ----------------------------------------------------------
-     
+
           project.files.to_a.each do |file|
-     
+
             path = file.path.to_s
             basename = File.basename(path)
-     
-            if [
+
+            remove = [
               'logo_apk_fcvv.png',
               'fcvv_launch_logo.png',
               'LaunchScreen.storyboard',
               'Launch Screen.storyboard'
             ].include?(basename)
-     
-              puts 'Suppression référence : ' + path
-     
-              target.resources_build_phase.files.to_a.each do |build_file|
-                if build_file.file_ref == file
-                  target.resources_build_phase.remove_build_file(build_file)
-                end
+
+            next unless remove
+
+            puts 'Suppression référence : ' + path
+
+            target.resources_build_phase.files.to_a.each do |build_file|
+              if build_file.file_ref == file
+                target.resources_build_phase.remove_build_file(build_file)
               end
-     
-              file.remove_from_project
             end
+
+            file.remove_from_project
           end
-     
+
           # ----------------------------------------------------------
-          # Rechercher le groupe fcvv
+          # Groupe principal
           # ----------------------------------------------------------
-     
+
           app_group = project.main_group.find_subpath('fcvv', true)
-     
+
           raise 'Groupe fcvv introuvable' unless app_group
-     
+
           # ----------------------------------------------------------
           # IMPORTANT :
-          # Le PNG est maintenant dans Images.xcassets.
           #
-          # Il ne doit PAS être ajouté individuellement aux
-          # Resources du target.
+          # Le PNG est dans Images.xcassets.
+          #
+          # Il n'est donc PAS ajouté individuellement au target.
           # ----------------------------------------------------------
-     
+
           # ----------------------------------------------------------
-          # Ajouter uniquement le LaunchScreen.storyboard
+          # Ajouter le storyboard depuis la racine du projet
           # ----------------------------------------------------------
-     
-          storyboard_file = app_group.new_file(
+
+          storyboard_file = project.main_group.new_file(
             'LaunchScreen.storyboard'
           )
-     
+
           target.resources_build_phase.add_file_reference(
             storyboard_file,
             true
           )
-     
+
           puts 'LaunchScreen.storyboard ajouté au target.'
-     
+
           # ----------------------------------------------------------
-          # Configuration Launch Screen
+          # Configuration Build Settings
           # ----------------------------------------------------------
-     
+
           target.build_configurations.each do |config|
-     
+
             config.build_settings['UILAUNCHSTORYBOARDNAME'] = 'LaunchScreen'
-     
+
             puts(
               config.name +
               ' : UILAUNCHSTORYBOARDNAME = ' +
               config.build_settings['UILAUNCHSTORYBOARDNAME'].to_s
             )
-     
+
           end
-     
+
           project.save
-     
+
           puts 'Projet Xcode sauvegardé.'
           "
-     
+
           # ------------------------------------------------------------
           # 7. Recherche Info.plist
           # ------------------------------------------------------------
-     
+
           echo "===== Recherche Info.plist ====="
-     
+
           PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 \
             -name "*-Info.plist" \
             ! -name "GoogleService-Info.plist" \
             -print -quit)
-     
+
           if [ -z "$PLIST_FILE" ] || [ ! -f "$PLIST_FILE" ]; then
             echo "ERREUR : Info.plist introuvable"
             exit 1
           fi
-     
+
           echo "Info.plist utilisé : $PLIST_FILE"
-     
+
           # ------------------------------------------------------------
           # 8. Configuration Info.plist
           # ------------------------------------------------------------
-     
+
           echo "===== Configuration Info.plist ====="
-     
+
           /usr/libexec/PlistBuddy \
             -c "Delete :UILaunchStoryboardName" \
             "$PLIST_FILE" 2>/dev/null || true
-     
+
           /usr/libexec/PlistBuddy \
             -c "Add :UILaunchStoryboardName string LaunchScreen" \
             "$PLIST_FILE"
-     
+
           /usr/libexec/PlistBuddy \
             -c "Delete :UILaunchScreen" \
             "$PLIST_FILE" 2>/dev/null || true
-     
+
+          echo "===== Validation Info.plist ====="
+
           plutil -lint "$PLIST_FILE"
-     
+
           # ------------------------------------------------------------
-          # 9. Vérification Images.xcassets
+          # 9. Vérification physique du imageset
           # ------------------------------------------------------------
-     
+
           echo "===== Vérification Images.xcassets ====="
-     
+
           if [ ! -f "$IMAGE_DEST" ]; then
-            echo "ERREUR : PNG du Launch Screen absent"
+            echo "ERREUR : PNG absent : $IMAGE_DEST"
             exit 1
           fi
-     
+
           if [ ! -f "$IMAGESET_DIR/Contents.json" ]; then
             echo "ERREUR : Contents.json absent"
             exit 1
           fi
-     
+
           ls -lh "$IMAGE_DEST"
-          cat "$IMAGESET_DIR/Contents.json"
-     
+
           python3 - "$IMAGE_DEST" <<'PY'
           from PIL import Image
           import sys
-     
+
           path = sys.argv[1]
           image = Image.open(path)
-     
+
           print(f"Image finale : {path}")
           print(f"Dimensions   : {image.size}")
           print(f"Mode         : {image.mode}")
-     
+
           if image.size != (512, 512):
               raise SystemExit(
                   "ERREUR : image finale non 512x512"
               )
           PY
-     
+
           # ------------------------------------------------------------
           # 10. Vérification storyboard
           # ------------------------------------------------------------
-     
+
           echo "===== Vérification storyboard ====="
-     
+
+          if [ ! -f "$LAUNCH_STORYBOARD" ]; then
+            echo "ERREUR : LaunchScreen.storyboard absent"
+            exit 1
+          fi
+
           grep -n "fcvv_launch_logo" "$LAUNCH_STORYBOARD"
-     
+
           # ------------------------------------------------------------
-          # 11. Vérification Xcode
+          # 11. Vérification Xcode finale
           # ------------------------------------------------------------
-     
+
           echo "===== Vérification Xcode ====="
-     
+
           ruby -e "
           require 'xcodeproj'
-     
+
           project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
-     
+
           target = project.targets.find { |t| t.name == 'fcvv' }
-     
+
           raise 'Target fcvv introuvable' unless target
-     
+
           puts '===== Build Settings ====='
-     
+
           target.build_configurations.each do |config|
+
             puts(
               config.name +
               ' = ' +
               config.build_settings['UILAUNCHSTORYBOARDNAME'].to_s
             )
+
           end
-     
+
           puts '===== Ressources target ====='
-     
+
           target.resources_build_phase.files_references.each do |file|
             puts file.real_path.to_s
           end
-     
-          puts '===== Recherche anciennes références ====='
-     
+
+          puts '===== Vérification LaunchScreen ====='
+
+          storyboard_refs = target.resources_build_phase.files_references.select do |file|
+            File.basename(file.path.to_s) == 'LaunchScreen.storyboard'
+          end
+
+          if storyboard_refs.empty?
+            raise 'ERREUR : LaunchScreen.storyboard absent du target'
+          end
+
+          if storyboard_refs.length > 1
+            raise 'ERREUR : plusieurs LaunchScreen.storyboard détectés'
+          end
+
+          storyboard_path = storyboard_refs.first.real_path.to_s
+
+          unless File.exist?(storyboard_path)
+            raise 'ERREUR : fichier physique LaunchScreen.storyboard introuvable : ' + storyboard_path
+          end
+
+          puts 'Storyboard Xcode OK : ' + storyboard_path
+
+          puts '===== Vérification anciennes références ====='
+
           old_found = false
-     
+
           project.files.each do |file|
-     
+
             path = file.path.to_s
             basename = File.basename(path)
-     
+
             if basename == 'logo_apk_fcvv.png'
               puts 'ERREUR : ancienne référence logo_apk_fcvv.png : ' + path
               old_found = true
             end
-     
+
             if basename == 'Launch Screen.storyboard'
               puts 'ERREUR : ancienne référence Launch Screen.storyboard : ' + path
               old_found = true
             end
-     
+
+            # Le PNG physique est autorisé UNIQUEMENT dans le imageset.
             if basename == 'fcvv_launch_logo.png'
-              puts 'ERREUR : PNG ajouté directement au projet : ' + path
-              old_found = true
+              expected = 'fcvv/Images.xcassets/fcvv_launch_logo.imageset/fcvv_launch_logo.png'
+
+              unless path == expected
+                puts 'ERREUR : fcvv_launch_logo.png hors imageset : ' + path
+                old_found = true
+              end
             end
-     
+
           end
-     
+
           raise 'Anciennes références détectées' if old_found
-     
+
           puts 'Aucune ancienne référence détectée.'
           "
-     
+
+          # ------------------------------------------------------------
+          # 12. Vérification finale des chemins
+          # ------------------------------------------------------------
+
+          echo "===== Vérification finale des chemins ====="
+
+          echo "--- Storyboard ---"
+          ls -lh "$PROJ_DIR/LaunchScreen.storyboard"
+
+          echo "--- Imageset ---"
+          find "$IMAGESET_DIR" -maxdepth 1 -type f -print
+
+          echo "--- Recherche anciens fichiers ---"
+
+          if find "$PROJ_DIR" \
+              -name "logo_apk_fcvv.png" \
+              -o -name "Launch Screen.storyboard" \
+              | grep -q .; then
+
+            echo "ERREUR : ancienne ressource encore présente"
+            find "$PROJ_DIR" \
+              -name "logo_apk_fcvv.png" \
+              -o -name "Launch Screen.storyboard"
+            exit 1
+          fi
+
+          echo "Aucune ancienne ressource trouvée."
+
           echo "===== Configuration Launch Screen terminée ====="
 
       
