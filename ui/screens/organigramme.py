@@ -99,19 +99,44 @@ class MemberBox(ButtonBehavior, BoxLayout):
         content = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(5))
         
         # 1. Photo (taille fixe)
-        img_widget = Image(
-            source='assets/default_user.png', 
-            size_hint=(1, None), 
-            height=dp(130), 
-            fit_mode="contain"
-        )
-        content.add_widget(img_widget)
-        
-        # 2. Gestion asynchrone... (votre code existant)
-        photo_id = self.member_data.get('photo_id')
-        if photo_id and photo_id.strip() != "":
+        photo_id = self.member_data.get("photo_id")
+
+        if photo_id:
             url = f"https://drive.usercontent.google.com/download?id={photo_id}&export=download"
-            self.load_member_image(url, img_widget)
+        
+            cache_dir = os.path.join(
+                App.get_running_app().user_data_dir,
+                "member_cache"
+            )
+        
+            url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+            local_path = os.path.join(cache_dir, f"memb_{url_hash}.png")
+        
+            if os.path.exists(local_path):
+                img_widget = Image(
+                    source=local_path,
+                    size_hint=(1, None),
+                    height=dp(130),
+                    fit_mode="contain"
+                )
+            else:
+                img_widget = Image(
+                    opacity=0,
+                    size_hint=(1, None),
+                    height=dp(130),
+                    fit_mode="contain"
+                )
+                self.load_member_image(url, img_widget)
+                
+        else:
+            img_widget = Image(
+                source="assets/default_user.png",
+                size_hint=(1, None),
+                height=dp(130),
+                fit_mode="contain"
+            )
+
+        content.add_widget(img_widget)
         
         # 3. Informations (tous avec size_hint_y=None)
         content.add_widget(Label(text=f"[color=1E3A8A][b]{self.member_data.get('titre', '')}[/b][/color]", markup=True, font_size="16sp", size_hint_y=None, height=dp(25)))
@@ -167,6 +192,7 @@ class MemberBox(ButtonBehavior, BoxLayout):
     def _apply_img(self, widget, path):
         widget.source = path
         widget.reload()
+        widget.opacity = 1
         
 class OrganigrammeScreen(Screen):
     def __init__(self, **kwargs):

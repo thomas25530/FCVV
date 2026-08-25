@@ -17,6 +17,10 @@ from kivy.utils import platform
 from kivy.core.window import Window
 from kivy.uix.scrollview import ScrollView
 
+from kivy.clock import mainthread
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+
 import threading
 import ssl
 import os, hashlib
@@ -419,6 +423,14 @@ class RootLayout(FloatLayout):
         )
     
         self.sm.current = "home"
+
+    def afficher_popup_flottante(self, titre, message):
+        """
+        Affiche la popup par-dessus l'interface actuelle de manière thread-safe.
+        """
+        from core.NotificationManager import afficher_popup_notification
+        # S'assure que l'affichage se fait bien sur le thread principal de Kivy
+        Clock.schedule_once(lambda dt: afficher_popup_notification(titre, message), 0)
     
     def _update_panel_height(self, *args):
         # La hauteur est le maximum entre le contenu et la taille de l'écran
@@ -830,40 +842,320 @@ class MyApp(App):
         return "USER"
 
     def on_start(self):
-        # 0. Tâches de fond immédiates
         threading.Thread(target=self.warmup_server, daemon=True).start()
-        
-        # 1. Chargement config
-        auth_str = self.config.get('User', 'authorized_list', fallback='')
-        self.authorized_vestiaires = [cat.strip() for cat in auth_str.split(',') if cat.strip()]
-        
-        # 2. Initialisation sécurisée du Notification Manager
-        if platform in ['android', 'ios']:
+    
+        auth_str = self.config.get("User", "authorized_list", fallback="")
+        self.authorized_vestiaires = [c.strip() for c in auth_str.split(",") if c.strip()]
+    
+        if platform in ("android", "ios"):
             from core.NotificationManager import get_notification_manager
             self.notifier = get_notification_manager()
             if self.notifier:
                 try:
                     self.notifier.request_permissions()
                     self.notifier.init_service()
-                    Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"), 5.0)
+                    Clock.schedule_once(
+                        lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"), 5.0
+                    )
                     if self.authorized_vestiaires:
-                        Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires), 8.0)
-                except Exception:
-                    print("[FCM ERROR] Initialisation")
+                        Clock.schedule_once(
+                            lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires), 8.0
+                        )
+                except Exception as e:
+                    print(f"[FCM ERROR] Initialisation : {e}")
         else:
-            print("[INFO] Environnement Windows/Desktop : Notifications FCM ignorees.")
-
-        # 3. Reste de l'initialisation
-        if platform == 'android' and 'customize_android_bars' in globals():
+            print("[FCM TRACE] Desktop : FCM ignore")
+    
+        if platform == "android" and "customize_android_bars" in globals():
             Clock.schedule_once(lambda dt: customize_android_bars(), 1)
-        
-        try: os.makedirs(self.cache_images_dir, exist_ok=True)
-        except: pass
-        
+    
+        try:
+            os.makedirs(self.cache_images_dir, exist_ok=True)
+        except Exception:
+            pass
+    
         from kivy.core.window import Window
         Window.softinput_mode = "below_target"
         Window.bind(on_keyboard=self.on_back_button)
         Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
+    
+        if platform in ("android", "ios"):
+            Clock.schedule_once(
+                lambda dt: self.verifier_redirection_notification(),
+                2.0
+            )
+    
+    
+    def on_resume(self):
+        if platform == "android":
+            Clock.schedule_once(
+                lambda dt: self.verifier_redirection_notification_android(), 0.3
+            )
+        return True
+    
+    
+    def verifier_redirection_notification(self):
+        """
+        Vérifie si l'application a été ouverte depuis une notification.
+        """
+    
+        if platform == "android":
+            self.verifier_redirection_notification_android()
+    
+        elif platform == "ios":
+            self.verifier_redirection_notification_ios()
+    
+    
+    def verifier_redirection_notification_ios(self):
+        """
+        Vérifie si l'application iOS a été ouverte depuis une notification.
+    
+        Les données sont enregistrées côté Objective-C dans NSUserDefaults
+        lorsqu'une notification est reçue / sélectionnée.
+    
+        Après traitement réussi, les données sont supprimées.
+        """
+    
+        if platform != "ios":
+            return
+    
+        try:
+            from pyobjus import autoclass
+    
+            NSUserDefaults = autoclass("NSUserDefaults")
+            defaults = NSUserDefaults.standardUserDefaults()
+    
+            print("[iOS] Verification notification en attente...")
+    
+            # ---------------------------------------------------------
+            # Vérification présence notification
+            # ---------------------------------------------------------
+    
+            pending = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
+    
+            if not pending:
+                print("[iOS] Aucune notification en attente")
+                return
+    
+            print("[iOS] Notification en attente detectee")
+    
+            # ---------------------------------------------------------
+            # Récupération des données
+            # ---------------------------------------------------------
+    
+            titre = defaults.stringForKey_(
+                "FCVV_NOTIFICATION_TITLE"
+            )
+    
+            message = defaults.stringForKey_(
+                "FCVV_NOTIFICATION_BODY"
+            )
+    
+            categorie = defaults.stringForKey_(
+                "FCVV_NOTIFICATION_TOPIC"
+            )
+    
+            match_id = defaults.stringForKey_(
+                "FCVV_NOTIFICATION_MATCH_ID"
+            )
+    
+            notif_type = defaults.stringForKey_(
+                "FCVV_NOTIFICATION_TYPE"
+            )
+    
+            # ---------------------------------------------------------
+            # Valeurs par défaut
+            # ---------------------------------------------------------
+    
+            titre = titre or ""
+            message = message or ""
+            categorie = categorie or ""
+            match_id = match_id or ""
+            notif_type = notif_type or ""
+    
+            # ---------------------------------------------------------
+            # Logs
+            # ---------------------------------------------------------
+    
+            print("[iOS] ===== NOTIFICATION EN ATTENTE =====")
+            print("[iOS] titre      =", titre)
+            print("[iOS] message    =", message)
+            print("[iOS] categorie  =", categorie)
+            print("[iOS] match_id   =", match_id)
+            print("[iOS] notif_type =", notif_type)
+    
+            # ---------------------------------------------------------
+            # Détermination de la destination
+            # ---------------------------------------------------------
+    
+            nt = notif_type.strip().lower()
+    
+            # Notification destinée à l'accueil
+            if nt in ("manual", "home") or not categorie:
+    
+                print("[iOS] Redirection vers HOME")
+    
+                Clock.schedule_once(
+                    lambda dt: self.executer_redirection_home(),
+                    0.5
+                )
+    
+            # Notification destinée à un vestiaire
+            else:
+    
+                print(
+                    f"[iOS] Redirection vers VESTIAIRE : "
+                    f"{categorie!r}"
+                )
+    
+                Clock.schedule_once(
+                    lambda dt: self.executer_redirection_vestiaire(
+                        categorie,
+                        match_id if match_id else None,
+                        notif_type if notif_type else None
+                    ),
+                    0.5
+                )
+    
+            # ---------------------------------------------------------
+            # Nettoyage
+            #
+            # On nettoie après avoir programmé la redirection.
+            # ---------------------------------------------------------
+    
+            defaults.removeObjectForKey_(
+                "FCVV_NOTIFICATION_PENDING"
+            )
+    
+            defaults.removeObjectForKey_(
+                "FCVV_NOTIFICATION_TITLE"
+            )
+    
+            defaults.removeObjectForKey_(
+                "FCVV_NOTIFICATION_BODY"
+            )
+    
+            defaults.removeObjectForKey_(
+                "FCVV_NOTIFICATION_TOPIC"
+            )
+    
+            defaults.removeObjectForKey_(
+                "FCVV_NOTIFICATION_MATCH_ID"
+            )
+    
+            defaults.removeObjectForKey_(
+                "FCVV_NOTIFICATION_TYPE"
+            )
+    
+            defaults.synchronize()
+    
+            print(
+                "[iOS] Notification supprimee de NSUserDefaults"
+            )
+    
+        except Exception as e:
+            print(
+                "[iOS] Erreur "
+                "verifier_redirection_notification_ios:",
+                repr(e)
+            )
+    
+    
+    def verifier_redirection_notification_android(self):
+        if platform != "android":
+            return
+    
+        try:
+            PythonActivity = autoclass("org.kivy.android.PythonActivity")
+            activity = PythonActivity.mActivity
+            intent = activity.getIntent()
+    
+            open_page = intent.getStringExtra("open_page")
+            categorie = intent.getStringExtra("categorie")
+            match_id = intent.getStringExtra("match_id")
+            notif_type = (
+                intent.getStringExtra("notif_type")
+                or intent.getStringExtra("type")
+            )
+    
+            if open_page == "home" or notif_type in ("manual", "home"):
+                Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
+            elif open_page == "vestiaire" and categorie:
+                Clock.schedule_once(
+                    lambda dt: self.executer_redirection_vestiaire(
+                        categorie, match_id, notif_type
+                    ),
+                    0.5,
+                )
+    
+            if open_page or categorie or notif_type:
+                for key in ("open_page", "categorie", "match_id", "notif_type", "type"):
+                    if intent.hasExtra(key):
+                        intent.removeExtra(key)
+                activity.setIntent(intent)
+    
+        except Exception as e:
+            print(f"[FCM ERROR] Lecture Intent : {e}")
+    
+    
+    def executer_redirection_home(self):
+        try:
+            if not self.root:
+                print("[FCM REDIRECT] RootLayout introuvable")
+                return
+    
+            if hasattr(self.root, "switch_screen"):
+                self.root.switch_screen("home")
+            elif hasattr(self.root, "sm"):
+                self.root.sm.current = "home"
+            else:
+                print("[FCM REDIRECT] ScreenManager introuvable")
+                return
+    
+        except Exception as e:
+            print(f"[FCM REDIRECT ERROR] Home : {e}")
+    
+    
+    def executer_redirection_vestiaire(self, categorie, match_id=None, notif_type=None):
+        try:
+            if not self.root or not hasattr(self.root, "sm"):
+                print("[FCM REDIRECT] ScreenManager introuvable")
+                return
+    
+            nt = (notif_type or "").strip().lower()
+            sous_onglet = (
+                "MESSAGES" if nt in ("chat", "message", "messages", "nouveau_message")
+                else "CALENDRIER" if nt in (
+                    "evenement", "événement", "event",
+                    "creation_evenement", "evenement_creation"
+                )
+                else "NOTIFICATIONS"
+            )
+    
+            if hasattr(self.root, "switch_screen"):
+                self.root.switch_screen("vestiaire")
+            else:
+                self.root.sm.current = "vestiaire"
+    
+            screen = self.root.sm.get_screen("vestiaire")
+    
+            def charger(dt):
+                screen.charger_categorie(categorie, sous_onglet=sous_onglet)
+    
+            Clock.schedule_once(charger, 0.2)
+    
+            if match_id and hasattr(screen, "ouvrir_match"):
+                Clock.schedule_once(
+                    lambda dt: (
+                        print(f"[FCM TRACE] >>> ouvrir_match {match_id!r}"),
+                        screen.ouvrir_match(match_id),
+                        print("[FCM TRACE] <<< ouvrir_match")
+                    ),
+                    0.5,
+                )
+    
+        except Exception as e:
+            print(f"[FCM REDIRECT ERROR] Vestiaire : {e}")
 
     def get_local_image_path(self, url):
         """Optimise : Evite os.listdir(). Teste directement les extensions courantes."""
@@ -1136,6 +1428,23 @@ class MyApp(App):
         # On délègue l'exécution à _execute_fcm_subscription
         # Le délai est conservé pour garantir que l'initialisation du manager est terminée
         Clock.schedule_once(lambda dt: self._execute_fcm_subscription(nouvelles_categories, anciennes_categories), 3.0)
+    
+    @mainthread
+    def afficher_alerte_push(self, titre, message):
+        """
+        Déclenche l'affichage d'une alerte en temps réel par-dessus l'écran actuel.
+        """
+        from core.NotificationManager import afficher_popup_notification
+        try:
+            # Si le RootLayout a une méthode dédiée, on la privilégie, 
+            # sinon on appelle directement la popup Kivy
+            if self.root and hasattr(self.root, 'afficher_popup_flottante'):
+                self.root.afficher_popup_flottante(titre, message)
+            else:
+                afficher_popup_notification(titre=titre, corps=message)
+            print(f"[POPUP UI] Alerte en temps reel affichee : {titre}")
+        except Exception as e:
+            print(f"[POPUP ERROR] Impossible d'afficher l'alerte : {e}")
 
     def _execute_fcm_subscription(self, nouvelles, anciennes=None):
         if getattr(self, 'notifier', None) is None:

@@ -22,15 +22,67 @@ from kivy.utils import platform
 from kivy.clock import Clock
 
 # --- IMPORTS GRAPHIQUES ---
-from kivy.graphics import Color, Rectangle, RoundedRectangle
+from kivy.graphics import Color, Rectangle, RoundedRectangle, Line
 
 
 class LargeSpinnerOption(SpinnerOption):
-    """Classe personnalisée pour un menu déroulant adapté aux doigts."""
+    """Option du menu déroulant (liste ouverte)."""
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.height = dp(70)
-        self.font_size = '20sp'
+        self.height = dp(55)
+        self.font_size = '17sp'
+        # Désactiver impérativement les textures par défaut Kivy
+        self.background_normal = ''
+        self.background_down = ''
+        self.background_color = (0, 0, 0, 0)
+        self.color = (0.1, 0.1, 0.15, 1)
+
+        with self.canvas.before:
+            # Fond blanc cassé pour les éléments de la liste
+            Color(0.95, 0.95, 0.96, 1)
+            self.rect_bg = Rectangle(pos=self.pos, size=self.size)
+            # Ligne de séparation grise
+            Color(0.8, 0.8, 0.85, 1)
+            self.line_sep = Rectangle(pos=self.pos, size=(self.width, dp(1)))
+
+        self.bind(pos=self._update_graphics, size=self._update_graphics)
+
+    def _update_graphics(self, instance, value):
+        self.rect_bg.pos = self.pos
+        self.rect_bg.size = self.size
+        self.line_sep.pos = self.pos
+        self.line_sep.size = (self.width, dp(1))
+
+
+class CustomSpinner(Spinner):
+    """Bouton du Spinner principal stylisé en gris clair visible."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Supprime complètement l'image de fond native de Kivy
+        self.background_normal = ''
+        self.background_down = ''
+        self.background_color = (0, 0, 0, 0) 
+        
+        # Couleur du texte en sombre pour contraster sur le gris clair
+        self.color = (0.1, 0.1, 0.15, 1)
+        self.bold = True
+
+        with self.canvas.before:
+            # VRAI GRIS CLAIR BIEN VISIBLE (R:0.78, G:0.78, B:0.80)
+            Color(0.78, 0.78, 0.80, 1)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(12)])
+            
+            # Contour légèrement plus foncé pour marquer les bords
+            Color(0.55, 0.55, 0.60, 1)
+            self.border_rect = Line(rounded_rectangle=(self.x, self.y, self.width, self.height, dp(12)), width=1.5)
+
+        self.bind(pos=self._update_shape, size=self._update_shape)
+
+    def _update_shape(self, instance, value):
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+        self.border_rect.rounded_rectangle = (self.x, self.y, self.width, self.height, dp(12))
+
 
 class LoginScreen(Screen):
     def __init__(self, **kwargs):
@@ -44,14 +96,14 @@ class LoginScreen(Screen):
         self.active_label = Label(text="", font_size='18sp', size_hint_y=None, height=dp(40))
         self.layout.add_widget(self.active_label)
         
-        # Spinner
+        # Spinner Personnalisé
         self.layout.add_widget(Label(text="Choisir la catégorie :", font_size='18sp', size_hint_y=None, height=dp(30)))
-        self.cat_spinner = Spinner(
-            text="Sélectionner...", 
+        self.cat_spinner = CustomSpinner(
+            text="Sélectionner une catégorie...", 
             values=[], 
-            font_size='18sp', 
+            font_size='17sp', 
             size_hint_y=None, 
-            height=dp(60),
+            height=dp(55),
             option_cls=LargeSpinnerOption
         )
         self.layout.add_widget(self.cat_spinner)
@@ -185,7 +237,10 @@ class LoginScreen(Screen):
             self.active_label.text = "Aucune catégorie active."
             
         vestiaires = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
-        self.cat_spinner.values = [item.get("categorie") for item in vestiaires if item.get("categorie")]
+        
+        cats = [item.get("categorie") for item in vestiaires if item.get("categorie")]
+        # Utilisation de la puce ASCII standard compatible avec 100% des téléphones et ordinateurs
+        self.cat_spinner.values = [f"{cat}" for cat in cats]
         
         accepte = app.config.get('User', 'vestiaire_cgu_accept', fallback='0')
         is_accepted = (accepte == '1')
@@ -199,7 +254,7 @@ class LoginScreen(Screen):
                 payload["joueur_associe"] = joueur_associe
             
             is_windows = (platform == 'win')
-            r = requests.post("https://fcvv-api.onrender.com/users/register",json=payload,timeout=30,verify=not is_windows)
+            r = requests.post("https://fcvv-api.onrender.com/users/register", json=payload, timeout=30, verify=not is_windows)
         except Exception as e:
             print(f"[DEBUG LOGIN] EXCEPTION connexion enregistrement parent : {e}")
 
@@ -212,7 +267,6 @@ class LoginScreen(Screen):
         def afficher_popup_selection(liste_joueurs):
             noms_joueurs = sorted([f"{j.get('nom', '').upper()} {j.get('prenom', '')}".strip() for j in liste_joueurs if isinstance(j, dict)])
             
-            # --- CONTENEUR PRINCIPAL ---
             content = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(10))
             with content.canvas.before:
                 Color(0.95, 0.95, 0.97, 1)
@@ -246,7 +300,6 @@ class LoginScreen(Screen):
                 else:
                     label_widget.text = original_text
 
-            # Option COACH (rendue unique par utilisateur : COACH_prenom)
             box_coach = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(40), spacing=dp(10))
             chk_coach = CheckBox(size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1), pos_hint={'center_y': 0.5})
             
@@ -336,11 +389,7 @@ class LoginScreen(Screen):
                 size=lambda obj, val: setattr(load_bg, 'size', val)
             )
             
-            # Déterminer le message selon la présence du fichier sur l'appareil
-            if os.path.exists(path):
-                msg_chargement = "Vérification des mises à jour de l'équipe..."
-            else:
-                msg_chargement = "Téléchargement des données de l'équipe..."
+            msg_chargement = "Vérification des mises à jour de l'équipe..." if os.path.exists(path) else "Téléchargement des données de l'équipe..."
             
             loading_content.add_widget(Label(text=msg_chargement, font_size='16sp', color=(0.1, 0.1, 0.15, 1), halign="center"))
             loading_popup = Popup(
@@ -358,22 +407,16 @@ class LoginScreen(Screen):
                 final_joueurs = []
                 try:
                     url = f"https://docs.google.com/uc?id={cat_item.get('file_id')}&export=download"
-                    # Vérifier si l'application s'exécute sous Windows
                     is_windows = (platform == 'win')
-                    
-                    # verify=False sous Windows (pour contourner le proxy), verify=True sur iOS/Android
                     r = requests.get(url, timeout=10, verify=not is_windows)
                     
                     if r.status_code == 200 and b"<html" not in r.content[:100].lower():
                         new_content = r.content
-                        
-                        # Lecture du contenu local existant pour comparer les hashs MD5
                         old_content = b""
                         if os.path.exists(path):
                             with open(path, "rb") as f:
                                 old_content = f.read()
                         
-                        # Utilisation de MD5 (cohérent avec le reste de votre application)
                         if hashlib.md5(new_content).hexdigest() != hashlib.md5(old_content).hexdigest():
                             print(f"[CONFIG] Changement detecte pour {cat_selectionnee}, mise a jour du fichier local.")
                             with open(path, "wb") as f:
@@ -381,14 +424,12 @@ class LoginScreen(Screen):
                         else:
                             print(f"[CONFIG] Fichier {cat_selectionnee} inchange.")
                     
-                    # Lecture finale du fichier (qu'il vienne d'être mis à jour ou qu'il soit déjà à jour)
                     if os.path.exists(path):
                         with open(path, "r", encoding="utf-8") as f:
                             data_yaml = yaml.safe_load(f) or {}
                             final_joueurs = data_yaml.get("tous_les_joueurs", [])
                 except Exception as e:
                     print(f"[DEBUG LOGIN] Erreur reseau/telechargement : {e}")
-                    # Repli sécurisé sur le fichier local existant en cas de coupure internet
                     if os.path.exists(path):
                         try:
                             with open(path, "r", encoding="utf-8") as f:
@@ -397,7 +438,6 @@ class LoginScreen(Screen):
                         except Exception:
                             pass
                 
-                # Dernier secours si tout échoue
                 if not final_joueurs:
                     final_joueurs = cat_item.get("tous_les_joueurs", [])
 
@@ -421,7 +461,8 @@ class LoginScreen(Screen):
 
     def check_login(self, instance):
         app = App.get_running_app()
-        cat = self.cat_spinner.text
+        # Nettoyage propre de la puce pour isoler le nom de la catégorie
+        cat = self.cat_spinner.text.replace("•", "").strip()
         pwd = self.pwd_input.text.strip()
         nom = self.name_input.text.strip()
 
@@ -453,7 +494,7 @@ class LoginScreen(Screen):
             self.show_popup("Succès", "Mode SUPER_ADMIN : Accès total accordé.")
             return
 
-        if cat == "Sélectionner...":
+        if cat == "Sélectionner une catégorie...":
             self.show_popup("Erreur", "Veuillez choisir une catégorie.")
             return
 
@@ -487,7 +528,6 @@ class LoginScreen(Screen):
 
         content.add_widget(Label(text=message, font_size=dp(16), color=(0.2, 0.2, 0.25, 1), halign="center"))
         
-        # --- POPUP SANS FOND PAR DÉFAUT (ÉVITE LES ANGLES DROITS) ---
         popup = Popup(
             title="", 
             content=content, 

@@ -8,6 +8,7 @@ __pycache__/
 .settings/
 .project
 .pydevproject
+p4a_hook.py
 
 # --- Environnements Virtuels (Les gros coupables !) ---
 .venv/
@@ -41,6 +42,7 @@ fcvv_release.keystore
 fcvv_api/
 publication/
 res/
+src/
 *.apk
 *.zip
 .settings/

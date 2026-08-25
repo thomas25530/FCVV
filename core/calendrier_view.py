@@ -113,7 +113,6 @@ class EventCard(BoxLayout):
             if height:
                 lbl.height = height
             else:
-                # On force la prise en compte de la largeur avant de définir la hauteur
                 lbl.bind(
                     width=lambda s, w: setattr(s, "text_size", (w, None)),
                     texture_size=lambda s, t: setattr(s, "height", max(dp(20), t[1])),
@@ -201,13 +200,11 @@ class EventCard(BoxLayout):
         if not sondage_actif and not votes:
             return None
 
-        container = BoxLayout(orientation="vertical", size_hint_y=None,height=dp(58), spacing=dp(6), padding=[0, dp(5), 0, 0])
+        container = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(58), spacing=dp(6), padding=[0, dp(5), 0, 0])
         container.bind(minimum_height=container.setter("height"))
 
-        # Calcul rapide des synthèses de votes
         presents, absents, total_votes = [], [], len(votes)
         if type_sondage == "multiple":
-            opts = data.get("options_sondage", [])
             details_str = f"Total votants : {total_votes}"
         else:
             for n, d in votes.items():
@@ -216,7 +213,6 @@ class EventCard(BoxLayout):
                 elif disp == "Absent": absents.append(n)
             details_str = f"[color=1a8c38][b]Présents : {len(presents)}[/b][/color]  |  [color=d93838][b]Absents : {len(absents)}[/b][/color]  |  Total : {total_votes}"
 
-        # Synthèse textuelle
         lbl_info = Label(
             text=details_str,
             markup=True,
@@ -226,12 +222,9 @@ class EventCard(BoxLayout):
             halign="left",
             valign="center",
         )
-        lbl_info.bind(
-            size=lambda s, z: setattr(s, "text_size", z)
-        )
+        lbl_info.bind(size=lambda s, z: setattr(s, "text_size", z))
         container.add_widget(lbl_info)
 
-        # Remplacement de Button par StopPropagationButton
         btn_resultats = StopPropagationButton(
             text="Résultats & Votants",
             size_hint_y=None,
@@ -243,6 +236,20 @@ class EventCard(BoxLayout):
             font_size=f"{self.user_font_size - 4}sp"
         )
         
+        def format_nom_avec_places(nom, dict_vote):
+            """Helper pour formater uniquement 'Nom (X places)' pour Valdahon si renseigné."""
+            if isinstance(dict_vote, dict):
+                # Accepte 'nb_places' ET 'nombre_de_places'
+                nb = dict_vote.get("nb_places") if dict_vote.get("nb_places") is not None else dict_vote.get("nombre_de_places")
+                if nb is not None:
+                    try:
+                        nb_int = int(nb)
+                        txt_pl = "place" if nb_int <= 1 else "places"
+                        return f"{nom} ({nb_int} {txt_pl})"
+                    except (ValueError, TypeError):
+                        pass
+            return nom
+
         def ouvrir_resultats(instance):
             if type_sondage == "multiple":
                 opts = data.get("options_sondage", ["1", "2", "3", "4", "5"])
@@ -252,7 +259,20 @@ class EventCard(BoxLayout):
             else:
                 sec_v = {"Présents": presents, "Absents": absents}
                 if data.get("sondage_trajet"):
-                    sec_v["Valdahon (Départ)"] = [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Valdahon"]
+                    # Calcul des votants Valdahon avec le nombre de places
+                    valdahon_list = []
+                    total_places_valdahon = 0
+                    for n, d in votes.items():
+                        if isinstance(d, dict) and d.get("trajet") == "Valdahon":
+                            valdahon_list.append(format_nom_avec_places(n, d))
+                            # Extraction sécurisée du nombre de places
+                            nb = d.get("nb_places") if d.get("nb_places") is not None else d.get("nombre_de_places")
+                            if nb is not None:
+                                try: total_places_valdahon += int(nb)
+                                except (ValueError, TypeError): pass
+                    
+                    lbl_valdahon = f"Valdahon ({total_places_valdahon} place{'s' if total_places_valdahon > 1 else ''} dispo)" if total_places_valdahon > 0 else "Valdahon (Départ)"
+                    sec_v[lbl_valdahon] = valdahon_list
                     sec_v["Stade Adverse"] = [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Stade adverse"]
                     sec_v["Besoin Voiture"] = [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Besoin voiture"]
                 self._afficher_popup_resultats_coach("Résultats des votes", sec_v)
@@ -340,31 +360,25 @@ class EventCard(BoxLayout):
         sub_pop.open()
 
     def _est_convoque(self):
-        """Vérifie si au moins un des joueurs associés au compte est convoqué."""
         if not self.match_data: return False
-        
         norm = lambda s: " ".join(str(s or "").strip().lower().split())
         convs = [norm(self._obtenir_nom_joueur(j)) for j in (self.match_data.get("joueurs_convoques") or self.match_data.get("convocations") or self.match_data.get("convoques") or [])]
         if not convs: return False
 
         cat = getattr(self, "categorie", None) or self.match_data.get("categorie")
         associes = [norm(self._obtenir_nom_joueur(j)) for j in (self.get_joueurs_associes_pour_parent(self.nom_parent, cat) or [])]
-        
         return any(a and c and (a in c or c in a) for a in associes for c in convs)
 
     def _obtenir_nom_joueur(self, joueur):
-        """Transforme un joueur en nom/prénom exploitable partout."""
         if isinstance(joueur, dict):
             nom = str(joueur.get("nom", "") or "").strip()
             prenom = str(joueur.get("prenom", "") or "").strip()
-            if nom and prenom:
-                return f"{nom} {prenom}"
+            if nom and prenom: return f"{nom} {prenom}"
             return nom or prenom
         return str(joueur or "").strip()
 
     def get_joueurs_associes_pour_parent(self, nom_parent, categorie_cible=None):
         if not (app := App.get_running_app()): return []
-        
         match_cat = self.match_data.get("categorie") if isinstance(getattr(self, "match_data", None), dict) else None
         cat = str(categorie_cible or getattr(self, "categorie", None) or match_cat or (app.get_categorie_courante() if hasattr(app, "get_categorie_courante") else "") or "").strip().lower()
         if not cat: return []
@@ -388,7 +402,7 @@ class EventCard(BoxLayout):
         role = app.get_role_for_cat(cat) if hasattr(app, "get_role_for_cat") else "PARENT"
         return joueurs or ([f"Coach / Admin ({nom_parent})"] if role == "ADMIN" else [])
 
-    def ouvrir_popup_choix_enfants_vote(self, match_id, target_cat, joueurs_associes, choix, choix_trajet, second_vote, choix_multiple):
+    def ouvrir_popup_choix_enfants_vote(self, match_id, target_cat, joueurs_associes, choix, choix_trajet, second_vote, choix_multiple, nb_places=None):
         content = BoxLayout(orientation="vertical", padding=dp(15), spacing=dp(10))
         with content.canvas.before:
             Color(0.95, 0.95, 0.97, 1)
@@ -425,13 +439,13 @@ class EventCard(BoxLayout):
         def on_valider(instance):
             if selectionnes := [cle for cle, chk in checkboxes_dict.items() if chk.active]:
                 for cible in selectionnes:
-                    self.envoyer_vote(id_match=match_id, categorie=target_cat, choix=choix, choix_trajet=choix_trajet, second_vote=second_vote, choix_multiple=choix_multiple, joueur_concerne=cible, _ignorer_verification_enfants=True)
+                    self.envoyer_vote(id_match=match_id, categorie=target_cat, choix=choix, choix_trajet=choix_trajet, second_vote=second_vote, choix_multiple=choix_multiple, joueur_concerne=cible, nb_places=nb_places, _ignorer_verification_enfants=True)
                 popup.dismiss()
 
         btn_valider.bind(on_release=on_valider)
         popup.open()
-
-    def envoyer_vote(self, id_match, categorie=None, choix=None, choix_trajet=None, second_vote=None, choix_multiple=None, joueur_concerne=None, _ignorer_verification_enfants=False):
+        
+    def envoyer_vote(self, id_match, categorie=None, choix=None, choix_trajet=None, second_vote=None, choix_multiple=None, joueur_concerne=None, nb_places=None, _ignorer_verification_enfants=False):
         if not (app := App.get_running_app()): return print("[ERREUR VOTE] Application Kivy introuvable.")
 
         target_cat = categorie or getattr(self, "categorie", None) or (app.get_categorie_courante() if hasattr(app, "get_categorie_courante") else None) or "PROBLEME"
@@ -446,17 +460,27 @@ class EventCard(BoxLayout):
         joueurs_associes = self.get_joueurs_associes_pour_parent(vrai_parent, target_cat) or []
 
         if len(joueurs_associes) > 1 and not _ignorer_verification_enfants and not joueur_concerne:
-            return self.ouvrir_popup_choix_enfants_vote(id_match, target_cat, joueurs_associes, choix, choix_trajet, second_vote, choix_multiple)
+            return self.ouvrir_popup_choix_enfants_vote(id_match, target_cat, joueurs_associes, choix, choix_trajet, second_vote, choix_multiple, nb_places=nb_places)
 
         joueur_cible = joueur_concerne or (joueurs_associes[0] if len(joueurs_associes) == 1 else vrai_parent)
-        self._executer_envoi_vote(match_id=id_match, categorie=target_cat, choix=choix, choix_trajet=choix_trajet, choix_multiple=choix_multiple, second_vote=second_vote, joueur_concerne=joueur_cible)
+        self._executer_envoi_vote(match_id=id_match, categorie=target_cat, choix=choix, choix_trajet=choix_trajet, choix_multiple=choix_multiple, second_vote=second_vote, joueur_concerne=joueur_cible, nb_places=nb_places)
 
-    def on_presence_click(self, match_id, categorie=None, choix=None, choix_trajet=None, choix_multiple=None, second_vote=None, joueur_concerne=None, _ignorer_verification_enfants=False):
+    def on_presence_click(self, match_id, categorie=None, choix=None, choix_trajet=None, choix_multiple=None, second_vote=None, joueur_concerne=None, nb_places=None, _ignorer_verification_enfants=False):
         if not match_id: return print("[ERREUR] Tentative de vote sans ID de match.")
         
-        self.envoyer_vote(id_match=match_id, categorie=categorie or getattr(self, "categorie", None), choix=choix, choix_trajet=choix_trajet, second_vote=second_vote, choix_multiple=choix_multiple, joueur_concerne=joueur_concerne or getattr(self, "joueur_concerne", None), _ignorer_verification_enfants=_ignorer_verification_enfants)
+        self.envoyer_vote(
+            id_match=match_id, 
+            categorie=categorie or getattr(self, "categorie", None), 
+            choix=choix, 
+            choix_trajet=choix_trajet, 
+            second_vote=second_vote, 
+            choix_multiple=choix_multiple, 
+            joueur_concerne=joueur_concerne or getattr(self, "joueur_concerne", None), 
+            nb_places=nb_places,
+            _ignorer_verification_enfants=_ignorer_verification_enfants
+        )
 
-    def _executer_envoi_vote(self, match_id, categorie, choix, choix_trajet, choix_multiple, second_vote, joueur_concerne):
+    def _executer_envoi_vote(self, match_id, categorie, choix, choix_trajet, choix_multiple, second_vote, joueur_concerne, nb_places=None):
         app = App.get_running_app()
         target_cat = categorie or getattr(app, "categorie_courante", "U14_U15")
         
@@ -466,11 +490,16 @@ class EventCard(BoxLayout):
         if not nom_parent: return print("[ERREUR VOTE] Nom du parent introuvable.")
 
         joueur = (joueur_concerne or "").strip()
-        payload = {"id_sondage": match_id, "nom_parent": nom_parent, "nom_joueur_concerne": joueur, **{k: v for k, v in [("choix", choix), ("choix_trajet", choix_trajet), ("choix_multiple", choix_multiple), ("second_vote", second_vote)] if v is not None}}
+        payload = {
+            "id_sondage": match_id, 
+            "nom_parent": nom_parent, 
+            "nom_joueur_concerne": joueur, 
+            **{k: v for k, v in [("choix", choix), ("choix_trajet", choix_trajet), ("choix_multiple", choix_multiple), ("second_vote", second_vote), ("nombre_de_places", nb_places)] if v is not None}
+        }
 
         def envoyer_requete():
             try:
-                print(f"[VOTE] Categorie = {target_cat} | Parent = {nom_parent!r} | Joueur = {joueur!r}")
+                print(f"[VOTE] Categorie = {target_cat} | Parent = {nom_parent!r} | Joueur = {joueur!r} | Places = {nb_places}")
                 api_url = getattr(app, "api_url", "https://fcvv-api.onrender.com")
                 res = requests.post(f"{api_url}/voter/{target_cat}", json=payload, headers={"nom_parent": nom_parent, "Content-Type": "application/json"}, timeout=5, verify=(platform != 'win'))
 
@@ -480,7 +509,9 @@ class EventCard(BoxLayout):
                         norm = lambda s: " ".join(str(s).strip().lower().split())
                         cle = next((k for k in votes if norm(k) == norm(joueur)), joueur)
                         vote = votes.setdefault(cle, {})
-                        for attr, val in [("disponibilite", choix), ("trajet", choix_trajet), ("choix_multiple", choix_multiple)]:
+                        
+                        # --- CORRECTION 1 : On enregistre sous les deux clés pour compatibilité locale et API ---
+                        for attr, val in [("disponibilite", choix), ("trajet", choix_trajet), ("choix_multiple", choix_multiple), ("nb_places", nb_places), ("nombre_de_places", nb_places)]:
                             if val is not None: vote[attr] = val
 
                     Clock.schedule_once(
@@ -494,6 +525,124 @@ class EventCard(BoxLayout):
             except Exception as e: print(f"[ERREUR RESEAU VOTE] {e}")
 
         threading.Thread(target=envoyer_requete, daemon=True).start()
+
+    def calculer_etat_vote(self):
+        data = self.match_data or {}
+        s_actif, s_trajet, type_s = bool(data.get("sondage_actif")), bool(data.get("sondage_trajet")), data.get("type_sondage", "classique")
+        
+        target_cat = getattr(self, "categorie", None) or data.get("categorie")
+        associes = list(dict.fromkeys(str(n).strip() for n in (self.get_joueurs_associes_pour_parent(self.nom_parent, target_cat) or []) if str(n).strip()))
+        if not (s_actif or s_trajet) or not associes: return []
+
+        norm = lambda s: " ".join(str(s or "").strip().lower().split())
+        votes_norm = {norm(k): v for k, v in (data.get("votes", {}) or {}).items()}
+        joueurs, coachs = [n for n in associes if not n.upper().startswith("COACH_")], [n for n in associes if n.upper().startswith("COACH_")]
+        
+        statuts_colores, complet, total = [], True, len(joueurs) + len(coachs)
+
+        for nom in joueurs + coachs:
+            vote = votes_norm.get(norm(nom), {})
+            v_dict = vote if isinstance(vote, dict) else {}
+            dispo = v_dict.get("disponibilite") if v_dict else vote
+            
+            st = str(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if (s_actif and (v_dict.get("choix_multiple") if type_s == "multiple" else dispo)) else None
+
+            if s_trajet and dispo != "Absent" and v_dict.get("trajet"):
+                tr = "Valdahon" if "Valdahon" in str(v_dict["trajet"]) else ("Direct" if "Stade" in str(v_dict["trajet"]) else "Voiture")
+                
+                # --- CORRECTION 2 : Accepter 'nb_places' ET 'nombre_de_places' envoyés par l'API ---
+                places = v_dict.get("nb_places") if v_dict.get("nb_places") is not None else v_dict.get("nombre_de_places")
+                
+                if tr == "Valdahon" and places is not None:
+                    tr = f"Valdahon ({places})"
+                st = f"{st} - {tr}" if st else tr
+
+            if nom in joueurs:
+                p_ok = bool(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if s_actif else True
+                if not (p_ok and (dispo == "Absent" or not s_trajet or bool(v_dict.get("trajet")))):
+                    complet = False
+
+            if nom in coachs and not st: continue
+
+            prenom = str(nom).replace("COACH_", "").replace("coach_", "").strip().split(" ")[-1]
+            if st and total > 1: st = st.replace("Présent", "Prés").replace("Absent", "Abs")
+
+            txt = (f"{prenom} : {st}" if st else f"{prenom} : VOTE") if total > 1 else (str(st) if st else "VOTE")
+            statuts_colores.append((txt, (0.9, 0.5, 0.1, 1) if "Abs" in str(st) else (0.1, 0.7, 0.3, 1)))
+
+        if not complet and self.nom_parent != "anonymous":
+            if coachs:
+                return [(" ", (1, 1, 1, 0))]
+            if joueurs:
+                return [("/!\\ VOTE", (0.9, 0.2, 0.2, 1))]
+        
+        return statuts_colores
+
+    def ouvrir_popup_nb_places(self, match_id, nom_enfant, parent_popup):
+        """Popup demandant le nombre de places restantes dans le véhicule pour Valdahon."""
+        content = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(15))
+        with content.canvas.before:
+            Color(1, 1, 1, 1)
+            bg = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(12)])
+        content.bind(pos=lambda _, v: setattr(bg, "pos", v), size=lambda _, v: setattr(bg, "size", v))
+
+        # --- LABEL AVEC RETOUR À LA LIGNE DYNAMIQUE ---
+        lbl_question = Label(
+            text="[b]Combien de places vous reste-t-il dans votre voiture ?[/b]",
+            markup=True,
+            font_size=f"{self.user_font_size}sp",
+            color=(0.1, 0.1, 0.3, 1),
+            size_hint_y=None,
+            halign="center",
+            valign="middle"
+        )
+        # Force le calcul de la largeur du texte selon la largeur du composant
+        lbl_question.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
+        # Ajuste dynamiquement la hauteur du Label pour accueillir toutes les lignes de texte
+        lbl_question.bind(texture_size=lambda s, t: setattr(s, "height", max(dp(40), t[1] + dp(5))))
+        content.add_widget(lbl_question)
+
+        grid = GridLayout(cols=3, spacing=dp(10), size_hint_y=None, height=dp(110))
+        
+        # Un size_hint de (0.85, None) permet à la popup d'adapter sa hauteur au contenu sans déformer la grille
+        places_popup = ModalView(size_hint=(0.85, None), auto_dismiss=False, background_color=(0, 0, 0, 0.65))
+        # Ajuste la hauteur de la popup dynamiquement en fonction de son contenu
+        content.bind(minimum_height=places_popup.setter("height"))
+
+        def choisir_places(nb):
+            places_popup.dismiss()
+            if parent_popup:
+                parent_popup.dismiss()
+            self.on_presence_click(self.match_id, choix_trajet="Valdahon", joueur_concerne=nom_enfant, nb_places=nb)
+
+        for i in range(6):
+            btn = Button(
+                text=str(i),
+                font_size=f"{self.user_font_size + 2}sp",
+                bold=True,
+                background_normal="",
+                background_color=(0.1, 0.5, 0.8, 1),
+                color=(1, 1, 1, 1)
+            )
+            btn.bind(on_release=lambda x, val=i: choisir_places(val))
+            grid.add_widget(btn)
+
+        content.add_widget(grid)
+
+        btn_annuler = Button(
+            text="Annuler",
+            size_hint_y=None,
+            height=dp(40),
+            background_normal="",
+            background_color=(0.82, 0.82, 0.85, 1),
+            color=(0.15, 0.15, 0.15, 1),
+            bold=True
+        )
+        btn_annuler.bind(on_release=lambda x: places_popup.dismiss())
+        content.add_widget(btn_annuler)
+
+        places_popup.add_widget(content)
+        places_popup.open()
 
     def ouvrir_popup_detail(self, joueur_concerne=None):
         """Affiche le détail d'un événement et permet au parent de voter."""
@@ -516,7 +665,6 @@ class EventCard(BoxLayout):
             content.bg_rect = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(10)])
         content.bind(pos=lambda s, v: setattr(s.bg_rect, "pos", v), size=lambda s, v: setattr(s.bg_rect, "size", v))
 
-        # Helpers factorisés pour créer rapidement l'UI
         def make_lbl(txt, color=(0.1, 0.1, 0.1, 1), offset=-1, halign="left", height=None):
             lbl = Label(text=txt, markup=True, font_size=f"{self.user_font_size + offset}sp", color=color, size_hint_y=None, halign=halign, valign="middle")
             if height: lbl.height = height
@@ -536,10 +684,28 @@ class EventCard(BoxLayout):
         info_scroll, info_box = ScrollView(bar_width=0, size_hint=(1, 1)), BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(12), padding=dp(5))
         info_box.bind(minimum_height=info_box.setter("height"))
 
-        # Informations de base
-        for lbl_name, key in [("Type", "type"), ("Titre", "titre"), ("Adversaire", "adversaire"), ("Date", "date"), ("Heure", "heure"), ("Lieu", "lieu")]:
-            if val := self.match_data.get(key, self.match_data.get("heure_rdv") if key == "heure" else None):
-                info_box.add_widget(make_lbl(f"[b]{lbl_name} :[/b] {escape_markup(str(val))}"))
+        champs_a_afficher = [
+            ("Type", "type"),
+            ("Titre", "titre"),
+            ("Adversaire", "adversaire"),
+            ("Date", "date"),
+            ("Heure du RDV à Valdahon", "heure_rdv"),
+            ("Heure du coup d'envoi", "heure_coup_envoi"),
+            ("Lieu", "lieu"),
+            ("Notes", "notes")
+        ]
+
+        for lbl_name, key in champs_a_afficher:
+            val = self.match_data.get(key)
+            # Rétrocompatibilité si un ancien match utilise juste "heure"
+            if not val and key == "heure_rdv":
+                val = self.match_data.get("heure")
+                
+            if val:
+                if key == "notes":
+                    info_box.add_widget(make_lbl(f"[b]Informations complémentaires :[/b]\n{escape_markup(str(val))}"))
+                else:
+                    info_box.add_widget(make_lbl(f"[b]{lbl_name} :[/b] {escape_markup(str(val))}"))
 
         def afficher_popup_votes(titre_votes, sections_dict):
             self._afficher_popup_resultats_coach(titre_votes, sections_dict)
@@ -582,13 +748,44 @@ class EventCard(BoxLayout):
             val_t = get_vote_sel().get("trajet")
 
             box_t = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(125), spacing=dp(5))
-            trajets = [("Valdahon (Départ club)", "Valdahon", (0.1, 0.5, 0.8, 1)), ("Directement au Stade du Match", "Stade adverse", (0.1, 0.7, 0.3, 1)), ("Besoin d'une Voiture (Transport)", "Besoin voiture", (0.8, 0.5, 0.1, 1))]
+            trajets = [
+                ("Valdahon (Départ club)", "Valdahon", (0.1, 0.5, 0.8, 1)), 
+                ("Directement au Stade du Match", "Stade adverse", (0.1, 0.7, 0.3, 1)), 
+                ("Besoin d'une Voiture (Transport)", "Besoin voiture", (0.8, 0.5, 0.1, 1))
+            ]
+
+            def gerer_clic_trajet(val_btn):
+                if val_btn == "Valdahon":
+                    # Ouvre la popup pour demander le nombre de places disponibles
+                    self.ouvrir_popup_nb_places(self.match_id, nom_enfant, popup)
+                else:
+                    self.on_presence_click(self.match_id, choix_trajet=val_btn, joueur_concerne=nom_enfant)
+                    popup.dismiss()
+
             for txt_btn, val_btn, color in trajets:
                 bg = color if (not val_t or val_t == val_btn) else (0.85, 0.85, 0.85, 1)
-                box_t.add_widget(make_btn(txt_btn, (1,1,1,1), bg, lambda x, v=val_btn: (self.on_presence_click(self.match_id, choix_trajet=v, joueur_concerne=nom_enfant), popup.dismiss()), dp(35)))
+                box_t.add_widget(make_btn(txt_btn, (1,1,1,1), bg, lambda x, v=val_btn: gerer_clic_trajet(v), dp(35)))
             info_box.add_widget(box_t)
 
-            sec_t = {label: [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == key] for label, key in [("Valdahon (Départ club)", "Valdahon"), ("Sur place", "Stade adverse"), ("Besoin voiture", "Besoin voiture")]}
+            # Formate 'Nom (X places)' pour la popup de détails (Uniquement Valdahon)
+            def format_nom_valdahon(n, d):
+                if isinstance(d, dict):
+                    # Accepte 'nb_places' ET 'nombre_de_places'
+                    nb = d.get("nb_places") if d.get("nb_places") is not None else d.get("nombre_de_places")
+                    if nb is not None:
+                        try:
+                            nb_int = int(nb)
+                            txt_pl = "place" if nb_int <= 1 else "places"
+                            return f"{n} ({nb_int} {txt_pl})"
+                        except ValueError:
+                            pass
+                return n
+
+            sec_t = {
+                "Valdahon (Départ club)": [format_nom_valdahon(n, d) for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Valdahon"],
+                "Sur place": [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Stade adverse"],
+                "Besoin voiture": [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Besoin voiture"]
+            }
             info_box.add_widget(make_btn("Voir les votes", (0.15, 0.15, 0.15, 1), (1.0, 0.85, 0.2, 1), lambda x: afficher_popup_votes("Votes - Trajets", sec_t)))
 
         # SECTION CONVOCATIONS
@@ -609,13 +806,13 @@ class EventCard(BoxLayout):
         info_scroll.add_widget(info_box)
         content.add_widget(info_scroll)
 
+        # Création unique du Popup
         popup = Popup(title="", title_size=0, content=content, size_hint=(0.85, 0.8), separator_height=0, background="", background_color=(0, 0, 0, 0.6))
+
         content.add_widget(make_btn("Fermer", (0.15, 0.15, 0.15, 1), (0.82, 0.82, 0.85, 1), popup.dismiss, dp(45)))
         popup.open()
 
-
     def ouvrir_popup_selection_votant(self, joueurs_associes):
-        """Popup de choix du joueur avec bouton grisé si déjà voté."""
         joueurs = list(dict.fromkeys(
             f"{j.get('nom', '')} {j.get('prenom', '')}".strip() if isinstance(j, dict) else str(j).strip()
             for j in (joueurs_associes or []) if j
@@ -666,54 +863,7 @@ class EventCard(BoxLayout):
                                     lambda _: popup.dismiss(), col=(0.15, 0.15, 0.15, 1)))
         popup.open()
 
-
-
-    def calculer_etat_vote(self):
-        """Calcule l'état et la couleur des votes pour l'affichage synthétique."""
-        data = self.match_data or {}
-        s_actif, s_trajet, type_s = bool(data.get("sondage_actif")), bool(data.get("sondage_trajet")), data.get("type_sondage", "classique")
-        
-        target_cat = getattr(self, "categorie", None) or data.get("categorie")
-        associes = list(dict.fromkeys(str(n).strip() for n in (self.get_joueurs_associes_pour_parent(self.nom_parent, target_cat) or []) if str(n).strip()))
-        if not (s_actif or s_trajet) or not associes: return []
-
-        norm = lambda s: " ".join(str(s or "").strip().lower().split())
-        votes_norm = {norm(k): v for k, v in (data.get("votes", {}) or {}).items()}
-        joueurs, coachs = [n for n in associes if not n.upper().startswith("COACH_")], [n for n in associes if n.upper().startswith("COACH_")]
-        
-        statuts_colores, complet, total = [], True, len(joueurs) + len(coachs)
-
-        for nom in joueurs + coachs:
-            vote = votes_norm.get(norm(nom), {})
-            v_dict = vote if isinstance(vote, dict) else {}
-            dispo = v_dict.get("disponibilite") if v_dict else vote
-            
-            st = str(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if (s_actif and (v_dict.get("choix_multiple") if type_s == "multiple" else dispo)) else None
-
-            if s_trajet and dispo != "Absent" and v_dict.get("trajet"):
-                tr = "Valdahon" if "Valdahon" in str(v_dict["trajet"]) else ("Direct" if "Stade" in str(v_dict["trajet"]) else "Voiture")
-                st = f"{st} - {tr}" if st else tr
-
-            if nom in joueurs:
-                p_ok = bool(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if s_actif else True
-                if not (p_ok and (dispo == "Absent" or not s_trajet or bool(v_dict.get("trajet")))):
-                    complet = False
-
-            if nom in coachs and not st: continue
-
-            prenom = str(nom).replace("COACH_", "").replace("coach_", "").strip().split(" ")[-1]
-            if st and total > 1: st = st.replace("Présent", "Prés").replace("Absent", "Abs")
-
-            txt = (f"{prenom} : {st}" if st else f"{prenom} : VOTE") if total > 1 else (str(st) if st else "VOTE")
-            statuts_colores.append((txt, (0.9, 0.5, 0.1, 1) if "Abs" in str(st) else (0.1, 0.7, 0.3, 1)))
-
-        if not complet and self.nom_parent != "anonymous":
-            if coachs:
-                return [(" ", (1, 1, 1, 0))]
-            if joueurs:
-                return [("/!\\ VOTE", (0.9, 0.2, 0.2, 1))]
-        
-        return statuts_colores
+    
 
     def mettre_a_jour(self, nouveau_match_data=None):
         if nouveau_match_data:
@@ -764,81 +914,39 @@ class EventCard(BoxLayout):
         if not self.image_list:
             return None
         box = BoxLayout(size_hint_y=None, height=dp(150))
-        img = Image(
-            source=self.image_list[0], allow_stretch=True, keep_ratio=True
-        )
+        img = Image(source=self.image_list[0], allow_stretch=True, keep_ratio=True)
         box.add_widget(img)
         return box
 
     def on_touch_up(self, touch):
-        # ---------------------------------------------------------
-        # 1. Si un bouton/enfant a consommé ce touch, la carte
-        #    ne doit surtout pas ouvrir sa propre popup.
-        # ---------------------------------------------------------
         if getattr(self, "_touch_consumed_by_child", False):
             self._touch_consumed_by_child = False
             return True
     
-        # ---------------------------------------------------------
-        # 2. Le touch ne concerne pas la carte.
-        # ---------------------------------------------------------
         if not self.collide_point(*touch.pos):
             return super().on_touch_up(touch)
     
-        # ---------------------------------------------------------
-        # 3. Récupération du nom du parent si nécessaire.
-        # ---------------------------------------------------------
         if (
             not self.nom_parent
             and (app := App.get_running_app())
             and getattr(app, "config", None)
             and app.config.has_section("User")
         ):
-            self.nom_parent = app.config.get(
-                "User",
-                "nom_parent",
-                fallback=""
-            ).strip()
+            self.nom_parent = app.config.get("User", "nom_parent", fallback="").strip()
     
-        # ---------------------------------------------------------
-        # 4. Recherche des joueurs associés.
-        # ---------------------------------------------------------
-        target_cat = (
-            getattr(self, "categorie", None)
-            or self.match_data.get("categorie")
-        )
-    
+        target_cat = getattr(self, "categorie", None) or self.match_data.get("categorie")
         joueurs = list(
             dict.fromkeys(
                 nom
-                for j in (
-                    self.get_joueurs_associes_pour_parent(
-                        self.nom_parent,
-                        target_cat
-                    ) or []
-                )
+                for j in (self.get_joueurs_associes_pour_parent(self.nom_parent, target_cat) or [])
                 if (nom := self._obtenir_nom_joueur(j))
             )
         )
     
-        # ---------------------------------------------------------
-        # 5. Ouverture de la popup normale de la carte.
-        # ---------------------------------------------------------
         if len(joueurs) > 1:
-            Clock.schedule_once(
-                lambda dt: self.ouvrir_popup_selection_votant(joueurs),
-                0
-            )
+            Clock.schedule_once(lambda dt: self.ouvrir_popup_selection_votant(joueurs), 0)
         else:
-            kwargs = (
-                {"joueur_concerne": joueurs[0]}
-                if joueurs
-                else {}
-            )
-    
-            Clock.schedule_once(
-                lambda dt: self.ouvrir_popup_detail(**kwargs),
-                0
-            )
+            kwargs = {"joueur_concerne": joueurs[0]} if joueurs else {}
+            Clock.schedule_once(lambda dt: self.ouvrir_popup_detail(**kwargs), 0)
     
         return True

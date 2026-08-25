@@ -127,18 +127,52 @@ jobs:
         run: |
           set -euxo pipefail
 
+          echo "============================================================"
+          echo "===== INJECTION FIREBASE / FCM iOS ====="
+          echo "============================================================"
+
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun fichier .xcodeproj trouvé"
+            exit 1
+          fi
+
           PROJ_DIR=$(dirname "$PROJECT_FILE")
 
           MAIN_FILE=$(find "$PROJ_DIR" -name "main.m" | head -1)
           APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" | head -1)
+          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" | head -1)
 
-          grep -n "@implementation" "$APPDELEGATE_FILE"
+          if [ -z "$MAIN_FILE" ]; then
+            echo "ERREUR : main.m introuvable"
+            exit 1
+          fi
 
+          if [ -z "$APPDELEGATE_FILE" ]; then
+            echo "ERREUR : SDL_uikitappdelegate.m introuvable"
+            exit 1
+          fi
+
+          if [ -z "$HEADER_FILE" ]; then
+            echo "ERREUR : SDL_uikitappdelegate.h introuvable"
+            exit 1
+          fi
+
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
           echo "MAIN_FILE=$MAIN_FILE"
           echo "APPDELEGATE_FILE=$APPDELEGATE_FILE"
+          echo "HEADER_FILE=$HEADER_FILE"
 
-          # 1. Firebase imports dans main.m
+
+          # ============================================================
+          # 1. IMPORTS FIREBASE DANS main.m
+          # ============================================================
+
+          echo ""
+          echo "===== 1. IMPORTS FIREBASE main.m ====="
+
           python3 - "$MAIN_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -146,16 +180,25 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          imports = "@import FirebaseCore;\n@import FirebaseMessaging;\n"
+          imports = """@import UIKit;
+          @import FirebaseCore;
+          @import FirebaseMessaging;
+          """
 
           if "FirebaseCore" not in content:
-            content = imports + content
+              content = imports + "\n" + content
 
           path.write_text(content)
           PY
 
 
-          # 2. Configure Firebase dans main.m
+          # ============================================================
+          # 2. CONFIGURATION FIREBASE + APNS
+          # ============================================================
+
+          echo ""
+          echo "===== 2. CONFIGURATION FIREBASE / APNS ====="
+
           python3 - "$MAIN_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -169,23 +212,60 @@ jobs:
               NSLog(@"[FCM iOS] Firebase configure");
           }
 
-          [[UIApplication sharedApplication] registerForRemoteNotifications];
-          NSLog(@"[FCM iOS] APNS registration");
+          if (@available(iOS 10.0, *)) {
+              UNAuthorizationOptions options =
+                  UNAuthorizationOptionAlert |
+                  UNAuthorizationOptionSound |
+                  UNAuthorizationOptionBadge;
+
+              [[UNUserNotificationCenter currentNotificationCenter]
+                  requestAuthorizationWithOptions:options
+                  completionHandler:^(BOOL granted, NSError * _Nullable error) {
+
+                      if (error) {
+                          NSLog(@"[FCM iOS] Erreur permission notifications : %@", error);
+                          return;
+                      }
+
+                      NSLog(@"[FCM iOS] Permission notifications : %d", granted);
+
+                      dispatch_async(dispatch_get_main_queue(), ^{
+                          [[UIApplication sharedApplication]
+                              registerForRemoteNotifications];
+                      });
+                  }];
+          } else {
+              [[UIApplication sharedApplication] registerForRemoteNotifications];
+          }
+
+          NSLog(@"[FCM iOS] Demande enregistrement APNS");
           '''
 
           marker = "int main(int argc, char *argv[]) {"
 
           if "[FIRApp configure]" not in content:
-            content = content.replace(
-                marker,
-                marker + "\n" + code
-            )
+              if marker not in content:
+                  raise RuntimeError(
+                      "Impossible de trouver int main(int argc, char *argv[])"
+                  )
+
+              content = content.replace(
+                  marker,
+                  marker + "\n" + code,
+                  1
+              )
 
           path.write_text(content)
           PY
 
 
-          # 3. Imports Firebase/UserNotifications dans SDL delegate
+          # ============================================================
+          # 3. IMPORTS DANS SDL_uikitappdelegate.m
+          # ============================================================
+
+          echo ""
+          echo "===== 3. IMPORTS SDL DELEGATE ====="
+
           python3 - "$APPDELEGATE_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -193,16 +273,33 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          imports = "@import FirebaseMessaging;\n@import UserNotifications;\n"
+          imports = """@import FirebaseMessaging;
+          @import UserNotifications;
+          """
 
           if "FirebaseMessaging" not in content:
-            content = imports + content
+              content = imports + "\n" + content
+
+          if "UserNotifications" not in content:
+              content = "@import UserNotifications;\n" + content
 
           path.write_text(content)
           PY
 
 
-          # 4. Injection delegate FCM + notifications foreground
+          # ============================================================
+          # 4. INJECTION DU DELEGATE COMPLET
+          #
+          # IMPORTANT :
+          # - premier plan : willPresentNotification
+          # - clic notification : didReceiveNotificationResponse
+          # - background data : didReceiveRemoteNotification
+          # - APNS token -> FCM
+          # ============================================================
+
+          echo ""
+          echo "===== 4. INJECTION DELEGATE FCM ====="
+
           python3 - "$APPDELEGATE_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -210,78 +307,351 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          if "APNS token recu" not in content:
+          # Evite les doubles injections
+          if "FCVV_FCM_NOTIFICATION_HANDLER" in content:
+              print("FCVV FCM delegate déjà injecté.")
+              sys.exit(0)
 
-              injection = r'''
+          injection = r'''
 
-          #pragma mark - FCM & Notifications Push
+          #pragma mark - FCVV_FCM_NOTIFICATION_HANDLER
+
+          /*
+           * ============================================================
+           * FCVV - Firebase Cloud Messaging / APNS
+           * ============================================================
+           *
+           * Gestion :
+           *
+           * 1. Application au premier plan
+           *    -> willPresentNotification
+           *
+           * 2. Application en arrière-plan
+           *    -> iOS affiche la notification
+           *    -> didReceiveNotificationResponse au clic
+           *
+           * 3. Application complètement fermée
+           *    -> iOS lance l'application au clic
+           *    -> didReceiveNotificationResponse récupère les données
+           *
+           * 4. Token APNS
+           *    -> transmis à Firebase Messaging
+           *
+           * ============================================================
+           */
+
 
           - (void)application:(UIApplication *)application
           didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
           {
-            NSLog(@"[FCM iOS] APNS token recu");
+              NSLog(@"[FCM iOS] APNS token reçu");
 
-            [FIRMessaging messaging].APNSToken = deviceToken;
+              [FIRMessaging messaging].APNSToken = deviceToken;
 
-            [[FIRMessaging messaging] tokenWithCompletion:^(NSString *token, NSError *error) {
-                if (error) {
-                    NSLog(@"[FCM iOS] Erreur FCM %@", error);
-                } else {
-                    NSLog(@"[FCM iOS] Token FCM %@", token);
-                }
-            }];
+              [[FIRMessaging messaging]
+                  tokenWithCompletion:^(NSString *token, NSError *error) {
 
-            if (@available(iOS 10.0, *)) {
-                [UNUserNotificationCenter currentNotificationCenter].delegate =
-                    (id<UNUserNotificationCenterDelegate>)self;
-            }
+                  if (error) {
+                      NSLog(@"[FCM iOS] Erreur récupération token FCM : %@",
+                            error);
+                  } else {
+                      NSLog(@"[FCM iOS] Token FCM : %@", token);
+                  }
+              }];
+
+              if (@available(iOS 10.0, *)) {
+                  [UNUserNotificationCenter currentNotificationCenter].delegate =
+                      (id<UNUserNotificationCenterDelegate>)self;
+              }
           }
 
 
           - (void)application:(UIApplication *)application
           didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
           {
-            NSLog(@"[FCM iOS] Erreur APNS %@", error);
+              NSLog(@"[FCM iOS] ERREUR APNS : %@", error);
           }
 
+
+          /*
+           * ============================================================
+           * NOTIFICATION RECUE ALORS QUE L'APPLICATION EST OUVERTE
+           * ============================================================
+           */
 
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
                willPresentNotification:(UNNotification *)notification
                  withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
           {
-            NSLog(@"[FCM iOS] Notification recue au premier plan !");
+              NSDictionary *userInfo =
+                  notification.request.content.userInfo;
 
-            if (@available(iOS 14.0, *)) {
-                completionHandler(
-                    UNNotificationPresentationOptionBanner |
-                    UNNotificationPresentationOptionSound |
-                    UNNotificationPresentationOptionBadge
-                );
-            } else {
-                completionHandler(
-                    UNNotificationPresentationOptionAlert |
-                    UNNotificationPresentationOptionSound |
-                    UNNotificationPresentationOptionBadge
-                );
-            }
+              NSLog(@"[FCM iOS] ========================================");
+              NSLog(@"[FCM iOS] Notification reçue AU PREMIER PLAN");
+              NSLog(@"[FCM iOS] userInfo = %@", userInfo);
+              NSLog(@"[FCM iOS] ========================================");
+
+              [[FIRMessaging messaging] appDidReceiveMessage:userInfo];
+
+              if (@available(iOS 14.0, *)) {
+
+                  completionHandler(
+                      UNNotificationPresentationOptionBanner |
+                      UNNotificationPresentationOptionList |
+                      UNNotificationPresentationOptionSound |
+                      UNNotificationPresentationOptionBadge
+                  );
+
+              } else {
+
+                  completionHandler(
+                      UNNotificationPresentationOptionAlert |
+                      UNNotificationPresentationOptionSound |
+                      UNNotificationPresentationOptionBadge
+                  );
+              }
           }
+
+
+          /*
+           * ============================================================
+           * CLIC SUR UNE NOTIFICATION
+           *
+           * C'est LA méthode importante pour :
+           *
+           * - application en arrière-plan
+           * - application suspendue
+           * - application complètement fermée
+           *
+           * Les données envoyées par Firebase sont dans userInfo.
+           * ============================================================
+           */
+
+          - (void)userNotificationCenter:(UNUserNotificationCenter *)center
+          didReceiveNotificationResponse:(UNNotificationResponse *)response
+          withCompletionHandler:(void (^)(void))completionHandler
+          {
+              NSDictionary *userInfo =
+                  response.notification.request.content.userInfo;
+
+              NSLog(@"[FCM iOS] ========================================");
+              NSLog(@"[FCM iOS] CLIC SUR NOTIFICATION");
+              NSLog(@"[FCM iOS] userInfo = %@", userInfo);
+              NSLog(@"[FCM iOS] ========================================");
+
+              [[FIRMessaging messaging] appDidReceiveMessage:userInfo];
+
+
+              /*
+               * --------------------------------------------------------
+               * Extraction des données personnalisées
+               * --------------------------------------------------------
+               */
+
+              NSString *title = @"FCVV";
+              NSString *body = @"";
+              NSString *categorie = @"";
+              NSString *matchId = @"";
+              NSString *notifType = @"";
+
+
+              /*
+               * title / body
+               *
+               * Ils peuvent se trouver :
+               *
+               * userInfo["title"]
+               * userInfo["body"]
+               *
+               * ou dans :
+               *
+               * userInfo["aps"]["alert"]["title"]
+               * userInfo["aps"]["alert"]["body"]
+               */
+
+              NSString *dataTitle = userInfo[@"title"];
+              NSString *dataBody = userInfo[@"body"];
+
+              if ([dataTitle isKindOfClass:[NSString class]] &&
+                  [dataTitle length] > 0) {
+
+                  title = dataTitle;
+              }
+
+              if ([dataBody isKindOfClass:[NSString class]] &&
+                  [dataBody length] > 0) {
+
+                  body = dataBody;
+              }
+
+
+              NSDictionary *aps = userInfo[@"aps"];
+
+              if ([aps isKindOfClass:[NSDictionary class]]) {
+
+                  NSDictionary *alert = aps[@"alert"];
+
+                  if ([alert isKindOfClass:[NSDictionary class]]) {
+
+                      NSString *apsTitle = alert[@"title"];
+                      NSString *apsBody = alert[@"body"];
+
+                      if ([title isEqualToString:@"FCVV"] &&
+                          [apsTitle isKindOfClass:[NSString class]]) {
+
+                          title = apsTitle;
+                      }
+
+                      if ([body length] == 0 &&
+                          [apsBody isKindOfClass:[NSString class]]) {
+
+                          body = apsBody;
+                      }
+                  }
+              }
+
+
+              /*
+               * --------------------------------------------------------
+               * DONNÉES FCVV
+               * --------------------------------------------------------
+               */
+
+              NSString *dataCategorie = userInfo[@"topic"];
+              NSString *dataMatchId = userInfo[@"match_id"];
+              NSString *dataNotifType = userInfo[@"notif_type"];
+
+
+              if ([dataCategorie isKindOfClass:[NSString class]]) {
+                  categorie = dataCategorie;
+              }
+
+              if ([dataMatchId isKindOfClass:[NSString class]]) {
+                  matchId = dataMatchId;
+              }
+
+              if ([dataNotifType isKindOfClass:[NSString class]]) {
+                  notifType = dataNotifType;
+              }
+
+
+              NSLog(@"[FCM iOS] ===== DONNEES NOTIFICATION =====");
+              NSLog(@"[FCM iOS] title      = %@", title);
+              NSLog(@"[FCM iOS] body       = %@", body);
+              NSLog(@"[FCM iOS] topic      = %@", categorie);
+              NSLog(@"[FCM iOS] match_id   = %@", matchId);
+              NSLog(@"[FCM iOS] notif_type = %@", notifType);
+
+
+              /*
+               * --------------------------------------------------------
+               * Sauvegarde temporaire dans NSUserDefaults
+               *
+               * Pourquoi ?
+               *
+               * Dans une application Kivy/SDL, Python peut démarrer
+               * quelques instants APRÈS le lancement du delegate iOS.
+               *
+               * On ne tente donc PAS d'appeler Python directement ici.
+               *
+               * On sauvegarde la notification.
+               *
+               * Python pourra ensuite la récupérer avec :
+               *
+               * verifier_redirection_notification_ios()
+               * --------------------------------------------------------
+               */
+
+              NSUserDefaults *defaults =
+                  [NSUserDefaults standardUserDefaults];
+
+
+              [defaults setObject:title
+                           forKey:@"FCVV_NOTIFICATION_TITLE"];
+
+              [defaults setObject:body
+                           forKey:@"FCVV_NOTIFICATION_BODY"];
+
+              [defaults setObject:categorie
+                           forKey:@"FCVV_NOTIFICATION_TOPIC"];
+
+              [defaults setObject:matchId
+                           forKey:@"FCVV_NOTIFICATION_MATCH_ID"];
+
+              [defaults setObject:notifType
+                           forKey:@"FCVV_NOTIFICATION_TYPE"];
+
+              [defaults setBool:YES
+                          forKey:@"FCVV_NOTIFICATION_PENDING"];
+
+              [defaults synchronize];
+
+
+              NSLog(@"[FCM iOS] Notification sauvegardée pour Python");
+              NSLog(@"[FCM iOS] FCVV_NOTIFICATION_PENDING = YES");
+
+
+              /*
+               * --------------------------------------------------------
+               * Fin obligatoire du callback iOS
+               * --------------------------------------------------------
+               */
+
+              completionHandler();
+          }
+
+
+          /*
+           * ============================================================
+           * NOTIFICATION SILENCIEUSE / DATA EN BACKGROUND
+           *
+           * Cette méthode ne doit PAS être utilisée pour compter sur
+           * l'affichage d'une notification lorsque l'app est fermée.
+           *
+           * Elle est utile pour les silent push content-available.
+           * ============================================================
+           */
+
+          - (void)application:(UIApplication *)application
+          didReceiveRemoteNotification:(NSDictionary *)userInfo
+          fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler
+          {
+              NSLog(@"[FCM iOS] Notification distante reçue en background");
+              NSLog(@"[FCM iOS] userInfo = %@", userInfo);
+
+              [[FIRMessaging messaging] appDidReceiveMessage:userInfo];
+
+              completionHandler(UIBackgroundFetchResultNoData);
+          }
+
           '''
 
-          # Cherche le vrai @end de SDLUIKitDelegate
+          # Cherche le dernier @end du delegate SDL
           pos = content.rfind("\n@end")
 
           if pos == -1:
-            raise RuntimeError("Impossible de trouver @end SDLUIKitDelegate")
+              raise RuntimeError(
+                  "Impossible de trouver @end de SDLUIKitDelegate"
+              )
 
-          content = content[:pos] + injection + content[pos:]
+          content = (
+              content[:pos]
+              + injection
+              + content[pos:]
+          )
 
           path.write_text(content)
-          PY
-          
-          # 5. Déclare UNUserNotificationCenterDelegate dans SDL_uikitappdelegate.h
-          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" | head -1)
 
-          echo "HEADER_FILE=$HEADER_FILE"
+          print("Injection FCM iOS terminée.")
+          PY
+
+
+          # ============================================================
+          # 5. MODIFICATION DU HEADER SDL
+          # ============================================================
+
+          echo ""
+          echo "===== 5. CONFIGURATION HEADER SDL ====="
 
           python3 - "$HEADER_FILE" <<'PY'
           from pathlib import Path
@@ -290,22 +660,138 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          # Ajoute l'import UserNotifications
-          if "#import <UserNotifications/UserNotifications.h>" not in content:
-              content = content.replace(
-                  "#import <UIKit/UIKit.h>",
-                  "#import <UIKit/UIKit.h>\n#import <UserNotifications/UserNotifications.h>"
-              )
+          # ------------------------------------------------------------
+          # Import UserNotifications
+          # ------------------------------------------------------------
 
-          # Ajoute le protocole UNUserNotificationCenterDelegate
-          old = "@interface SDLUIKitDelegate : NSObject<UIApplicationDelegate>"
-          new = "@interface SDLUIKitDelegate : NSObject<UIApplicationDelegate, UNUserNotificationCenterDelegate>"
+          if "#import <UserNotifications/UserNotifications.h>" not in content:
+
+              if "#import <UIKit/UIKit.h>" in content:
+
+                  content = content.replace(
+                      "#import <UIKit/UIKit.h>",
+                      "#import <UIKit/UIKit.h>\n"
+                      "#import <UserNotifications/UserNotifications.h>",
+                      1
+                  )
+
+              else:
+
+                  content = (
+                      "#import <UserNotifications/UserNotifications.h>\n"
+                      + content
+                  )
+
+
+          # ------------------------------------------------------------
+          # Ajout du protocole UNUserNotificationCenterDelegate
+          # ------------------------------------------------------------
+
+          old = (
+              "@interface SDLUIKitDelegate : "
+              "NSObject<UIApplicationDelegate>"
+          )
+
+          new = (
+              "@interface SDLUIKitDelegate : "
+              "NSObject<UIApplicationDelegate, "
+              "UNUserNotificationCenterDelegate>"
+          )
 
           if old in content:
-              content = content.replace(old, new)
+
+              content = content.replace(old, new, 1)
+
+          elif "UNUserNotificationCenterDelegate" not in content:
+
+              raise RuntimeError(
+                  "Impossible de trouver l'interface SDLUIKitDelegate"
+              )
+
 
           path.write_text(content)
+
+          print("Header SDL configuré.")
           PY
+
+
+          # ============================================================
+          # 6. VERIFICATION
+          # ============================================================
+
+          echo ""
+          echo "============================================================"
+          echo "===== VERIFICATION FINALE INJECTION FCM ====="
+          echo "============================================================"
+
+          echo ""
+          echo "--- main.m ---"
+
+          grep -n \
+            -E "FirebaseCore|FirebaseMessaging|FIRApp|registerForRemoteNotifications" \
+            "$MAIN_FILE" || true
+
+
+          echo ""
+          echo "--- SDL delegate imports ---"
+
+          grep -n \
+            -E "FirebaseMessaging|UserNotifications" \
+            "$APPDELEGATE_FILE" | head -20 || true
+
+
+          echo ""
+          echo "--- APNS ---"
+
+          grep -n \
+            -E "didRegisterForRemoteNotificationsWithDeviceToken|APNS token" \
+            "$APPDELEGATE_FILE" || true
+
+
+          echo ""
+          echo "--- Premier plan ---"
+
+          grep -n \
+            -E "willPresentNotification|PREMIER PLAN" \
+            "$APPDELEGATE_FILE" || true
+
+
+          echo ""
+          echo "--- Clic notification ---"
+
+          grep -n \
+            -E "didReceiveNotificationResponse|CLIC SUR NOTIFICATION" \
+            "$APPDELEGATE_FILE" || true
+
+
+          echo ""
+          echo "--- Données FCVV ---"
+
+          grep -n \
+            -E "FCVV_NOTIFICATION_|match_id|notif_type|topic" \
+            "$APPDELEGATE_FILE" || true
+
+
+          echo ""
+          echo "--- Background ---"
+
+          grep -n \
+            -E "didReceiveRemoteNotification|Background" \
+            "$APPDELEGATE_FILE" || true
+
+
+          echo ""
+          echo "--- Header ---"
+
+          grep -n \
+            -E "UNUserNotificationCenterDelegate|UserNotifications" \
+            "$HEADER_FILE" || true
+
+
+          echo ""
+          echo "============================================================"
+          echo "===== INJECTION FIREBASE TERMINEE ====="
+          echo "============================================================"
           
            
           

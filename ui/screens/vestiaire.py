@@ -794,6 +794,9 @@ class VestiaireScreen(Screen):
         super().__init__(**kwargs)
         self.current_cat = None
         self.current_sub_tab = "CALENDRIER"
+        # Navigation demandée depuis une notification pendant le démarrage
+        self._pending_navigation = None
+        self._vestiaire_ready = False
         self._cache_data = {}
         self.KIVY_BLUE = (30 / 255, 58 / 255, 138 / 255, 1)
         self.YELLOW = (247 / 255, 236 / 255, 63 / 255, 1)
@@ -919,65 +922,125 @@ class VestiaireScreen(Screen):
         btn_close.bind(on_release=lambda _: self.convoc_admin_popup.dismiss())
         btn_add.bind(on_release=lambda _: [self.convoc_admin_popup.dismiss(), self.ouvrir_gestion_convocations("Nouvel événement", {})])
         self.convoc_admin_popup.open()
-
-    def update_ui(self):
+    
+    def charger_categorie(self, categorie, sous_onglet="NOTIFICATIONS"):
+        sous_onglet = (sous_onglet or "NOTIFICATIONS").upper()
+    
+        if not self._vestiaire_ready:
+            self._pending_navigation = (categorie, sous_onglet)
+            return
+    
         app = App.get_running_app()
-        if not getattr(app, "authorized_vestiaires", None): return
-        if not self.current_cat: self.current_cat = app.authorized_vestiaires[0]
+        cats = getattr(app, "authorized_vestiaires", [])
+    
+        if categorie in cats:
+            self.current_cat = categorie
+        elif cats:
+            self.current_cat = cats[0]
+        else:
+            print("[VESTIAIRE TRACE] Aucune categorie autorisee")
+            return
+    
+        valides = {"CALENDRIER", "MESSAGES", "NOTIFICATIONS", "SAISON", "EQUIPE", "DOCS", "PROFIL"}
+        if sous_onglet not in valides:
+            sous_onglet = "NOTIFICATIONS"
+    
+        role = app.get_role_for_cat(self.current_cat) if hasattr(app, "get_role_for_cat") else "USER"
+        if sous_onglet == "EQUIPE" and role != "ADMIN":
+            sous_onglet = "CALENDRIER"
+    
+        self.current_sub_tab = sous_onglet
+    
+        Clock.schedule_once(lambda dt: self.update_ui(), 0)
+    
+    
+    def update_ui(self):
+    
+        app = App.get_running_app()
+        if not getattr(app, "authorized_vestiaires", None):
+            print("[VESTIAIRE TRACE] update_ui ABORT | aucune categorie")
+            return
+    
+        if not self.current_cat:
+            self.current_cat = app.authorized_vestiaires[0]
+    
         fs = get_user_font_size()
-
         self.cat_bar.clear_widgets()
+    
         for cat in app.authorized_vestiaires:
-            is_active = self.current_cat == cat
+            active = self.current_cat == cat
             role = app.get_role_for_cat(cat) if hasattr(app, "get_role_for_cat") else "PARENT"
-            disp = f"{cat} [size={int((fs+2)*0.7)}sp][color=888888](ADMIN)[/color][/size]" if role == "ADMIN" else cat
-
-            btn = Button(text=disp, markup=True, size_hint=(None, 1), font_size=f"{fs+2}sp", background_normal="", background_color=(0, 0, 0, 0), bold=True, color=(0, 0, 0, 1) if is_active else (1, 1, 1, 1))
-            btn.bind(texture_size=lambda i, v: setattr(i, "width", max(dp(100), v[0] + dp(30))))
+            disp = f"{cat} [size={int((fs+2)*.7)}sp][color=888888](ADMIN)[/color][/size]" if role == "ADMIN" else cat
+            btn = Button(text=disp, markup=True, size_hint=(None, 1), font_size=f"{fs+2}sp",
+                         background_normal="", background_color=(0,0,0,0), bold=True,
+                         color=(0,0,0,1) if active else (1,1,1,1))
+            btn.bind(texture_size=lambda i,v: setattr(i, "width", max(dp(100), v[0]+dp(30))))
             with btn.canvas.before:
-                Color(0.97, 0.93, 0.25, 1) if is_active else Color(1, 1, 1, 0.15)
+                Color(0.97,0.93,0.25,1) if active else Color(1,1,1,.15)
                 btn.bg = RoundedRectangle(pos=btn.pos, size=btn.size, radius=[dp(8)])
-            btn.bind(pos=lambda i, v: setattr(i.bg, "pos", v), size=lambda i, v: setattr(i.bg, "size", v), on_release=lambda _, c=cat: self.set_category(c))
+            btn.bind(pos=lambda i,v: setattr(i.bg,"pos",v),
+                     size=lambda i,v: setattr(i.bg,"size",v),
+                     on_release=lambda _,c=cat:self.set_category(c))
             self.cat_bar.add_widget(btn)
-
+    
         self.sub_bar.clear_widgets()
         role_actuel = app.get_role_for_cat(self.current_cat) if hasattr(app, "get_role_for_cat") else "PARENT"
-
-        for sub in ["CALENDRIER", "MESSAGES", "NOTIFICATIONS", "SAISON", "EQUIPE", "DOCS", "PROFIL"]:
-            if sub == "EQUIPE" and role_actuel != "ADMIN": continue
-            is_active = self.current_sub_tab == sub
-            btn = Button(text=sub.capitalize(), size_hint=(None, 1), font_size=f"{fs-2}sp", background_normal="", background_color=(0, 0, 0, 0), bold=is_active, color=(0, 0, 0, 1) if is_active else (1, 1, 1, 1))
-            btn.bind(texture_size=lambda i, v: setattr(i, "width", max(dp(90), v[0] + dp(20))))
+    
+        for sub in ("CALENDRIER","MESSAGES","NOTIFICATIONS","SAISON","EQUIPE","DOCS","PROFIL"):
+            if sub == "EQUIPE" and role_actuel != "ADMIN":
+                continue
+    
+            active = self.current_sub_tab == sub
+            btn = Button(text=sub.capitalize(), size_hint=(None,1), font_size=f"{fs-2}sp",
+                         background_normal="", background_color=(0,0,0,0),
+                         bold=active, color=(0,0,0,1) if active else (1,1,1,1))
+            btn.bind(texture_size=lambda i,v: setattr(i,"width",max(dp(90),v[0]+dp(20))))
             with btn.canvas.before:
-                Color(0.97, 0.93, 0.25, 1) if is_active else Color(1, 1, 1, 0.1)
+                Color(0.97,0.93,0.25,1) if active else Color(1,1,1,.1)
                 btn.bg = Rectangle(pos=btn.pos, size=btn.size)
-            btn.bind(pos=lambda i, v: setattr(i.bg, "pos", v), size=lambda i, v: setattr(i.bg, "size", v), on_release=lambda _, s=sub: self.set_sub_tab(s))
+            btn.bind(pos=lambda i,v:setattr(i.bg,"pos",v),
+                     size=lambda i,v:setattr(i.bg,"size",v),
+                     on_release=lambda _,s=sub:self.set_sub_tab(s))
             self.sub_bar.add_widget(btn)
-
-        if self.current_sub_tab == "EQUIPE" and role_actuel != "ADMIN": self.current_sub_tab = "CALENDRIER"
-
+    
+        if self.current_sub_tab == "EQUIPE" and role_actuel != "ADMIN":
+            self.current_sub_tab = "CALENDRIER"
+    
         self.scroll_content.clear_widgets()
         data = self._cache_data.get(self.current_cat)
         is_cal = self.current_sub_tab == "CALENDRIER"
-
+    
         if data:
-            # Si le calendrier n'a pas encore été chargé depuis Firebase
             if is_cal and "calendrier" not in data:
-                self.scroll_content.add_widget(Label(text="Chargement des événements...", color=(1, 1, 1, 0.6), font_size=f"{fs + 2}sp"))
+                self.scroll_content.add_widget(Label(
+                    text="Chargement des événements...",
+                    color=(1,1,1,.6), font_size=f"{fs+2}sp"
+                ))
                 self.fetch_convocations_from_firebase(data, silent=True)
             else:
                 self.render_content(data)
                 if is_cal:
                     self.fetch_convocations_from_firebase(data, silent=True)
         else:
-            self.scroll_content.add_widget(Label(text="Chargement des événements..." if is_cal else "Chargement des données de l'équipe...", color=(1, 1, 1, 0.6 if is_cal else 0.5), font_size=f"{fs + (2 if is_cal else 4)}sp"))
-            vest_cfg = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", []) if hasattr(app, "app_config") else []
+            self.scroll_content.add_widget(Label(
+                text="Chargement des événements..." if is_cal else "Chargement des données de l'équipe...",
+                color=(1,1,1,.6 if is_cal else .5),
+                font_size=f"{fs+(2 if is_cal else 4)}sp"
+            ))
+    
+            vest_cfg = app.app_config.get("fcvv",{}).get("appli",{}).get("vestiaire",[]) if hasattr(app,"app_config") else []
             cat_info = next((i for i in vest_cfg if i.get("categorie") == self.current_cat), None)
+    
             if cat_info:
-                path = os.path.join(getattr(app, "user_data_dir", "."), f"data_{self.current_cat}.yaml")
-                threading.Thread(target=lambda info, p: self.verify_and_load(info, p), args=(cat_info, path), daemon=True).start()
-
+                path = os.path.join(getattr(app,"user_data_dir","."), f"data_{self.current_cat}.yaml")
+                threading.Thread(
+                    target=self.verify_and_load,
+                    args=(cat_info,path),
+                    daemon=True
+                ).start()
+    
         self.check_fab_visibility()
+
 
     def fetch_convocations_from_firebase(self, data, silent=False):
         if getattr(self, "_fetching_in_progress", False): return
@@ -1009,17 +1072,32 @@ class VestiaireScreen(Screen):
 
     def on_enter(self, *args):
         app = App.get_running_app()
-        
+    
         if not hasattr(app, "authorized_vestiaires") or not app.authorized_vestiaires:
             if hasattr(app, "root") and hasattr(app.root, "switch_screen"):
                 app.root.switch_screen("login_vestiaire")
             return
-
+    
+        # Le vestiaire est maintenant réellement accessible
+        self._vestiaire_ready = True
+    
+        # Si une notification avait demandé une navigation précise,
+        # on la traite maintenant, après l'initialisation.
+        if self._pending_navigation:
+            categorie, sous_onglet = self._pending_navigation
+            self._pending_navigation = None
+    
+            Clock.schedule_once(
+                lambda dt: self.charger_categorie(categorie, sous_onglet),
+                0.15
+            )
+            return
+    
         if not self.current_cat:
             self.current_cat = app.authorized_vestiaires[0]
-        # 1. Afficher l'UI immédiatement avec ce qu'on a (en cache ou non)
+    
         self.update_ui()
-        # 2. Vérifier et mettre à jour TOUTES les AUTRES catégories autorisées en arrière-plan
+    
         self.verifier_toutes_les_categories()
 
     def verifier_toutes_les_categories(self):
