@@ -2452,85 +2452,43 @@ jobs:
           echo "===== FIN DEBUG ÉTAT DU PROJET AVANT BUILD ====="
           echo "============================================================"
           
-      - name: Build simulator
+      - name: Build for Real Device
         run: |
           set -euxo pipefail
-          # 0. Installation des pods (Nécessaire avant tout build avec workspace)
-          #pod install --project-directory=fcvv-ios
-
           WORKSPACE_PATH=$(find "$PWD/fcvv-ios" -name "*.xcworkspace" | head -1)
           
-          # 1. Nettoyage
-          xcrun simctl erase "iPhone 15" || true
-          
-          # 2. Build avec signature activée
-          echo "Workspace = $WORKSPACE_PATH"
-
-          ls -la fcvv-ios
-          ls -la fcvv-ios/*.xcworkspace
-          cat fcvv-ios/Podfile.lock
-          
-          xcodebuild -list \
-            -workspace "$WORKSPACE_PATH"
-
-          xcodebuild \
-            -showBuildSettings \
-            -workspace "$WORKSPACE_PATH" \
-            -scheme fcvv
-          
-          echo "===== BUILD SETTINGS ====="
-          xcodebuild \
-            -workspace "$WORKSPACE_PATH" \
-            -scheme fcvv \
-            -showBuildSettings | grep CODE_SIGN_ENTITLEMENTS
-
+          # Build pour un appareil physique (nécessite une signature ad-hoc ou de debug)
           xcodebuild clean build \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
             -configuration Debug \
-            -sdk iphonesimulator \
-            -destination "platform=iOS Simulator,name=iPhone 15" \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
             IPHONEOS_DEPLOYMENT_TARGET=13.0 \
-            CLANG_ENABLE_MODULES=YES \
-            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGN_STYLE=Automatic \
             -allowProvisioningUpdates
-          
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" -type d | grep "Debug-iphonesimulator" | head -1)
-          echo "Debug: Chemin trouvé = $APP_PATH"
-          
-          echo "===== SIGNED ENTITLEMENTS ====="
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" | head -1)
 
-          echo "APP=$APP"
-          codesign -d --entitlements :- "$APP" || true
-
-          echo "===== EMBEDDED MOBILEPROVISION ====="
-          find "$APP" -name "*.mobileprovision" -print || true
-
-          echo "===== APP CONTENT ====="
-          ls -la "$APP"
-          
-            
-      - name: Package app
+      - name: Package .ipa for Real Device
         run: |
-          # 1. On cherche spécifiquement fcvv.app dans le dossier DerivedData 
-          # C'est l'emplacement standard où Xcode place le build final
-          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" -type d | grep "Build/Products/Debug-iphonesimulator" | head -1)
+          # 1. Trouver le chemin du .app compilé pour appareil physique
+          APP_PATH=$(find ~/Library/Developer/Xcode/DerivedData -name "fcvv.app" -type d | grep "Build/Products/Debug-iphoneos" | head -1)
           
           if [ -z "$APP_PATH" ]; then
-            echo "Erreur: fcvv.app introuvable dans DerivedData"
+            echo "Erreur: fcvv.app introuvable pour appareil physique"
             exit 1
           fi
-          
-          echo "Zippage de : $APP_PATH"
-          
-          # 2. On se déplace dans le dossier contenant l'app
-          cd "$(dirname "$APP_PATH")"
-          
-          # 3. On crée le zip
-          zip -r "$GITHUB_WORKSPACE/fcvv.zip" "fcvv.app"
+
+          echo "Création du dossier Payload pour le .ipa..."
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+
+          echo "Compression en .ipa..."
+          zip -r fcvv.ipa Payload
+
+          # Nettoyage
+          rm -rf Payload
 
       - uses: actions/upload-artifact@v4
         with:
-          name: fcvv-app
-          path: fcvv.zip
+          name: fcvv-ipa
+          path: fcvv.ipa
