@@ -163,6 +163,10 @@ class EventManager:
                 
 
                 ti_heure_rdv = add_field("Heure du RDV (ex: 13:30)", match_info_match.get("heure_rdv", ""))
+                
+                # --- NOUVEAU : CONVOCATION SUR PLACE (Placé entre RDV et Coup d'envoi) ---
+                ti_heure_sur_place = add_field("Convocation sur place (ex: 14:15)", match_info_match.get("heure_sur_place", ""))
+                
                 ti_heure_coup = add_field("Heure du coup d'envoi (ex: 15:00)", match_info_match.get("heure_coup_envoi", ""))
                 ti_lieu = add_field("Lieu (Domicile / Extérieur)", match_info_match.get("lieu", ""))
                 ti_entraineurs = add_field("Entraîneurs présents", match_info_match.get("entraineurs", ""))
@@ -294,7 +298,7 @@ class EventManager:
                             if nom_complet_saisi:
                                 parts = nom_complet_saisi.split(" ", 1)
                                 nom = parts[0].upper()
-                                prenom = parts[1].capitalize() if len(parts) > 1 else ""
+                                prenom = parts[1].capitalize() if len(parts) > 0 else ""
 
                                 label_text_brut = f"[{cat}] {nom} {prenom}".strip() if cat else f"{nom} {prenom}".strip()
 
@@ -431,13 +435,24 @@ class EventManager:
                         joueurs_convoques = []
                         if chk_convocation.active:
                             for cb in checkboxes_joueurs:
-                                if cb.active:
+                                if cb.active:  # ⚠️ Seuls les éléments COCHÉS sont conservés
                                     nom = getattr(cb, "nom_joueur", "").strip().upper()
                                     prenom = getattr(cb, "prenom_joueur", "").strip()
-                                    # On envoie une chaîne propre "NOM Prénom" pour correspondre au type List[str] attendu par le serveur
-                                    nom_complet = f"{nom} {prenom}".strip()
-                                    if nom_complet:
-                                        joueurs_convoques.append(nom_complet)
+                                    cat = getattr(cb, "categorie", "").strip().upper()
+                                    est_manuel = getattr(cb, "est_manuel", False)
+                
+                                    # Si le joueur est manuel ou s'il a une catégorie explicite
+                                    if est_manuel or cat:
+                                        joueurs_convoques.append({
+                                            "nom": nom,
+                                            "prenom": prenom,
+                                            "categorie": cat,
+                                            "est_manuel": est_manuel
+                                        })
+                                    else:
+                                        nom_complet = f"{nom} {prenom}".strip()
+                                        if nom_complet:
+                                            joueurs_convoques.append(nom_complet)
                 
                         maintenant_str = datetime.now().strftime("%d/%m/%Y à %H:%M")
                         match_info_match.update({
@@ -446,6 +461,7 @@ class EventManager:
                             "adversaire": ti_adversaire.text.strip(),
                             "date": date_val,
                             "heure_rdv": ti_heure_rdv.text.strip(),
+                            "heure_sur_place": ti_heure_sur_place.text.strip(),  # <--- SAUVEGARDE DU CHAMP CONVOCATION SUR PLACE
                             "heure_coup_envoi": ti_heure_coup.text.strip(),
                             "lieu": ti_lieu.text.strip(),
                             "entraineurs": ti_entraineurs.text.strip(),
@@ -526,8 +542,6 @@ class EventManager:
                 btn_save.bind(on_release=save_match)
                 dynamic_container.add_widget(btn_save)
 
-            # --- ONGLET ENTRAINEMENT ---
-            # --- ONGLET ENTRAINEMENT ---
             elif current_type == "ENTRAINEMENT":
                 form_scroll = ScrollView(bar_width=0, size_hint=(1, 1))
                 form_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10), padding=dp(5))
@@ -594,7 +608,17 @@ class EventManager:
                         container_recurrence.clear_widgets()
                         if active:
                             container_recurrence.add_widget(Label(text="Date de fin (Format JJ/MM/AAAA)", size_hint_y=None, height=dp(25), halign="left", color=(0.2, 0.2, 0.25, 1)))
-                            ti_date_fin = TextInput(hint_text="ex: 30/06/2026", multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
+                            
+                            # Utilisation de DateTextInput ici
+                            ti_date_fin = DateTextInput(
+                                hint_text="ex: 30/06/2026", 
+                                multiline=False, 
+                                size_hint_y=None, 
+                                height=dp(40), 
+                                background_color=(1, 1, 1, 1), 
+                                foreground_color=(0.1, 0.1, 0.1, 1), 
+                                cursor_color=(0.1, 0.1, 0.1, 1)
+                            )
                             container_recurrence.add_widget(ti_date_fin)
 
                             container_recurrence.add_widget(Label(text="Type de récurrence", size_hint_y=None, height=dp(25), halign="left", color=(0.2, 0.2, 0.25, 1)))

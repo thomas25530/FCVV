@@ -13,7 +13,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.text import Label as CoreLabel
 from kivy.core.window import Window
-from kivy.graphics import Color, Rectangle, RoundedRectangle
+from kivy.graphics import Color, Rectangle, RoundedRectangle, Ellipse
 from kivy.uix.image import AsyncImage
 from kivy.metrics import dp, sp
 from kivy.uix.anchorlayout import AnchorLayout
@@ -45,12 +45,9 @@ def get_user_font_size():
         else 18
     )
 
-
 # ==============================================================================
 # BUBBLE & CHAT VIEW
 # ==============================================================================
-
-
 class MessageBubble(BoxLayout):
 
     def __init__(
@@ -162,6 +159,116 @@ class MessageBubble(BoxLayout):
         h_auth = self.author.height if hasattr(self, "author") else 0
         self.bubble.height = (
             self.content.height + self.timestamp.height + h_auth + dp(25)
+        )
+        
+class EchangeBubble(BoxLayout):
+    def __init__(self, msg_data, is_me, show_author=True, est_admin=False, can_delete=False, on_delete=None, font_size=15, **kwargs):
+        super().__init__(orientation="vertical", size_hint_y=None, padding=[dp(10) if is_me else dp(60), 0, dp(60) if is_me else dp(10), 0], **kwargs)
+        self.msg_data = msg_data
+        self.bind(minimum_height=self.setter("height"))
+
+        # Correction des couleurs selon le rôle (séparation propre pour éviter le tuple imbriqué)
+        if est_admin:
+            bg = (0.8, 0.5, 0, 1)
+            name_c = (1, 1, 1, 1)
+        elif is_me:
+            bg = (0.1, 0.55, 1, 1)
+            name_c = (0.85, 0.93, 1, 1)
+        else:
+            bg = (0.22, 0.22, 0.22, 1)
+            name_c = (1, 0.85, 0.4, 1)
+
+        self.bubble = BoxLayout(orientation="vertical", spacing=dp(4), padding=[dp(12), dp(8)], size_hint=(None, None))
+        
+        # Fond arrondi
+        with self.bubble.canvas.before:
+            Color(*bg)
+            self.bubble.rect = RoundedRectangle(pos=self.bubble.pos, size=self.bubble.size, radius=[dp(16)])
+        self.bubble.bind(pos=lambda _, v: setattr(self.bubble.rect, "pos", v), size=lambda _, v: setattr(self.bubble.rect, "size", v))
+
+        # Auteur & Contenu
+        if show_author:
+            auth_text = f"[b]{'[!] ' if est_admin else ''}{escape_markup(msg_data.get('auteur', ''))}[/b]"
+            self.author = Label(text=auth_text, markup=True, color=name_c, font_size=f"{max(10, font_size - 3)}sp", size_hint=(None, None))
+            self.bubble.add_widget(self.author)
+
+        self.content = Label(text=msg_data.get("contenu", ""), markup=True, font_size=f"{max(10, font_size - 2)}sp", size_hint=(None, None), halign="left", valign="top", text_size=(Window.width * 0.7 - dp(40), None))
+        self.bubble.add_widget(self.content)
+
+        # Datetime parsing
+        ts_str = ""
+        if ts_raw := msg_data.get("timestamp"):
+            try:
+                ts_str = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).astimezone().strftime("%H:%M")
+            except Exception as e:
+                print(f"Erreur de parsing date: {e}")
+
+        # Ligne basse (Timestamp & Suppression) propre et alignée
+        bottom_row = BoxLayout(
+            orientation="horizontal", 
+            size_hint=(1, None), 
+            height=dp(24), 
+            spacing=dp(8)
+        )
+        
+        self.timestamp = Label(
+            text=f"[color={'FFFFFF' if is_me or est_admin else 'AAAAAA'}]{ts_str}[/color]", 
+            markup=True, 
+            size_hint_x=1, 
+            halign="right", 
+            valign="middle"
+        )
+        self.timestamp.bind(size=lambda inst, v: setattr(inst, "text_size", v))
+        bottom_row.add_widget(self.timestamp)
+
+        if can_delete:
+            del_btn = Button(
+                text="×", 
+                size_hint=(None, None), 
+                size=(dp(24), dp(24)), 
+                font_size=f"{max(12, font_size - 2)}sp", 
+                background_normal="", 
+                background_color=(0, 0, 0, 0)
+            )
+            
+            with del_btn.canvas.before:
+                Color(0, 0, 0, 0.3)
+                del_btn.circle = Ellipse(pos=del_btn.pos, size=del_btn.size)
+            
+            del_btn.bind(
+                pos=lambda inst, v: setattr(inst.circle, "pos", v), 
+                size=lambda inst, v: setattr(inst.circle, "size", v)
+            )
+
+            if on_delete:
+                del_btn.bind(on_release=lambda *_: on_delete(msg_data.get("id")))
+            bottom_row.add_widget(del_btn)
+
+        self.bubble.add_widget(bottom_row)
+        Clock.schedule_once(self.finalize_layout, 0)
+        self.add_widget(self.bubble)
+
+    # =============================================================
+    # DIMENSIONS
+    # =============================================================
+    def finalize_layout(self, *args):
+        self.content.text_size = (self.content.text_size[0], None)
+        self.content.size = self.content.texture_size
+        self.timestamp.size = self.timestamp.texture_size
+        
+        has_author = hasattr(self, "author")
+        if has_author:
+            self.author.size = self.author.texture_size
+    
+        h_auth = self.author.height if has_author else 0
+        
+        min_bottom_w = self.timestamp.width + (dp(32) if hasattr(self, 'can_delete' ) and self.can_delete else 0)
+        max_w = max(self.content.width, min_bottom_w, self.author.width if has_author else 0)
+        
+        bottom_row_height = dp(24)
+        self.bubble.size = (
+            max_w + dp(40), 
+            self.content.height + h_auth + bottom_row_height + dp(25)
         )
 
 
@@ -476,12 +583,194 @@ class ChatView(BoxLayout):
         ):
             self.refresh_event.cancel()
 
+class EchangeView(BoxLayout):
+    def __init__(self, categorie, screen_instance=None, **kwargs):
+        super().__init__(orientation="vertical", spacing=dp(5), **kwargs)
+        self.categorie, self.cached_messages, self.limit, self.last_hash, self.opacity = categorie, [], 25, None, 0
+        
+        app = App.get_running_app()
+        self.mon_nom = self._get_user()
+        self.user_role = app.get_role_for_cat(self.categorie) if hasattr(app, "get_role_for_cat") else "PARENT"
+        fs = app.config.getint("User", "font_size_factor", fallback=18) if hasattr(app, "config") else 18
 
+        # Scroll & Messages
+        self.scroll = ScrollView(bar_width=0, do_scroll_x=False)
+        self.msg_container = BoxLayout(orientation="vertical", size_hint_y=None)
+        self.msg_container.bind(minimum_height=self.msg_container.setter("height"))
+
+        self.empty_label = Label(text="Aucun message pour le moment.\nSoyez le premier à écrire !", halign="center", valign="middle", color=(0.7, 0.7, 0.7, 1), size_hint_y=None, height=0, font_size=f"{fs + 4}sp")
+        self.empty_label.bind(size=lambda i, v: setattr(i, "text_size", (v[0], None)))
+        self.msg_container.add_widget(self.empty_label)
+        self.scroll.add_widget(self.msg_container)
+        self.add_widget(self.scroll)
+
+        # Zone de saisie
+        self.input_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10), padding=dp(5))
+        self.input_field = TextInput(hint_text="Écrire un message...", multiline=True, size_hint_y=None, height=dp(40), font_size=f"{fs + 2}sp", padding=[dp(10), dp(8)])
+        self.input_field.bind(minimum_height=lambda inst, h: (setattr(inst, "height", max(dp(40), min(h, dp(220)))), setattr(self.input_box, "height", inst.height + dp(10))))
+        
+        self.send_btn = Button(text="Envoyer", size_hint_x=0.25, font_size=f"{fs}sp", bold=True, on_release=self.send_message)
+        self.input_box.add_widget(self.input_field)
+        self.input_box.add_widget(self.send_btn)
+        self.add_widget(self.input_box)
+
+        # Initialisation
+        self.load_cache()
+        self.fetch_messages()
+        self.refresh_event = Clock.schedule_interval(self.fetch_messages, 5)
+    # =============================================================
+    # SCROLL INTELLIGENT
+    # =============================================================
+    def scroll_smart_position(self, *args):
+        self.msg_container.canvas.ask_update()
+    
+        def adjust(_):
+            self.scroll.scroll_y = 1 if self.msg_container.height <= self.scroll.height else 0
+    
+        for delay in (0.05, 0.15):
+            Clock.schedule_once(adjust, delay)
+    # =============================================================
+    # RENDU DES MESSAGES
+    # =============================================================
+    def render_messages(self, scroll_trigger=True):
+        self.msg_container.clear_widgets()
+        
+        # Message vide
+        has_msgs = bool(self.cached_messages)
+        self.empty_label.height, self.empty_label.opacity = (0, 0) if has_msgs else (dp(200), 1)
+        self.msg_container.add_widget(self.empty_label)
+    
+        app = App.get_running_app()
+        fs = app.config.getint("User", "font_size_factor", fallback=15) if hasattr(app, "config") else 15
+    
+        # Bouton Charger plus
+        if len(self.cached_messages) > self.limit:
+            self.msg_container.add_widget(Button(text="Charger plus...", size_hint_y=None, height=dp(40), on_release=lambda x: self._load_more_and_preserve_scroll()))
+    
+        # Rendu des messages et séparateurs de date
+        last_author = last_date = None
+        for msg in self.cached_messages[-self.limit:]:
+            try:
+                cur_date = datetime.fromisoformat(msg.get("timestamp", "").replace("Z", "+00:00")).astimezone().strftime("%d/%m/%Y")
+            except Exception:
+                cur_date = None
+    
+            if cur_date and cur_date != last_date:
+                self.msg_container.add_widget(Label(text=f"[b]{cur_date}[/b]", markup=True, size_hint_y=None, height=dp(40), color=(0.7, 0.7, 0.7, 1)))
+                last_date = cur_date
+    
+            auteur = msg.get("auteur", "")
+            est_moi = auteur.strip().lower() == self.mon_nom.strip().lower()
+            
+            self.msg_container.add_widget(EchangeBubble(
+                msg_data=msg, is_me=est_moi, show_author=(auteur != last_author),
+                est_admin=(msg.get("role") == "ADMIN"), can_delete=(est_moi or self.user_role == "ADMIN"),
+                on_delete=self.delete_message, font_size=fs
+            ))
+            last_author = auteur
+    
+        self.msg_container.do_layout()
+        if scroll_trigger: self.scroll_smart_position()
+        if self.opacity == 0: Clock.schedule_once(lambda dt: setattr(self, "opacity", 1), 0.1)
+    # =============================================================
+    # CHARGER PLUS
+    # =============================================================
+    def _load_more_and_preserve_scroll(self):
+        old_scroll = self.scroll.scroll_y
+        self.limit += 25
+        self.render_messages(scroll_trigger=False)
+        Clock.schedule_once(lambda dt: setattr(self.scroll, "scroll_y", old_scroll), 0.1)
+    # =============================================================
+    # FETCH
+    # =============================================================
+    def fetch_messages(self, *args):
+        threading.Thread(target=self._fetch_messages_thread, daemon=True).start()
+    
+    def _fetch_messages_thread(self):
+        try:
+            r = requests.get(f"https://fcvv-api.onrender.com/echange/{self.categorie}", headers={"nom_parent": self._get_user()}, timeout=10, verify=(platform != "win"))
+            if r.status_code == 200:
+                data = r.json()
+                new_hash = hashlib.md5(str(data).encode()).hexdigest()
+                if new_hash != self.last_hash:
+                    self.last_hash, self.cached_messages = new_hash, data
+                    self.save_cache()
+                    is_at_bottom = self.scroll.scroll_y <= 0.05
+                    Clock.schedule_once(lambda dt: self.render_messages(scroll_trigger=is_at_bottom))
+        except Exception as e:
+            print(f"Erreur fetch echange: {e}")
+    # =============================================================
+    # ENREGISTREMENT CACHE
+    # =============================================================
+    def save_cache(self):
+        try:
+            with open(self.get_cache_path(), "w", encoding="utf-8") as f:
+                json.dump(self.cached_messages[-100:], f)
+        except Exception as e:
+            print(f"Erreur sauvegarde cache echange: {e}")
+    
+    def load_cache(self):
+        path = self.get_cache_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    self.cached_messages = json.load(f)
+                self.last_hash = hashlib.md5(str(self.cached_messages).encode()).hexdigest()
+                self.render_messages(scroll_trigger=True)
+            except Exception as e:
+                print(f"Erreur lecture cache echange: {e}")
+    # =============================================================
+    # ENVOI
+    # =============================================================
+    def send_message(self, *args):
+        if not (text := self.input_field.text.strip()):
+            return
+        threading.Thread(target=self._send_message_thread, args=(self._get_user(), text), daemon=True).start()
+        self.input_field.text = ""
+        self.input_field.height, self.input_box.height = dp(40), dp(50)
+    
+    def _send_message_thread(self, mon_nom, text):
+        try:
+            r = requests.post(f"https://fcvv-api.onrender.com/echange/{self.categorie}", headers={"nom_parent": mon_nom}, json={"contenu": text}, timeout=10, verify=(platform != "win"))
+            if r.status_code == 200:
+                Clock.schedule_once(lambda dt: self.fetch_messages())
+            else:
+                print(f"Erreur envoi echange HTTP {r.status_code}: {r.text}")
+        except Exception as e:
+            print(f"Erreur envoi message echange: {e}")
+    # =============================================================
+    # SUPPRESSION
+    # =============================================================
+    def delete_message(self, message_id):
+        if message_id:
+            threading.Thread(target=self._delete_message_thread, args=(self._get_user(), message_id), daemon=True).start()
+    
+    def _delete_message_thread(self, mon_nom, message_id):
+        try:
+            r = requests.delete(f"https://fcvv-api.onrender.com/echange/{self.categorie}/{message_id}", headers={"nom_parent": mon_nom}, timeout=10, verify=(platform != "win"))
+            if r.status_code == 200:
+                Clock.schedule_once(lambda dt: self.fetch_messages())
+            else:
+                print(f"Erreur suppression echange HTTP {r.status_code}: {r.text}")
+        except Exception as e:
+            print(f"Erreur suppression message echange: {e}")
+    # =============================================================
+    # CACHE PATH
+    # =============================================================
+    def get_cache_path(self):
+        app = App.get_running_app()
+        return os.path.join(getattr(app, "user_data_dir", "."), f"echange_{self.categorie}.json")
+    
+    def _get_user(self):
+        app = App.get_running_app()
+        return app.config.get("User", "nom_parent", fallback="Inconnu") if hasattr(app, "config") else "Inconnu"
+    
+    def on_parent(self, *args):
+        if not self.parent and getattr(self, "refresh_event", None):
+            self.refresh_event.cancel()
 # ==============================================================================
 # CARDS & ITEMS (Façon SportEasy)
 # ==============================================================================
-
-
 class StyledCard(BoxLayout):
 
     def __init__(self, bg_color=(1, 1, 1, 0.1), **kwargs):
@@ -798,6 +1087,7 @@ class VestiaireScreen(Screen):
         self._pending_navigation = None
         self._vestiaire_ready = False
         self._cache_data = {}
+        self._vestiaire_session_id = 0
         self.KIVY_BLUE = (30 / 255, 58 / 255, 138 / 255, 1)
         self.YELLOW = (247 / 255, 236 / 255, 63 / 255, 1)
         with self.canvas.before:
@@ -941,7 +1231,7 @@ class VestiaireScreen(Screen):
             print("[VESTIAIRE TRACE] Aucune categorie autorisee")
             return
     
-        valides = {"CALENDRIER", "MESSAGES", "NOTIFICATIONS", "SAISON", "EQUIPE", "DOCS", "PROFIL"}
+        valides = {"CALENDRIER", "MESSAGES", "CHAT", "NOTIFICATIONS", "SAISON", "EQUIPE", "DOCS", "MEMBRES", "PROFIL"}
         if sous_onglet not in valides:
             sous_onglet = "NOTIFICATIONS"
     
@@ -986,7 +1276,7 @@ class VestiaireScreen(Screen):
         self.sub_bar.clear_widgets()
         role_actuel = app.get_role_for_cat(self.current_cat) if hasattr(app, "get_role_for_cat") else "PARENT"
     
-        for sub in ("CALENDRIER","MESSAGES","NOTIFICATIONS","SAISON","EQUIPE","DOCS","PROFIL"):
+        for sub in ("CALENDRIER","MESSAGES","CHAT", "NOTIFICATIONS","SAISON","EQUIPE","DOCS","MEMBRES","PROFIL"):
             if sub == "EQUIPE" and role_actuel != "ADMIN":
                 continue
     
@@ -1033,9 +1323,17 @@ class VestiaireScreen(Screen):
     
             if cat_info:
                 path = os.path.join(getattr(app,"user_data_dir","."), f"data_{self.current_cat}.yaml")
+                session_id = self._vestiaire_session_id
+                target_cat = self.current_cat
+                
                 threading.Thread(
                     target=self.verify_and_load,
-                    args=(cat_info,path),
+                    args=(
+                        cat_info,
+                        path,
+                        target_cat,
+                        session_id
+                    ),
                     daemon=True
                 ).start()
     
@@ -1069,36 +1367,49 @@ class VestiaireScreen(Screen):
             Clock.schedule_once(lambda dt: apply_result(convs), 0)
 
         threading.Thread(target=do_request, daemon=True).start()
+    
+    
+    def _start_new_vestiaire_session(self):
+        self._vestiaire_session_id += 1
+        print(f"[VESTIAIRE SESSION] Nouvelle session : {self._vestiaire_session_id}")
+        
+        if getattr(self, "_populate_event", None):
+            try:
+                self._populate_event.cancel()
+            except Exception:
+                pass
+            self._populate_event = None
+
+        self._fetching_in_progress = False
+        self._cache_data.clear()
+        self.current_cat = None
+        self.current_sub_tab = "CALENDRIER"
+        print("[VESTIAIRE SESSION] Cache memoire vide.")
+    
 
     def on_enter(self, *args):
         app = App.get_running_app()
-    
-        if not hasattr(app, "authorized_vestiaires") or not app.authorized_vestiaires:
-            if hasattr(app, "root") and hasattr(app.root, "switch_screen"):
+        if not getattr(app, "authorized_vestiaires", None):
+            if hasattr(getattr(app, "root", None), "switch_screen"):
                 app.root.switch_screen("login_vestiaire")
             return
-    
-        # Le vestiaire est maintenant réellement accessible
+
+        self._start_new_vestiaire_session()
         self._vestiaire_ready = True
-    
-        # Si une notification avait demandé une navigation précise,
-        # on la traite maintenant, après l'initialisation.
+
         if self._pending_navigation:
             categorie, sous_onglet = self._pending_navigation
             self._pending_navigation = None
-    
-            Clock.schedule_once(
-                lambda dt: self.charger_categorie(categorie, sous_onglet),
-                0.15
-            )
+            self.current_cat = None
+            Clock.schedule_once(lambda dt: self.charger_categorie(categorie, sous_onglet), 0)
+            Clock.schedule_once(lambda dt: self.verifier_toutes_les_categories(), 0.2)
             return
-    
-        if not self.current_cat:
-            self.current_cat = app.authorized_vestiaires[0]
-    
+
+        self.current_cat = app.authorized_vestiaires[0]
+        self.current_sub_tab = "CALENDRIER"
         self.update_ui()
-    
-        self.verifier_toutes_les_categories()
+        Clock.schedule_once(lambda dt: self.verifier_toutes_les_categories(), 0.1)
+
 
     def verifier_toutes_les_categories(self):
         app = App.get_running_app()
@@ -1106,9 +1417,20 @@ class VestiaireScreen(Screen):
         for cat in getattr(app, "authorized_vestiaires", []):
             if cat != self.current_cat and (cat_info := next((i for i in vest_cfg if i.get("categorie") == cat), None)):
                 path = os.path.join(getattr(app, "user_data_dir", "."), f"data_{cat}.yaml")
-                threading.Thread(target=self._verifier_et_charger_silencieux, args=(cat_info, path, cat), daemon=True).start()
+                session_id = self._vestiaire_session_id
 
-    def _verifier_et_charger_silencieux(self, cat_info, path, target_cat):
+                threading.Thread(
+                    target=self._verifier_et_charger_silencieux,
+                    args=(
+                        cat_info,
+                        path,
+                        cat,
+                        session_id
+                    ),
+                    daemon=True
+                ).start()
+
+    def _verifier_et_charger_silencieux(self, cat_info, path, target_cat,session_id):
         url = f"https://docs.google.com/uc?id={cat_info.get('file_id')}&export=download"
         try:
             is_windows = (platform == 'win')
@@ -1128,6 +1450,12 @@ class VestiaireScreen(Screen):
             except Exception as e:
                 print(f"[VESTIAIRE DEBUG] Erreur YAML pour {target_cat}: {e}")
 
+        if session_id != self._vestiaire_session_id:
+            print(
+                f"[VESTIAIRE SESSION] "
+                f"Ancien prechargement ignore : {target_cat}"
+            )
+            return
         self._cache_data[target_cat] = data
         if target_cat == self.current_cat:
             Clock.schedule_once(lambda dt: self.fetch_convocations_from_firebase(data) if self.current_sub_tab == "CALENDRIER" else self.render_content(data), 0)
@@ -1161,7 +1489,7 @@ class VestiaireScreen(Screen):
         anim.bind(on_complete=on_complete)
         anim.start(self.scroll_content)
 
-    def verify_and_load(self, cat_info, path):
+    def verify_and_load(self, cat_info, path,target_cat,session_id):
         url = f"https://docs.google.com/uc?id={cat_info.get('file_id')}&export=download"
         try:
             is_windows = (platform == 'win')
@@ -1179,8 +1507,23 @@ class VestiaireScreen(Screen):
             except Exception as e:
                 logging.error(f"Erreur YAML: {e}")
 
-        self._cache_data[self.current_cat] = data
-        Clock.schedule_once(lambda dt: self.fetch_convocations_from_firebase(data) if self.current_sub_tab == "CALENDRIER" else self.render_content(data), 0)
+        if session_id != self._vestiaire_session_id:
+            print(
+                f"[VESTIAIRE SESSION] "
+                f"Ancien telechargement ignore : {target_cat}"
+            )
+            return
+        self._cache_data[target_cat] = data
+        if target_cat == self.current_cat:
+            Clock.schedule_once(
+                lambda dt: (
+                    self.fetch_convocations_from_firebase(data)
+                    if self.current_sub_tab == "CALENDRIER"
+                    else self.render_content(data)
+                ),
+                0
+            )
+        
 
     def render_content(self, data):
         self.scroll_content.clear_widgets()
@@ -1193,6 +1536,12 @@ class VestiaireScreen(Screen):
         if self.current_sub_tab == "MESSAGES":
             self.scroll_content.do_scroll_y = False
             self.scroll_content.add_widget(ChatView(categorie=self.current_cat, screen_instance=self, size_hint=(1, 1)))
+            if hasattr(self, "check_fab_visibility"): self.check_fab_visibility()
+            return
+        
+        if self.current_sub_tab == "CHAT":
+            self.scroll_content.do_scroll_y = False
+            self.scroll_content.add_widget(EchangeView(categorie=self.current_cat, screen_instance=self, size_hint=(1, 1)))
             if hasattr(self, "check_fab_visibility"): self.check_fab_visibility()
             return
 
@@ -1238,44 +1587,66 @@ class VestiaireScreen(Screen):
 
         elif self.current_sub_tab == "NOTIFICATIONS":
             layout.add_widget(SectionTitle("CENTRE DE NOTIFICATIONS"))
+            
             if not (calendrier := data.get("calendrier", {})):
                 layout.add_widget(InfoCard(text="Aucune notification récente."))
             else:
                 historique = []
                 for match_id, match_info in calendrier.items():
                     type_evt = match_info.get("type", "ÉVÉNEMENT").upper()
-                    titre, adversaire, date_evt, lieu_evt = map(lambda k: match_info.get(k, "").strip(), ("titre", "adversaire", "date", "lieu"))
-                    commit_msg, timestamp_action = match_info.get("dernier_commit", "").strip(), match_info.get("timestamp_action", "")
-
-                    titre_carte = titre or ("Entraînement" if type_evt == "ENTRAINEMENT" else (f"Match ({match_id})" if type_evt == "MATCH" else f"Événement : {titre}" if titre else "Événement"))
+                    titre, adversaire, date_evt, lieu_evt = map(
+                        lambda k: str(match_info.get(k, "") or "").strip(),
+                        ("titre", "adversaire", "date", "lieu")
+                    )
+                    commit_msg = str(match_info.get("dernier_commit", "") or "").strip()
+                    timestamp_action = str(match_info.get("timestamp_action", "") or "").strip()
+                    titre_carte = titre or ("Entraînement" if type_evt == "ENTRAINEMENT" else f"Match ({match_id})" if type_evt == "MATCH" else "Événement")
                     est_mod = bool(commit_msg) and "création" not in commit_msg.lower()
-                    
-                    ligne_statut = f"[b]{'Modifié le' if est_mod else 'Crée le'}[/b]" + (f" {timestamp_action}" if timestamp_action else "")
+                    ligne_statut = f"[b]{'Modifié le' if est_mod else 'Créé le'}[/b]" + (f" {timestamp_action}" if timestamp_action else "")
                     ligne_details = f"Date : {date_evt}" + (f" • Lieu : {lieu_evt}" if lieu_evt else "")
-                    ligne_commit = f"\n[color=555555]« {commit_msg} »[/color]" if (est_mod and commit_msg) else ""
-
+                    ligne_commit = f"\n[color=555555]« {commit_msg} »[/color]" if est_mod and commit_msg else ""
                     texte_notif = f"[size={fs + 2}sp][b]{titre_carte}[/b][/size]\n[size={fs - 1}sp]{ligne_statut}\n{ligne_details}{ligne_commit}[/size]"
-                    parsed_dt = next((datetime.strptime(date_evt, fmt) for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y") if datetime.strptime(date_evt, fmt)), datetime.min)
+            
+                    parsed_dt = datetime.min
+                    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+                        try:
+                            parsed_dt = datetime.strptime(date_evt, fmt)
+                            break
+                        except ValueError:
+                            pass
                     historique.append((parsed_dt, texte_notif))
-
+            
                 for _, texte in sorted(historique, key=lambda x: x[0], reverse=True):
                     card = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(5), size_hint_y=None)
+            
                     with card.canvas.before:
                         Color(0.95, 0.95, 0.95, 1)
                         card.bg_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[dp(8)])
-                    card.bind(pos=lambda c, p: setattr(c.bg_rect, 'pos', p), size=lambda c, s: setattr(c.bg_rect, 'size', s))
-
-                    lbl_notif = Label(text=texte, markup=True, color=(0.1, 0.1, 0.1, 1), font_size=f"{fs - 1}sp", halign="center", valign="middle", size_hint_y=None)
+            
+                    card.bind(
+                        pos=lambda c, p: setattr(c.bg_rect, "pos", p),
+                        size=lambda c, s: setattr(c.bg_rect, "size", s)
+                    )
+            
+                    lbl_notif = Label(
+                        text=texte, markup=True, color=(0.1, 0.1, 0.1, 1),
+                        font_size=f"{fs - 1}sp", halign="center", valign="middle",
+                        size_hint_y=None
+                    )
                     card.add_widget(lbl_notif)
-
-                    def update_card_height(c, w, label=lbl_notif):
-                        if w > 0:
-                            label.text_size = (w - dp(24), None)
-                            label.texture_update()
-                            c.height = label.height = label.texture_size[1] + dp(24)
-
-                    card.bind(width=update_card_height)
-                    Clock.schedule_once(lambda dt, c=card: update_card_height(c, c.width), 0.05)
+            
+                    def update_card_height(card_widget, width, label=lbl_notif):
+                        if width <= 0:
+                            return
+                        label.text_size = (max(1, width - dp(24)), None)
+                        label.texture_update()
+                        label.height = label.texture_size[1]
+                        card_widget.height = label.height + dp(24)
+            
+                    card.bind(width=lambda c, w, lbl=lbl_notif: update_card_height(c, w, lbl))
+                    Clock.schedule_once(lambda dt, c=card, lbl=lbl_notif: update_card_height(c, c.width, lbl), 0)
+                    Clock.schedule_once(lambda dt, c=card, lbl=lbl_notif: update_card_height(c, c.width, lbl), 0.1)
+            
                     layout.add_widget(card)
 
         elif self.current_sub_tab == "SAISON":
@@ -1322,6 +1693,82 @@ class VestiaireScreen(Screen):
                     if url := doc.get("url"): btn.bind(on_release=lambda _, u=url: webbrowser.open(u))
                     else: btn.disabled = True; btn.text += " (Lien invalide)"
                     layout.add_widget(btn)
+        
+        elif self.current_sub_tab == "MEMBRES":
+            layout.add_widget(SectionTitle("LISTE DES MEMBRES"))
+
+            if getattr(self, "_populate_event", None):
+                self._populate_event.cancel()
+                self._populate_event = None
+
+            try:
+                r = requests.get(f"https://fcvv-api.onrender.com/users?categorie={self.current_cat}", timeout=10, verify=(platform != "win"))
+                membres_list = r.json() if r.status_code == 200 else []
+            except Exception as e:
+                print(f"[MEMBRES] Erreur recuperation membres : {e}")
+                membres_list = []
+
+            if not membres_list:
+                layout.add_widget(Label(text="Aucun membre trouvé pour cette catégorie.", italic=True, size_hint_y=None, height=dp(100), font_size=f"{fs-2}sp", color=(0.7, 0.7, 0.7, 1)))
+            else:
+                def create_membre_card(membre, idx):
+                    nom_parent = membre.get("nom", "Inconnu")
+                    role_membre = membre.get("role", "PARENT")
+                    joueurs_associes = membre.get("joueurs_associes", [])
+                    
+                    joueurs_cat = []
+                    for j in joueurs_associes:
+                        if isinstance(j, dict):
+                            if j.get("categorie") == self.current_cat and j.get("nom"):
+                                joueurs_cat.append(j.get("nom"))
+                        elif j:
+                            joueurs_cat.append(str(j))
+
+                    joueurs_str = ", ".join(joueurs_cat) if joueurs_cat else "Aucun joueur associé"
+                    card = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(5), size_hint_y=None)
+
+                    with card.canvas.before:
+                        Color(0.95, 0.95, 0.95, 1)
+                        card.bg_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[dp(8)])
+
+                    card.bind(pos=lambda c, p: setattr(c.bg_rect, "pos", p), size=lambda c, s: setattr(c.bg_rect, "size", s))
+                    
+                    role_display = f" - {role_membre}" if str(role_membre).upper() == "ADMIN" else ""
+                    texte_membre = f"[color=111111][b]{idx}. {nom_parent}[/b]{role_display}\n[size={fs - 2}sp]Joueur(s) : {joueurs_str}[/size][/color]"
+                    
+                    lbl_membre = Label(text=texte_membre, markup=True, font_size=f"{fs}sp", halign="left", valign="middle", size_hint_y=None)
+                    card.add_widget(lbl_membre)
+
+                    def update_card_height(card_widget, width, label=lbl_membre):
+                        if width <= 0: return
+                        label.text_size = (max(1, width - dp(24)), None)
+                        label.texture_update()
+                        label.height = label.texture_size[1]
+                        card_widget.height = label.height + dp(24)
+
+                    card.bind(width=lambda c, w: update_card_height(c, w, lbl_membre))
+                    Clock.schedule_once(lambda dt: update_card_height(card, card.width, lbl_membre), 0)
+                    return card
+
+                def stream_membres(membres, batch_size=5):
+                    total = len(membres)
+                    def add_batch(index_actuel, *args):
+                        if self.current_sub_tab != "MEMBRES":
+                            self._populate_event = None
+                            return
+                        fin = min(index_actuel + batch_size, total)
+                        for idx in range(index_actuel, fin):
+                            layout.add_widget(create_membre_card(membres[idx], idx + 1))
+                        if fin < total:
+                            self._populate_event = Clock.schedule_once(lambda dt: add_batch(fin), 0)
+                        else:
+                            self._populate_event = None
+                            print(f"[MEMBRES] {total} cartes affichees.")
+
+                    self._populate_event = Clock.schedule_once(lambda dt: add_batch(0), 0)
+
+                stream_membres(membres_list, batch_size=5)
+
 
         elif self.current_sub_tab == "PROFIL":
             layout.add_widget(SectionTitle("MON PROFIL"))

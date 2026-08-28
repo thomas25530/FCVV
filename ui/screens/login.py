@@ -111,6 +111,7 @@ class LoginScreen(Screen):
         # TextInput Nom du Parent
         self.layout.add_widget(Label(text="Votre nom :", font_size='18sp', size_hint_y=None, height=dp(30)))
         self.name_input = TextInput(hint_text="Prénom NOM", font_size='18sp', multiline=False, size_hint_y=None, height=dp(60))
+        
         self.layout.add_widget(self.name_input)
         
         app = App.get_running_app()
@@ -224,26 +225,53 @@ class LoginScreen(Screen):
             root.switch_screen('vestiaire')
         else:
             print(f"[ERROR] switch_screen introuvable sur {root}.")
+
+    def reset_name_input(self):
+        try:
+            self.name_input.focus = False
+            self.name_input.disabled = False
+            self.name_input.readonly = False
+            self.name_input.text = ""
+            self.name_input.cursor = (0, 0)
+            print(f"[RESET] TextInput nom entierement reinitialise : disabled={self.name_input.disabled}, readonly={self.name_input.readonly}, text={self.name_input.text!r}")
+        except Exception as e:
+            print(f"[RESET ERROR] reset_name_input : {e}")
     
     def on_pre_enter(self):
-        self.pwd_input.text = ""
+        app = App.get_running_app()
+        self.name_input.focus = False
+        self.name_input.disabled = False
+        self.name_input.readonly = False
+        self.name_input.text = ""
+
+        if hasattr(app, "config"):
+            app.config.read(app.config.filename)
+
+        nom_existant = app.config.get("User", "nom_parent", fallback="").strip() if app.config.has_section("User") else ""
+
+        if nom_existant:
+            self.name_input.text = nom_existant
+            self.name_input.readonly = True
+            self.name_input.disabled = True
 
     def on_enter(self):
-        self.pwd_input.text = ""
         app = App.get_running_app()
+        self.cat_spinner.text = "Sélectionner une catégorie..."
+        self.pwd_input.text = ""
+        self.pwd_input.focus = False
+
+        vestiaires = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
+        cats = [str(item.get("categorie")) for item in vestiaires if item.get("categorie")]
+        
+        self.cat_spinner.values = cats
+        self.cat_spinner.text = "Sélectionner une catégorie..."
+
         if app.authorized_vestiaires:
             self.active_label.text = f"Connecté à : {', '.join(app.authorized_vestiaires)}"
         else:
             self.active_label.text = "Aucune catégorie active."
-            
-        vestiaires = app.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
-        
-        cats = [item.get("categorie") for item in vestiaires if item.get("categorie")]
-        # Utilisation de la puce ASCII standard compatible avec 100% des téléphones et ordinateurs
-        self.cat_spinner.values = [f"{cat}" for cat in cats]
-        
-        accepte = app.config.get('User', 'vestiaire_cgu_accept', fallback='0')
-        is_accepted = (accepte == '1')
+
+        is_accepted = (app.config.get("User", "vestiaire_cgu_accept", fallback="0") == "1")
         self.cgu_checkbox.active = is_accepted
         self.btn_go_vestiaire.disabled = not is_accepted
     
@@ -464,7 +492,9 @@ class LoginScreen(Screen):
         # Nettoyage propre de la puce pour isoler le nom de la catégorie
         cat = self.cat_spinner.text.replace("•", "").strip()
         pwd = self.pwd_input.text.strip()
-        nom = self.name_input.text.strip()
+        # Récupération sécurisée : si le nom existe déjà, on prend la valeur sauvegardée
+        nom_enregistre = app.config.get('User', 'nom_parent', fallback='').strip() if app.config.has_section('User') else ''
+        nom = nom_enregistre if nom_enregistre else self.name_input.text.strip()
 
         if not nom or not pwd:
             self.show_popup("Erreur", "Veuillez remplir votre nom et le mot de passe.")

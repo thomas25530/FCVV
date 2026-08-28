@@ -417,20 +417,8 @@ class RootLayout(FloatLayout):
         
     def load_initial_screen(self):
         from ui.screens.home import HomeScreen
-    
-        self.sm.add_widget(
-            HomeScreen(name="home")
-        )
-    
+        self.sm.add_widget(HomeScreen(name="home"))
         self.sm.current = "home"
-
-    def afficher_popup_flottante(self, titre, message):
-        """
-        Affiche la popup par-dessus l'interface actuelle de manière thread-safe.
-        """
-        from core.NotificationManager import afficher_popup_notification
-        # S'assure que l'affichage se fait bien sur le thread principal de Kivy
-        Clock.schedule_once(lambda dt: afficher_popup_notification(titre, message), 0)
     
     def _update_panel_height(self, *args):
         # La hauteur est le maximum entre le contenu et la taille de l'écran
@@ -678,22 +666,17 @@ class MyApp(App):
             self.config.add_section('Roles')
         if not self.config.has_section('User'):
             self.config.add_section('User')
-        
         # 2. Mise à jour de la liste en mémoire (évite les doublons)
         if category_name not in self.authorized_vestiaires:
             self.authorized_vestiaires.append(category_name)
-        
         # 3. Sauvegarde sécurisée (Rôle + Hash)
         self.set_vestiaire_role(category_name, role)
-        
         # Puis dans add_authorized_vestiaire :
         key = self.clean_key(category_name)
         self.config.set('Roles', f'{key}_hash', password_hash)
-        
         # 4. Mise à jour des paramètres globaux
         self.config.set('User', 'authorized_list', ','.join(self.authorized_vestiaires))
         self.config.set('User', 'vestiaire_auth', '1')
-        
         # 5. Persistance sur disque conditionnelle
         if save:
             try:
@@ -707,36 +690,28 @@ class MyApp(App):
     def is_access_still_valid(self, cat):
         # Récupère le hash stocké localement
         stored_hash = self.config.get('Roles', f'{cat}_hash', fallback='')
-        
         # Récupère le hash actuel depuis votre config/API
         vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
         current_info = next((item for item in vestiaires if item.get("categorie") == cat), None)
-        
         if not current_info: return False
-        
         # Si le hash stocké est égal à l'un des deux hashs officiels, l'accès est valide
         return stored_hash in [current_info.get("password_hash"), current_info.get("password_admin_hash")]
 
     def check_vestiaire_password(self, category_name, password):
         """Vérifie le mot de passe et retourne le rôle ('ADMIN' ou 'USER') si valide."""
         import hashlib
-        
         # Récupération de la liste des vestiaires
         vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
-        
         # Hash du mot de passe fourni
         entered_hash = hashlib.sha256(password.encode()).hexdigest()
-        
         for item in vestiaires:
             if item.get("categorie") == category_name:
                 # 1. Vérification ADMIN (Priorité haute)
                 if entered_hash == item.get("password_admin_hash"):
                     return "ADMIN"
-                
                 # 2. Vérification STANDARD
                 elif entered_hash == item.get("password_hash"):
                     return "USER"
-                    
         return None
     
     def is_auth_still_valid(self, category_name):
@@ -747,7 +722,6 @@ class MyApp(App):
     def verify_and_clean_auths(self, *args):
         if not self.app_config: return
         vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
-        
         valid_auths = []
         needs_update = False
 
@@ -790,7 +764,6 @@ class MyApp(App):
         # On vérifie si la section 'Roles' existe, sinon on la crée
         if not self.config.has_section('Roles'):
             self.config.add_section('Roles')
-        
         # Sauvegarde du rôle
         self.config.set('Roles', cat, role)
         # Écriture effective dans le fichier .ini
@@ -801,7 +774,6 @@ class MyApp(App):
         """Sauvegarde le joueur ou les rôles associés pour une catégorie donnée dans le fichier config."""
         if not self.config.has_section('Roles'):
             self.config.add_section('Roles')
-        
         # On normalise la catégorie en minuscules pour correspondre au format du fichier .ini
         cat_key = f"{cat.lower()}_joueur"
         self.config.set('Roles', cat_key, str(nom_joueur))
@@ -819,7 +791,6 @@ class MyApp(App):
             # Supposons que ton RootLayout stocke le ScreenManager dans une variable 'sm' ou 'screen_manager'
             # Adapte 'sm' selon le nom de l'attribut dans ton RootLayout
             screen_manager = getattr(self.root, 'sm', None) or getattr(self.root, 'screen_manager', None)
-            
             if screen_manager and hasattr(screen_manager, 'current'):
                 current_screen = screen_manager.get_screen(screen_manager.current)
                 if hasattr(current_screen, 'rafraichir'):
@@ -837,16 +808,13 @@ class MyApp(App):
             # Utilisation de has_option pour éviter une erreur si la clé n'existe pas
             if self.config.has_option('Roles', cat):
                 return self.config.get('Roles', cat)
-        
         # Retourne 'USER' par défaut si aucune configuration n'est trouvée
         return "USER"
 
     def on_start(self):
         threading.Thread(target=self.warmup_server, daemon=True).start()
-    
         auth_str = self.config.get("User", "authorized_list", fallback="")
         self.authorized_vestiaires = [c.strip() for c in auth_str.split(",") if c.strip()]
-    
         if platform in ("android", "ios"):
             from core.NotificationManager import get_notification_manager
             self.notifier = get_notification_manager()
@@ -880,134 +848,69 @@ class MyApp(App):
         Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
     
         if platform in ("android", "ios"):
-            Clock.schedule_once(
-                lambda dt: self.verifier_redirection_notification(),
-                2.0
-            )
-    
+            Clock.schedule_once(lambda dt: self.verifier_redirection_notification(),2.0)
     
     def on_resume(self):
-        if platform == "android":
-            Clock.schedule_once(
-                lambda dt: self.verifier_redirection_notification_android(), 0.3
-            )
+        # Utilisation de in ("android", "ios") pour couvrir les deux plateformes
+        if platform in ("android", "ios"):
+            Clock.schedule_once(lambda dt: self.verifier_redirection_notification(), 0.3)
         return True
-    
     
     def verifier_redirection_notification(self):
         """
         Vérifie si l'application a été ouverte depuis une notification.
         """
-    
         if platform == "android":
             self.verifier_redirection_notification_android()
-    
         elif platform == "ios":
             self.verifier_redirection_notification_ios()
-    
     
     def verifier_redirection_notification_ios(self):
         """
         Vérifie si l'application iOS a été ouverte depuis une notification.
-    
-        Les données sont enregistrées côté Objective-C dans NSUserDefaults
-        lorsqu'une notification est reçue / sélectionnée.
-    
-        Après traitement réussi, les données sont supprimées.
+        Les données sont lues dans NSUserDefaults puis nettoyées.
         """
-    
         if platform != "ios":
             return
-    
         try:
             from pyobjus import autoclass
-    
             NSUserDefaults = autoclass("NSUserDefaults")
             defaults = NSUserDefaults.standardUserDefaults()
-    
-            print("[iOS] Verification notification en attente...")
-    
-            # ---------------------------------------------------------
-            # Vérification présence notification
-            # ---------------------------------------------------------
-    
+            
+            # 1. Vérification présence notification
             pending = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
-    
             if not pending:
-                print("[iOS] Aucune notification en attente")
+                print("[iOS FCM] Aucune notification en attente.")
                 return
     
-            print("[iOS] Notification en attente detectee")
+            print("[iOS FCM] Notification en attente detectee.")
     
-            # ---------------------------------------------------------
-            # Récupération des données
-            # ---------------------------------------------------------
+            # 2. Extraire et convertir les NSStrings natifs en str Python
+            def _get_str(key):
+                val = defaults.stringForKey_(key)
+                return str(val) if val is not None else ""
     
-            titre = defaults.stringForKey_(
-                "FCVV_NOTIFICATION_TITLE"
-            )
+            titre = _get_str("FCVV_NOTIFICATION_TITLE")
+            message = _get_str("FCVV_NOTIFICATION_BODY")
+            categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
+            match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
+            notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
     
-            message = defaults.stringForKey_(
-                "FCVV_NOTIFICATION_BODY"
-            )
+            print("[iOS FCM] ===== DONNEES NOTIFICATION =====")
+            print(f"[iOS FCM] Titre      : {titre}")
+            print(f"[iOS FCM] Message    : {message}")
+            print(f"[iOS FCM] Catégorie  : {categorie}")
+            print(f"[iOS FCM] Match ID   : {match_id}")
+            print(f"[iOS FCM] Type       : {notif_type}")
+            print("[iOS FCM] ==================================")
     
-            categorie = defaults.stringForKey_(
-                "FCVV_NOTIFICATION_TOPIC"
-            )
-    
-            match_id = defaults.stringForKey_(
-                "FCVV_NOTIFICATION_MATCH_ID"
-            )
-    
-            notif_type = defaults.stringForKey_(
-                "FCVV_NOTIFICATION_TYPE"
-            )
-    
-            # ---------------------------------------------------------
-            # Valeurs par défaut
-            # ---------------------------------------------------------
-    
-            titre = titre or ""
-            message = message or ""
-            categorie = categorie or ""
-            match_id = match_id or ""
-            notif_type = notif_type or ""
-    
-            # ---------------------------------------------------------
-            # Logs
-            # ---------------------------------------------------------
-    
-            print("[iOS] ===== NOTIFICATION EN ATTENTE =====")
-            print("[iOS] titre      =", titre)
-            print("[iOS] message    =", message)
-            print("[iOS] categorie  =", categorie)
-            print("[iOS] match_id   =", match_id)
-            print("[iOS] notif_type =", notif_type)
-    
-            # ---------------------------------------------------------
-            # Détermination de la destination
-            # ---------------------------------------------------------
-    
+            # 3. Traitement de la redirection
             nt = notif_type.strip().lower()
-    
-            # Notification destinée à l'accueil
             if nt in ("manual", "home") or not categorie:
-    
-                print("[iOS] Redirection vers HOME")
-    
-                Clock.schedule_once(
-                    lambda dt: self.executer_redirection_home(),
-                    0.5
-                )
-    
-            # Notification destinée à un vestiaire
+                print("[iOS FCM] Redirection -> HOME")
+                Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
             else:
-    
-                print(
-                    f"[iOS] Redirection vers VESTIAIRE : "
-                    f"{categorie!r}"
-                )
-    
+                print(f"[iOS FCM] Redirection -> VESTIAIRE ({categorie})")
                 Clock.schedule_once(
                     lambda dt: self.executer_redirection_vestiaire(
                         categorie,
@@ -1017,59 +920,31 @@ class MyApp(App):
                     0.5
                 )
     
-            # ---------------------------------------------------------
-            # Nettoyage
-            #
-            # On nettoie après avoir programmé la redirection.
-            # ---------------------------------------------------------
-    
-            defaults.removeObjectForKey_(
-                "FCVV_NOTIFICATION_PENDING"
-            )
-    
-            defaults.removeObjectForKey_(
-                "FCVV_NOTIFICATION_TITLE"
-            )
-    
-            defaults.removeObjectForKey_(
-                "FCVV_NOTIFICATION_BODY"
-            )
-    
-            defaults.removeObjectForKey_(
-                "FCVV_NOTIFICATION_TOPIC"
-            )
-    
-            defaults.removeObjectForKey_(
-                "FCVV_NOTIFICATION_MATCH_ID"
-            )
-    
-            defaults.removeObjectForKey_(
+            # 4. Nettoyage immédiat de NSUserDefaults
+            keys_to_clean = [
+                "FCVV_NOTIFICATION_PENDING",
+                "FCVV_NOTIFICATION_TITLE",
+                "FCVV_NOTIFICATION_BODY",
+                "FCVV_NOTIFICATION_TOPIC",
+                "FCVV_NOTIFICATION_MATCH_ID",
                 "FCVV_NOTIFICATION_TYPE"
-            )
-    
+            ]
+            for key in keys_to_clean:
+                defaults.removeObjectForKey_(key)
+                
             defaults.synchronize()
-    
-            print(
-                "[iOS] Notification supprimee de NSUserDefaults"
-            )
+            print("[iOS FCM] Cles NSUserDefaults purgees avec succes.")
     
         except Exception as e:
-            print(
-                "[iOS] Erreur "
-                "verifier_redirection_notification_ios:",
-                repr(e)
-            )
-    
+            print(f"[iOS FCM ERROR] Echec lors de la verification : {e!r}")
     
     def verifier_redirection_notification_android(self):
         if platform != "android":
             return
-    
         try:
             PythonActivity = autoclass("org.kivy.android.PythonActivity")
             activity = PythonActivity.mActivity
             intent = activity.getIntent()
-    
             open_page = intent.getStringExtra("open_page")
             categorie = intent.getStringExtra("categorie")
             match_id = intent.getStringExtra("match_id")
@@ -1077,7 +952,6 @@ class MyApp(App):
                 intent.getStringExtra("notif_type")
                 or intent.getStringExtra("type")
             )
-    
             if open_page == "home" or notif_type in ("manual", "home"):
                 Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
             elif open_page == "vestiaire" and categorie:
@@ -1087,23 +961,19 @@ class MyApp(App):
                     ),
                     0.5,
                 )
-    
             if open_page or categorie or notif_type:
                 for key in ("open_page", "categorie", "match_id", "notif_type", "type"):
                     if intent.hasExtra(key):
                         intent.removeExtra(key)
                 activity.setIntent(intent)
-    
         except Exception as e:
             print(f"[FCM ERROR] Lecture Intent : {e}")
-    
     
     def executer_redirection_home(self):
         try:
             if not self.root:
                 print("[FCM REDIRECT] RootLayout introuvable")
                 return
-    
             if hasattr(self.root, "switch_screen"):
                 self.root.switch_screen("home")
             elif hasattr(self.root, "sm"):
@@ -1111,39 +981,35 @@ class MyApp(App):
             else:
                 print("[FCM REDIRECT] ScreenManager introuvable")
                 return
-    
         except Exception as e:
             print(f"[FCM REDIRECT ERROR] Home : {e}")
-    
     
     def executer_redirection_vestiaire(self, categorie, match_id=None, notif_type=None):
         try:
             if not self.root or not hasattr(self.root, "sm"):
                 print("[FCM REDIRECT] ScreenManager introuvable")
                 return
-    
             nt = (notif_type or "").strip().lower()
             sous_onglet = (
-                "MESSAGES" if nt in ("chat", "message", "messages", "nouveau_message")
+                "CHAT" if nt == "echange"
+                else "MESSAGES" if nt in (
+                    "chat", "message", "messages", "nouveau_message"
+                )
                 else "CALENDRIER" if nt in (
                     "evenement", "événement", "event",
                     "creation_evenement", "evenement_creation"
                 )
                 else "NOTIFICATIONS"
             )
-    
             if hasattr(self.root, "switch_screen"):
                 self.root.switch_screen("vestiaire")
             else:
                 self.root.sm.current = "vestiaire"
     
             screen = self.root.sm.get_screen("vestiaire")
-    
             def charger(dt):
                 screen.charger_categorie(categorie, sous_onglet=sous_onglet)
-    
             Clock.schedule_once(charger, 0.2)
-    
             if match_id and hasattr(screen, "ouvrir_match"):
                 Clock.schedule_once(
                     lambda dt: (
@@ -1153,7 +1019,6 @@ class MyApp(App):
                     ),
                     0.5,
                 )
-    
         except Exception as e:
             print(f"[FCM REDIRECT ERROR] Vestiaire : {e}")
 
@@ -1171,15 +1036,12 @@ class MyApp(App):
         import requests
         try: news_period = int(self.config.get('User', 'news_period'))
         except: news_period = 15
-        
         date_limite = datetime.now() - timedelta(days=news_period)
         news_list = []
         for key in ["fcvv", "tournoi"]:
             found = self.app_config.get(key, {}).get("appli", {}).get("news", [])
             if found: news_list.extend(found)
-            
         if not news_list: return
-
         session = requests.Session()
         for item in news_list:
             try:
@@ -1271,9 +1133,7 @@ class MyApp(App):
         """Optimise : Telecharge intelligemment et ne chaine les preloads que si necessaire."""
         import yaml
         import requests
-        
         self.is_fetching_remote = True
-        
         try:
             data_dir = self.user_data_dir
             configs = [
@@ -1281,7 +1141,6 @@ class MyApp(App):
                 ("config_fcvv.yaml", config_file_Id_fcvv, "fcvv"),
             ]
             is_first_run = not any(os.path.exists(os.path.join(data_dir, f[0])) for f in configs)
-            
             # 1. Chargement rapide du cache local existant
             cached_data = {}
             for filename, _, key in configs:
@@ -1293,13 +1152,11 @@ class MyApp(App):
                     except Exception as e:
                         print(f"[CACHE ERROR] {filename}: {e}")
             if cached_data: self.app_config.update(cached_data)
-            
             # 2. Requêtes réseau
             session = requests.Session()
             tournoi_changed = False
             fcvv_changed = False
             updated_data = {}
-            
             for filename, fid, key in configs:
                 cache_path = os.path.join(data_dir, filename)
                 url = f"https://docs.google.com/uc?id={fid}&export=download"
@@ -1313,12 +1170,10 @@ class MyApp(App):
                     if b"<html" in content[:100].lower():
                         print(f"[CONFIG ERROR] HTML recu pour {filename}")
                         continue
-                    
                     # Comparaison directe en mémoire
                     old_content = b""
                     if os.path.exists(cache_path):
                         with open(cache_path, "rb") as f: old_content = f.read()
-                    
                     if hashlib.sha256(content).hexdigest() != hashlib.sha256(old_content).hexdigest():
                         with open(cache_path, "wb") as f: f.write(content)
                         updated_data[key] = yaml.safe_load(content.decode("utf-8")) or {}
@@ -1328,31 +1183,24 @@ class MyApp(App):
                         print(f"[CONFIG] {filename} inchange.")
                 except Exception as e:
                     print(f"[CONFIG ERROR] {filename}: {e}")
-
             # 3. Application ciblee des changements
             def finalize(dt):
                 try:
                     if fcvv_changed or tournoi_changed:
                         self.app_config.update(updated_data)
-                    
                     if self.app_config:
                         self.verify_and_clean_auths()
-
                     if fcvv_changed:
                         threading.Thread(target=self.download_news_images, daemon=True).start()
                         if not is_first_run: 
                             threading.Thread(target=self.cleanup_unused_images, daemon=True).start()    
-                    
                     if tournoi_changed and hasattr(self, "preload_latest_tournament"):
                         threading.Thread(target=self.preload_latest_tournament, daemon=True).start()
-                    
                     if hasattr(self, "_update_home_screen"):
                         Clock.schedule_once(self._update_home_screen, 0.1)
                 finally:
                     self.is_fetching_remote = False
-
             Clock.schedule_once(finalize, 0)
-
         except Exception as e:
             print(f"[CONFIG FATAL ERROR] {e}")
             self.is_fetching_remote = False
@@ -1422,70 +1270,67 @@ class MyApp(App):
                 current_screen = self.root.sm.current
                 self.root.title_label.text = self._(current_screen)
     
+    def get_current_user_name(self):
+        """Récupère le nom du parent enregistré dans le fichier .ini"""
+        if self.config.has_section('User'):
+            return self.config.get('User', 'nom_parent', fallback='').strip()
+        return ""
+    
     def gerer_abonnements_fcm(self, nouvelles_categories, anciennes_categories=None):
         from kivy.clock import Clock
-        
         # On délègue l'exécution à _execute_fcm_subscription
         # Le délai est conservé pour garantir que l'initialisation du manager est terminée
         Clock.schedule_once(lambda dt: self._execute_fcm_subscription(nouvelles_categories, anciennes_categories), 3.0)
-    
-    @mainthread
-    def afficher_alerte_push(self, titre, message):
-        """
-        Déclenche l'affichage d'une alerte en temps réel par-dessus l'écran actuel.
-        """
-        from core.NotificationManager import afficher_popup_notification
-        try:
-            # Si le RootLayout a une méthode dédiée, on la privilégie, 
-            # sinon on appelle directement la popup Kivy
-            if self.root and hasattr(self.root, 'afficher_popup_flottante'):
-                self.root.afficher_popup_flottante(titre, message)
-            else:
-                afficher_popup_notification(titre=titre, corps=message)
-            print(f"[POPUP UI] Alerte en temps reel affichee : {titre}")
-        except Exception as e:
-            print(f"[POPUP ERROR] Impossible d'afficher l'alerte : {e}")
 
     def _execute_fcm_subscription(self, nouvelles, anciennes=None):
         if getattr(self, 'notifier', None) is None:
             return
         from kivy.clock import Clock
-        
         # On vérifie que le manager existe bien
         if not hasattr(self, 'notifier') or self.notifier is None:
             print("[FCM ERROR] NotificationManager non initialise.")
             return
-
         def do_fcm_work(*args):
             try:
-                # 1. Lecture config sécurisée si nécessaire
+                # 1. Lecture config sécurisée et récupération du nom d'utilisateur actuel
                 if anciennes is None:
                     anciennes_str = self.config.get('User', 'authorized_list', fallback='')
                     anciennes_utilisees = [c.strip() for c in anciennes_str.split(',') if c.strip()]
                 else:
                     anciennes_utilisees = anciennes
 
-                print(f"[FCM DEBUG] Synchro : {nouvelles} | Anciennes : {anciennes_utilisees}")
+                current_user = self.get_current_user_name()
+                # Si l'utilisateur a saisi "Pierre DUPONT" dans LoginScreen,
+                # user_clean devient "pierre_dupont"
+                user_clean = current_user.replace(" ", "_").lower() if current_user else ""
 
-                # 2. Désabonnement (Le différentiel est crucial)
+                print(f"[FCM DEBUG] Synchro : {nouvelles} | Anciennes : {anciennes_utilisees} | User: {user_clean}")
+
+                # 2. Désabonnement (Topics généraux + Sous-topics d'exclusion)
                 for cat in anciennes_utilisees:
                     if cat not in nouvelles:
                         print(f"[FCM] Desabonnement : {cat}")
                         self.notifier.unsubscribe_from_topic(cat)
+                        if user_clean:
+                            exclusion_topic = f"{cat}_exclure_{user_clean}"
+                            print(f"[FCM] Desabonnement exclusion : {exclusion_topic}")
+                            self.notifier.unsubscribe_from_topic(exclusion_topic)
 
-                # 3. ABONNEMENT FORCÉ
-                # Le manager (Android ou iOS) gère l'idempotence
+                # 3. ABONNEMENT FORCÉ (Topics généraux + Sous-topics d'exclusion)
                 for cat in nouvelles:
                     print(f"[FCM] Abonnement force : {cat}")
                     self.notifier.subscribe_to_topic(cat)
-                
+                    if user_clean:
+                        exclusion_topic = f"{cat}_exclure_{user_clean}"
+                        print(f"[FCM] Abonnement exclusion : {exclusion_topic}")
+                        self.notifier.subscribe_to_topic(exclusion_topic)
+
                 # 4. Global
                 self.notifier.subscribe_to_topic("TournoiVercel")
                 print("[FCM] Synchro terminee via NotificationManager")
-
-            except Exception:
-                print("[FCM ERROR] Erreur lors de la synchro FCM")
-
+            except Exception as e:
+                print(f"[FCM ERROR] Erreur lors de la synchro FCM : {e}")
+                
         # On déclenche sur le thread principal
         Clock.schedule_once(do_fcm_work, 0.5)
     
@@ -1493,13 +1338,11 @@ class MyApp(App):
         """Reveille le serveur API Render en arriere-plan."""
         import requests
         from kivy.utils import platform  # Garantit l'import du composant Kivy
-    
         url = "https://fcvv-api.onrender.com/" 
         try:
             print("[WARMUP] Ping de reveil envoye au serveur...")
             # Kivy définit 'platform' comme une chaîne ("win", "android", "ios", etc.)
             is_windows = (platform == 'win')
-            
             response = requests.get(url, timeout=35, verify=not is_windows)
             if response.status_code == 200:
                 print("[WARMUP] Serveur Render eveille et pret !")

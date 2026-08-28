@@ -360,21 +360,39 @@ class EventCard(BoxLayout):
         sub_pop.open()
 
     def _est_convoque(self):
-        if not self.match_data: return False
+        if not self.match_data:
+            return False
+            
         norm = lambda s: " ".join(str(s or "").strip().lower().split())
-        convs = [norm(self._obtenir_nom_joueur(j)) for j in (self.match_data.get("joueurs_convoques") or self.match_data.get("convocations") or self.match_data.get("convoques") or [])]
-        if not convs: return False
-
+        raw_convs = (
+            self.match_data.get("joueurs_convoques") 
+            or self.match_data.get("convocations") 
+            or self.match_data.get("convoques") 
+            or []
+        )
+        convs = [norm(self._obtenir_nom_joueur(j)) for j in raw_convs]
+        if not convs:
+            return False
+    
         cat = getattr(self, "categorie", None) or self.match_data.get("categorie")
         associes = [norm(self._obtenir_nom_joueur(j)) for j in (self.get_joueurs_associes_pour_parent(self.nom_parent, cat) or [])]
-        return any(a and c and (a in c or c in a) for a in associes for c in convs)
+        
+        # Vérification exacte du nom complet plutôt qu'une inclusion partielle (in c)
+        for a in associes:
+            if not a:
+                continue
+            for c in convs:
+                if a == c:  # Égalité exacte recommandée pour éviter les doublons de prénoms/noms
+                    return True
+        return False
 
     def _obtenir_nom_joueur(self, joueur):
         if isinstance(joueur, dict):
             nom = str(joueur.get("nom", "") or "").strip()
             prenom = str(joueur.get("prenom", "") or "").strip()
-            if nom and prenom: return f"{nom} {prenom}"
-            return nom or prenom
+            if nom and prenom:
+                return f"{nom} {prenom}".strip()
+            return (nom or prenom).strip()
         return str(joueur or "").strip()
 
     def get_joueurs_associes_pour_parent(self, nom_parent, categorie_cible=None):
@@ -580,6 +598,12 @@ class EventCard(BoxLayout):
 
     def ouvrir_popup_nb_places(self, match_id, nom_enfant, parent_popup):
         """Popup demandant le nombre de places restantes dans le véhicule pour Valdahon."""
+        # 1. Récupération du vote existant pour ce joueur
+        vote_existant = None
+        votes = self.match_data.get("votes", {})
+        if nom_enfant and nom_enfant in votes:
+            vote_existant = votes[nom_enfant].get("nombre_de_places")
+
         content = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(15))
         with content.canvas.before:
             Color(1, 1, 1, 1)
@@ -615,14 +639,25 @@ class EventCard(BoxLayout):
                 parent_popup.dismiss()
             self.on_presence_click(self.match_id, choix_trajet="Valdahon", joueur_concerne=nom_enfant, nb_places=nb)
 
+        # 2. Génération des boutons
         for i in range(6):
+            # Si aucun vote existant -> TOUT EN BLEU
+            # Si vote existe -> BLEU uniquement pour la case votée, GRIS pour les autres
+            if vote_existant is None:
+                bg_color = (0.1, 0.5, 0.8, 1)
+                txt_color = (1, 1, 1, 1)
+            else:
+                est_vote_actif = (str(vote_existant) == str(i))
+                bg_color = (0.1, 0.5, 0.8, 1) if est_vote_actif else (0.7, 0.7, 0.72, 1)
+                txt_color = (1, 1, 1, 1) if est_vote_actif else (0.2, 0.2, 0.2, 1)
+
             btn = Button(
                 text=str(i),
                 font_size=f"{self.user_font_size + 2}sp",
                 bold=True,
                 background_normal="",
-                background_color=(0.1, 0.5, 0.8, 1),
-                color=(1, 1, 1, 1)
+                background_color=bg_color,
+                color=txt_color
             )
             btn.bind(on_release=lambda x, val=i: choisir_places(val))
             grid.add_widget(btn)
@@ -690,6 +725,7 @@ class EventCard(BoxLayout):
             ("Adversaire", "adversaire"),
             ("Date", "date"),
             ("Heure du RDV à Valdahon", "heure_rdv"),
+            ("Convocation sur place", "heure_sur_place"),
             ("Heure du coup d'envoi", "heure_coup_envoi"),
             ("Lieu", "lieu"),
             ("Notes", "notes")
@@ -788,18 +824,26 @@ class EventCard(BoxLayout):
             }
             info_box.add_widget(make_btn("Voir les votes", (0.15, 0.15, 0.15, 1), (1.0, 0.85, 0.2, 1), lambda x: afficher_popup_votes("Votes - Trajets", sec_t)))
 
-        # SECTION CONVOCATIONS
+        # SECTION CONVOCATIONS (AVEC TOTAL DES CONVOQUÉS)
         if self.match_data.get("activer_convocation", False):
-            info_box.add_widget(make_lbl("[b]--- Joueurs Convoqués ---[/b]", (0.1, 0.3, 0.8, 1), 0, "center", dp(35)))
-            j_conv = self.match_data.get("joueurs_convoques", [])
-            for j in (j_conv or ["Aucun"]):
-                if not j_conv:
-                    info_box.add_widget(make_lbl("  • Aucun joueur convoqué", (0.6, 0.6, 0.6, 1), height=dp(25)))
-                else:
-                    nom_j = j.get("nom", "").strip() if isinstance(j, dict) else str(j).strip()
-                    prenom_j = j.get("prenom", "").strip() if isinstance(j, dict) else ""
-                    cat_j = j.get("categorie", "").strip() if isinstance(j, dict) else ""
-                    txt = f"[{cat_j}] {nom_j} {prenom_j}".strip() if cat_j else f"{nom_j} {prenom_j}".strip()
+            j_conv = self.match_data.get("joueurs_convoques", []) or []
+            total_convoques = len(j_conv)
+            
+            # Affichage du titre avec le total entre parenthèses
+            titre_conv = f"[b]--- Joueurs Convoqués ({total_convoques}) ---[/b]"
+            info_box.add_widget(make_lbl(titre_conv, (0.1, 0.3, 0.8, 1), 0, "center", dp(35)))
+
+            if not j_conv:
+                info_box.add_widget(make_lbl("  • Aucun joueur convoqué", (0.6, 0.6, 0.6, 1), height=dp(25)))
+            else:
+                for j in j_conv:
+                    if isinstance(j, dict):
+                        nom_j = j.get("nom", "").strip()
+                        prenom_j = j.get("prenom", "").strip()
+                        cat_j = j.get("categorie", "").strip()
+                        txt = f"[{cat_j}] {nom_j} {prenom_j}".strip() if cat_j else f"{nom_j} {prenom_j}".strip()
+                    else:
+                        txt = str(j).strip()
                     info_box.add_widget(make_lbl(f"  • {escape_markup(txt)}", (0.3, 0.3, 0.3, 1), height=dp(25)))
             info_box.add_widget(BoxLayout(size_hint_y=None, height=dp(10)))
 

@@ -198,9 +198,6 @@ class SettingsScreen(Screen):
         self.scroll.add_widget(self.main_layout)
         
     def go_to_login(self, *args):
-        # AU LIEU DE : app.root.sm.current = 'login_vestiaire'
-        
-        # UTILISEZ :
         app = App.get_running_app()
         if app.root:
             app.root.switch_screen('login_vestiaire')
@@ -428,47 +425,93 @@ class SettingsScreen(Screen):
         else:
             instance.text = "Déja vide"
         Clock.schedule_once(lambda dt: self._reset_btn_ui(instance, self.app_tr("cache")), 2)
+    
+    def recreate_login_screen(self):
+        app = App.get_running_app()
+        if not getattr(app, "root", None):
+            print("[RESET] RootLayout introuvable.")
+            return
 
+        sm = getattr(app.root, "sm", app.root)
+        if not sm.has_screen("login_vestiaire"):
+            print("[RESET] LoginScreen n'existe pas actuellement.")
+            return
+
+        try:
+            old_login = sm.get_screen("login_vestiaire")
+            current_screen = sm.current
+
+            from ui.screens.login import LoginScreen
+            new_login = LoginScreen(name="login_vestiaire")
+
+            sm.add_widget(new_login)
+            sm.remove_widget(old_login)
+
+            if current_screen == "login_vestiaire":
+                sm.current = "login_vestiaire"
+
+            print("[RESET] LoginScreen recree completement : nouveau TextInput Android.")
+        except Exception as e:
+            print(f"[RESET ERROR] Recreation LoginScreen : {e}")
+    
+    
     def confirm_reset(self, instance):
-        print("Clic détecté sur le bouton Reset")
+        print("Clic detecte sur le bouton Reset")
+        app = App.get_running_app()
         instance.disabled = True
         instance.text = "PATIENTEZ..."
-        
-        app = App.get_running_app()
-        if hasattr(app, 'config'):
-            # 1. Réinitialisation des paramètres utilisateur (Section 'User')
-            app.config.set('User', 'font_size_factor', '24')
-            app.config.set('User', 'refresh_interval', '5')
-            app.config.set('User', 'news_period', '15')
-            app.config.set('User', 'dark_mode', '0')
-            app.config.set('User', 'authorized_list', '') 
-            app.config.set('User', 'nom_parent', '')
-            
-            # Réinitialisation acceptation CGU / Politique confidentialité
-            app.config.set('User', 'vestiaire_cgu_accept', '0')
-            
-            # 2. Suppression TOTALE de la section 'Roles'
-            # Cela supprime tous les hashs et rôles stockés localement
-            if app.config.has_section('Roles'):
-                app.config.remove_section('Roles')
-            
-            # Recréation d'une section 'Roles' vide (pour éviter les erreurs si l'app la cherche)
-            app.config.add_section('Roles')
-            
-            # 3. Mise à jour de la mémoire
-            if hasattr(app, 'authorized_vestiaires'):
-                app.authorized_vestiaires = []
-                
-            # 4. Désabonnement FCM
-            if hasattr(app, 'gerer_abonnements_fcm'):
-                app.gerer_abonnements_fcm([])
-            
-            # Écriture immédiate sur le disque
-            app.config.write()
-            print("Configuration réinitialisée (Sections User & Roles nettoyées)")
-            
-        # 5. Thread secondaire pour les fichiers lourds
-        Clock.schedule_once(lambda dt: self._start_reset_safe(instance), 0.1)
+
+        try:
+            if hasattr(app, "config"):
+                if not app.config.has_section("User"):
+                    app.config.add_section("User")
+
+                app.config.set("User", "font_size_factor", "24")
+                app.config.set("User", "refresh_interval", "5")
+                app.config.set("User", "news_period", "15")
+                app.config.set("User", "dark_mode", "0")
+                app.config.set("User", "authorized_list", "")
+
+                if app.config.has_option("User", "nom_parent"):
+                    app.config.remove_option("User", "nom_parent")
+
+                app.config.set("User", "vestiaire_cgu_accept", "0")
+
+                if app.config.has_section("Roles"):
+                    app.config.remove_section("Roles")
+                app.config.add_section("Roles")
+
+                if hasattr(app, "authorized_vestiaires"):
+                    app.authorized_vestiaires = []
+                if hasattr(app, "roles") and isinstance(app.roles, dict):
+                    app.roles.clear()
+
+                if hasattr(app, "gerer_abonnements_fcm"):
+                    try:
+                        app.gerer_abonnements_fcm([])
+                        print("[FCM] Tous les abonnements locaux ont ete reinitialises.")
+                    except Exception as e:
+                        print(f"[FCM ERROR] Desabonnement FCM : {e}")
+
+                app.config.write()
+                print("Configuration reinitialisee : User nettoye + Roles supprime/recree + acces supprimes.")
+
+                if getattr(app, "root", None):
+                    sm = getattr(app.root, "sm", app.root)
+                    if sm.has_screen("login_vestiaire"):
+                        Clock.schedule_once(lambda dt: self.recreate_login_screen(), 0)
+                        print("[RESET] LoginScreen trouve : reinitialisation du champ nom programmee.")
+                    else:
+                        print("[RESET] LoginScreen 'login_vestiaire' non trouve.")
+
+            Clock.schedule_once(lambda dt: self._start_reset_safe(instance), 0.1)
+
+        except Exception as e:
+            print(f"[RESET ERROR] Erreur pendant la reinitialisation : {e}")
+            instance.text = "Erreur"
+            instance.disabled = False
+            Clock.schedule_once(lambda dt: self._reset_btn_ui(instance, self.app_tr("reset_btn")), 2)
+
 
     def _start_reset_safe(self, instance):
         t = threading.Thread(target=self._perform_reset_logic, args=(instance,))
@@ -520,9 +563,6 @@ class SettingsScreen(Screen):
         # 1. Reconstruction complète de l'interface
         self.refresh_settings_layout()
         
-        # 2. Force manuellement le lancement de la vérification réseau
-        # Puisque refresh_settings_layout vient de recréer self.conn_label,
-        # on peut appeler directement la méthode de mise à jour.
         Clock.schedule_once(self.update_network_status, 0.2)
         
         if hasattr(app, 'refresh_ui_theme'):
