@@ -10,6 +10,14 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Vérifier les versions Xcode disponibles
+        run: |
+          echo "Xcode actuellement sélectionné :"
+          xcodebuild -version
+          echo
+          echo "Versions Xcode installées :"
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+      
 
       - uses: actions/setup-python@v5
         with:
