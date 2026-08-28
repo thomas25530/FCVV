@@ -7,9 +7,15 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Vérifier Xcode
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -E "iOS|iPhoneOS"
+      
       - name: Vérifier les versions Xcode disponibles
         run: |
           echo "Xcode actuellement sélectionné :"
