@@ -6,7 +6,7 @@ import requests
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.graphics import Color, Line, RoundedRectangle
+from kivy.graphics import Color, Line, RoundedRectangle, Rectangle
 from kivy.metrics import dp
 from kivy.parser import parse_color
 from kivy.utils import escape_markup
@@ -20,6 +20,8 @@ from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
+
+from kivy.uix.widget import Widget
 
 def try_parse(d, f): 
     try: 
@@ -255,7 +257,11 @@ class EventCard(BoxLayout):
                 opts = data.get("options_sondage", ["1", "2", "3", "4", "5"])
                 t_sond = data.get("titre_sondage_multiple", "Votre Choix")
                 sec_m = {f"Option : {o}": [n for n, d in votes.items() if isinstance(d, dict) and str(d.get("choix_multiple")) == str(o)] for o in opts}
-                self._afficher_popup_resultats_coach(f"Votes - {t_sond}", sec_m)
+                self._afficher_popup_resultats_coach(
+                    f"Votes - {t_sond}",
+                    sec_m,
+                    self.match_data
+                )
             else:
                 sec_v = {"Présents": presents, "Absents": absents}
                 if data.get("sondage_trajet"):
@@ -275,30 +281,32 @@ class EventCard(BoxLayout):
                     sec_v[lbl_valdahon] = valdahon_list
                     sec_v["Stade Adverse"] = [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Stade adverse"]
                     sec_v["Besoin Voiture"] = [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Besoin voiture"]
-                self._afficher_popup_resultats_coach("Résultats des votes", sec_v)
+                self._afficher_popup_resultats_coach(
+                    "Résultats des votes",
+                    sec_v,
+                    self.match_data
+                )
 
         btn_resultats.bind(on_release=ouvrir_resultats)
         container.add_widget(btn_resultats)
 
         return container
 
-    def _afficher_popup_resultats_coach(self, titre_votes, sections_dict):
-        """Ouvre directement la popup des résultats détaillés des votants pour le Coach."""
+    def _afficher_popup_resultats_coach(self, titre_votes, sections_dict, match_info=None):
+        """Ouvre la popup des résultats détaillés des votants pour le Coach."""
+        match_info = match_info or {}
+        
         pop_cnt = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(10))
         with pop_cnt.canvas.before:
             Color(1, 1, 1, 1)
             pop_cnt.bg_rect = RoundedRectangle(pos=pop_cnt.pos, size=pop_cnt.size, radius=[dp(10)])
         pop_cnt.bind(pos=lambda s, v: setattr(s.bg_rect, "pos", v), size=lambda s, v: setattr(s.bg_rect, "size", v))
 
+        # Titre général
         lbl_titre = Label(
-            text=f"[b]{escape_markup(titre_votes)}[/b]",
-            markup=True,
-            color=(0.1, 0.3, 0.8, 1),
-            font_size=f"{self.user_font_size + 1}sp",
-            size_hint_y=None,
-            height=dp(35),
-            halign="center",
-            valign="middle"
+            text="[b]Résultats des votes[/b]", markup=True, color=(0.1, 0.3, 0.8, 1),
+            font_size=f"{self.user_font_size + 1}sp", size_hint_y=None, height=dp(35),
+            halign="center", valign="middle"
         )
         lbl_titre.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
         pop_cnt.add_widget(lbl_titre)
@@ -307,31 +315,72 @@ class EventCard(BoxLayout):
         box_r = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(5), padding=dp(5))
         box_r.bind(minimum_height=box_r.setter("height"))
 
+        type_sondage = str(match_info.get("type_sondage", "")).lower().strip()
+        sondage_trajet = bool(match_info.get("sondage_trajet", False))
+        sondage_classique = bool(match_info.get("sondage_classique", False))
+        sondage_actif = bool(match_info.get("sondage_actif", False))
+
+        def determiner_type_section(sec_title):
+            sec_lower = str(sec_title).lower().strip()
+            mots_trajet = ("trajet", "valdahon", "stade adverse", "sur place", "besoin voiture", 
+                           "besoin d'une voiture", "besoin d’une voiture", "conducteur", "passager", "covoiturage", "départ club")
+            if any(mot in sec_lower for mot in mots_trajet):
+                return "Trajet"
+            
+            mots_presence = ("présent", "présents", "absent", "absents", "retard", "disponibilité", "disponibilite")
+            if any(mot in sec_lower for mot in mots_presence):
+                return "Présence"
+            
+            if type_sondage == "multiple" or "option :" in sec_lower:
+                return str(match_info.get("titre_sondage_multiple", "Autre")).strip() or "Autre"
+            
+            if sondage_trajet and not (sondage_classique or sondage_actif or type_sondage == "multiple"):
+                return "Trajet"
+            if sondage_classique or sondage_actif or type_sondage == "classique":
+                return "Présence"
+            
+            return str(sec_title)
+
+        dernier_titre_sondage = None
+
         for sec_title, lst in sections_dict.items():
+            titre_sondage_actuel = determiner_type_section(sec_title)
+
+            if dernier_titre_sondage is not None and dernier_titre_sondage != titre_sondage_actuel:
+                sep = Widget(size_hint_y=None, height=dp(20))
+                with sep.canvas:
+                    Color(0.8, 0.8, 0.8, 1)
+                    sep_rect = Rectangle(pos=(sep.x, sep.y + dp(10)), size=(sep.width, dp(1)))
+                sep.bind(
+                    pos=lambda s, v, r=sep_rect: setattr(r, "pos", (v[0], v[1] + dp(10))),
+                    size=lambda s, v, r=sep_rect: setattr(r, "size", (v[0], dp(1)))
+                )
+                box_r.add_widget(sep)
+
+            if dernier_titre_sondage != titre_sondage_actuel:
+                dernier_titre_sondage = titre_sondage_actuel
+                lbl_sond_titre = Label(
+                    text=f"[u][b]{escape_markup(titre_sondage_actuel)}[/b][/u]", markup=True,
+                    color=(0.15, 0.35, 0.75, 1), font_size=f"{self.user_font_size}sp",
+                    size_hint_y=None, height=dp(30), halign="left", valign="middle"
+                )
+                lbl_sond_titre.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
+                box_r.add_widget(lbl_sond_titre)
+
             lbl_sec = Label(
-                text=f"[b]{escape_markup(str(sec_title))} ({len(lst)}) :[/b]",
-                markup=True,
-                color=(0.1, 0.1, 0.1, 1),
-                font_size=f"{self.user_font_size - 1}sp",
-                size_hint_y=None,
-                height=dp(28),
-                halign="left",
-                valign="middle"
+                text=f"[b]{escape_markup(str(sec_title))} ({len(lst)}) :[/b]", markup=True,
+                color=(0.15, 0.15, 0.15, 1), font_size=f"{self.user_font_size - 1}sp",
+                size_hint_y=None, height=dp(26), halign="left", valign="middle"
             )
             lbl_sec.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
             box_r.add_widget(lbl_sec)
 
             for item in (lst or ["Aucun"]):
-                txt = f"  • {escape_markup(str(item))}" if lst else "  • Aucun"
                 lbl_item = Label(
-                    text=txt,
-                    markup=True,
-                    color=(0.6, 0.6, 0.6, 1) if not lst else (0.2, 0.2, 0.2, 1),
-                    font_size=f"{self.user_font_size - 2}sp",
-                    size_hint_y=None,
-                    height=dp(24),
-                    halign="left",
-                    valign="middle"
+                    text=f"  • {escape_markup(str(item))}" if lst else "  • Aucun", markup=True,
+                    color=(0.2, 0.2, 0.2, 1) if lst else (0.6, 0.6, 0.6, 1),
+                    font_size=f"{self.user_font_size - 2}sp", size_hint_y=None, height=dp(24),
+                    halign="left", valign="middle"
                 )
                 lbl_item.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
                 box_r.add_widget(lbl_item)
@@ -342,20 +391,14 @@ class EventCard(BoxLayout):
         pop_cnt.add_widget(sc_v)
 
         sub_pop = ModalView(size_hint=(0.85, 0.75), auto_dismiss=True, background_color=(0, 0, 0, 0.6))
-        
         btn_fermer = Button(
-            text="Fermer",
-            size_hint_y=None,
-            height=dp(42),
-            background_normal="",
-            background_color=(0.82, 0.82, 0.85, 1),
-            color=(0.15, 0.15, 0.15, 1),
-            bold=True,
-            font_size=f"{self.user_font_size - 2}sp"
+            text="Fermer", size_hint_y=None, height=dp(42), background_normal="",
+            background_color=(0.82, 0.82, 0.85, 1), color=(0.15, 0.15, 0.15, 1),
+            bold=True, font_size=f"{self.user_font_size - 2}sp"
         )
         btn_fermer.bind(on_release=lambda x: sub_pop.dismiss())
-        
         pop_cnt.add_widget(btn_fermer)
+
         sub_pop.add_widget(pop_cnt)
         sub_pop.open()
 
@@ -743,8 +786,13 @@ class EventCard(BoxLayout):
                 else:
                     info_box.add_widget(make_lbl(f"[b]{lbl_name} :[/b] {escape_markup(str(val))}"))
 
+
         def afficher_popup_votes(titre_votes, sections_dict):
-            self._afficher_popup_resultats_coach(titre_votes, sections_dict)
+            self._afficher_popup_resultats_coach(
+                "Résultats des votes",
+                sections_dict,
+                self.match_data
+            )
 
         type_sondage, sondage_actif, sondage_trajet = self.match_data.get("type_sondage", "classique"), bool(self.match_data.get("sondage_actif")), bool(self.match_data.get("sondage_trajet"))
 
