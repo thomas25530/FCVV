@@ -2471,16 +2471,15 @@ jobs:
           set -euxo pipefail
           WORKSPACE_PATH=$(find "$PWD/fcvv-ios" -name "*.xcworkspace" | head -1)
           
-          # Build pour un appareil physique (nécessite une signature ad-hoc ou de debug)
+          # Compilation en désactivant la signature exigée par le cloud
           xcodebuild clean build \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
             -configuration Debug \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            IPHONEOS_DEPLOYMENT_TARGET=13.0 \
-            CODE_SIGN_STYLE=Automatic \
-            -allowProvisioningUpdates
+            IPHONEOS_DEPLOYMENT_TARGET=12.0 \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Package .ipa for Real Device
         run: |
@@ -2504,5 +2503,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: fcvv-ipa
-          path: fcvv.ipa
+          name: fcvv-xcode-project
+          path: fcvv-ios/
