@@ -2466,6 +2466,13 @@ jobs:
           echo "===== FIN DEBUG ÉTAT DU PROJET AVANT BUILD ====="
           echo "============================================================"
           
+      
+      - name: Install CocoaPods
+        run: |
+          cd fcvv-ios
+          pod install
+      
+      
       - name: Build for Real Device
         run: |
           set -euxo pipefail
