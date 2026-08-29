@@ -2470,8 +2470,7 @@ jobs:
         run: |
           set -euxo pipefail
           WORKSPACE_PATH=$(find "$PWD/fcvv-ios" -name "*.xcworkspace" | head -1)
-          
-          # Compilation en désactivant la signature exigée par le cloud
+        
           xcodebuild clean build \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
@@ -2479,6 +2478,7 @@ jobs:
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
             IPHONEOS_DEPLOYMENT_TARGET=12.0 \
+            CLANG_ENABLE_MODULES=YES \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Package .ipa for Real Device
