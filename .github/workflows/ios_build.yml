@@ -224,7 +224,12 @@ jobs:
                   "ERREUR: fin de get_archive_rootdir introuvable"
               )
 
-          new_function = '''    def get_archive_rootdir(self, filename):
+          # Construire la fonction avec une indentation contrôlée.
+          # On évite ainsi les IndentationError provoquées par les espaces
+          # du bloc YAML/heredoc.
+          new_function = textwrap.indent(
+              textwrap.dedent("""
+          def get_archive_rootdir(self, filename):
               import os
               import subprocess
               import tarfile
@@ -284,7 +289,6 @@ jobs:
               # Fichier sans extension
               #
               # Exemple :
-              #
               # .cache/freetype-download
               # ----------------------------------------------------
 
@@ -380,7 +384,9 @@ jobs:
                       info,
                   )
               )
-          '''
+          """).strip("\n") + "\n",
+              "    ",
+          )
 
           s = s[:start] + new_function + s[next_def:]
 
