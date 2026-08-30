@@ -70,50 +70,58 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kivy-ios-v1.3.0-
 
-      - name: Vérifier les outils kivy-ios
+      - name: Vérifier kivy-ios
         run: |
           set -euxo pipefail
 
-          echo "===== Informations kivy-ios ====="
+          echo "===== kivy-ios ====="
           which toolchain
+          pip show kivy-ios
 
-          echo "===== Cython ====="
-          which cython
-          which cython-2.7
-          cython-2.7 --version
-
-          echo "===== Outils système ====="
+          echo "===== Outils ====="
           which ccache
           which pigz
           which pbzip2
           which rsync
 
-          echo "===== Version kivy-ios ====="
-          pip show kivy-ios
-
-      - name: Inspecter la recipe FreeType
+      - name: Préparer FreeType
         run: |
           set -euxo pipefail
 
-          FREETYPE_RECIPE=$(python -c \
-            "import kivy_ios.recipes.freetype as f; print(f.__file__)")
+          FREETYPE_VERSION="2.5.5"
+          FREETYPE_URL="https://download.savannah.gnu.org/releases/freetype/freetype-old/freetype-${FREETYPE_VERSION}.tar.bz2"
 
-          echo "Recipe FreeType :"
-          echo "$FREETYPE_RECIPE"
+          echo "===== Téléchargement FreeType ====="
+          echo "$FREETYPE_URL"
 
-          echo "===== Contenu de la recipe ====="
-          sed -n '1,250p' "$FREETYPE_RECIPE"
+          mkdir -p "$HOME/.kivy-ios"
 
-      - name: Vérifier les recipes
+          curl \
+            --fail \
+            --location \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            --connect-timeout 30 \
+            --max-time 300 \
+            "$FREETYPE_URL" \
+            --output "$HOME/.kivy-ios/freetype-${FREETYPE_VERSION}.tar.bz2"
+
+          echo "===== Vérification archive ====="
+          ls -lh "$HOME/.kivy-ios/freetype-${FREETYPE_VERSION}.tar.bz2"
+
+          file "$HOME/.kivy-ios/freetype-${FREETYPE_VERSION}.tar.bz2"
+
+          tar -tjf "$HOME/.kivy-ios/freetype-${FREETYPE_VERSION}.tar.bz2" > /dev/null
+
+          echo "FreeType OK"
+
+      - name: Compiler kivy-ios
         run: |
           set -euxo pipefail
 
           echo "===== Recipes ====="
           toolchain recipes
-
-      - name: Compiler kivy-ios
-        run: |
-          set -euxo pipefail
 
           echo "===== Build ====="
           toolchain build python3 kivy openssl pillow
