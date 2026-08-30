@@ -44,7 +44,7 @@ jobs:
             .cache
             dist
             build
-          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-fix-v23
+          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-fix-v24
           restore-keys: |
             ${{ runner.os }}-kivy-ios-arm64-v1.3.0-
 
@@ -71,8 +71,6 @@ jobs:
           p = Path(sys.argv[1])
           lines = p.read_text().splitlines()
 
-          print("--- méthodes archive/root/download ---")
-
           for i, line in enumerate(lines):
               l = line.lower()
 
@@ -91,11 +89,9 @@ jobs:
 
                   for n in range(a, b):
                       print(f"{n + 1:5}: {lines[n]}")
-          PY
 
           echo "=================================================="
           echo "FREETYPE RECIPE"
-          echo "$F"
           echo "=================================================="
 
           cat "$F"
@@ -110,8 +106,6 @@ jobs:
       # PATCH KIVY-IOS
       # ============================================================
 
-
-
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
@@ -119,15 +113,13 @@ jobs:
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           R="$(python -c 'import kivy_ios.recipes as r; print(r.__path__[0])')"
 
-          echo "Toolchain: $T"
-          echo "Recipes: $R"
-
           python - "$T" "$R" <<'PY'
           import sys
           from pathlib import Path
 
           toolchain = Path(sys.argv[1])
           recipes = Path(sys.argv[2])
+
           s = toolchain.read_text()
 
           # --------------------------------------------------------
@@ -188,77 +180,118 @@ jobs:
           next_def = s.find("\n    def ", start + len(marker))
 
           if next_def < 0:
-              raise SystemExit("ERREUR: fin de get_archive_rootdir introuvable")
+              raise SystemExit(
+                  "ERREUR: fin de get_archive_rootdir introuvable"
+              )
 
-          lines = [
-              "    def get_archive_rootdir(self, filename):",
-              "        import os",
-              "        import subprocess",
-              "        import tarfile",
-              "        import zipfile",
-              "",
-              "        filename = os.path.abspath(filename)",
-              '        print("[PATCH] Detecting archive:", filename)',
-              "",
-              '        if filename.endswith((".tgz", ".tar.gz", ".tbz2", ".tar.bz2")):',
-              "            try:",
-              '                with tarfile.open(filename, "r:*") as archive:',
-              "                    member = archive.next()",
-              '                    if member is None:',
-              '                        raise Exception("Archive vide")',
-              '                    root = member.name.split("/")[0]',
-              "                    if not root:",
-              '                        raise Exception("Impossible de détecter le root directory")',
-              "                    return root",
-              "            except tarfile.ReadError as exc:",
-              '                raise Exception("Archive tar invalide ou téléchargement corrompu: " + filename) from exc',
-              "",
-              '        if filename.endswith(".zip"):',
-              "            with zipfile.ZipFile(filename) as archive:",
-              "                names = [name for name in archive.namelist() if name]",
-              "                if not names:",
-              '                    raise Exception("Archive ZIP vide")',
-              '                return names[0].split("/")[0]',
-              "",
-              '        info = subprocess.run(["file", "-b", filename], capture_output=True, text=True, check=False).stdout.lower().strip()',
-              '        print("[PATCH] file:", info)',
-              "",
-              '        if "bzip2 compressed data" in info:',
-              "            try:",
-              '                with tarfile.open(filename, "r:bz2") as archive:',
-              "                    member = archive.next()",
-              '                    if member is None:',
-              '                        raise Exception("Archive vide")',
-              '                    return member.name.split("/")[0]',
-              "            except tarfile.ReadError as exc:",
-              '                raise Exception("Fichier bzip2 invalide: " + filename) from exc',
-              "",
-              '        if "gzip compressed data" in info:',
-              "            try:",
-              '                with tarfile.open(filename, "r:gz") as archive:',
-              "                    member = archive.next()",
-              '                    if member is None:',
-              '                        raise Exception("Archive vide")',
-              '                    return member.name.split("/")[0]',
-              "            except tarfile.ReadError as exc:",
-              '                raise Exception("Fichier gzip invalide: " + filename) from exc',
-              "",
-              '        if "zip archive data" in info:',
-              "            with zipfile.ZipFile(filename) as archive:",
-              "                names = [name for name in archive.namelist() if name]",
-              "                if not names:",
-              '                    raise Exception("Archive ZIP vide")',
-              '                return names[0].split("/")[0]',
-              "",
-              '        raise Exception("Format archive inconnu pour {}: {}".format(filename, info))',
-              "",
-          ]
+          replacement = r'''    def get_archive_rootdir(self, filename):
+              import os
+              import subprocess
+              import tarfile
+              import zipfile
 
-          s = s[:start] + "\n".join(lines) + s[next_def:]
+              filename = os.path.abspath(filename)
 
-          # --------------------------------------------------------
-          # Vérification syntaxique
-          # --------------------------------------------------------
+              print("[PATCH] Detecting archive:", filename)
+
+              if filename.endswith((".tgz", ".tar.gz", ".tbz2", ".tar.bz2")):
+                  try:
+                      with tarfile.open(filename, "r:*") as archive:
+                          member = archive.next()
+
+                          if member is None:
+                              raise Exception("Archive vide")
+
+                          root = member.name.split("/")[0]
+
+                          if not root:
+                              raise Exception(
+                                  "Impossible de détecter le root directory"
+                              )
+
+                          return root
+
+                  except tarfile.ReadError as exc:
+                      raise Exception(
+                          "Archive tar invalide ou téléchargement corrompu: "
+                          + filename
+                      ) from exc
+
+              if filename.endswith(".zip"):
+                  with zipfile.ZipFile(filename) as archive:
+                      names = [
+                          name
+                          for name in archive.namelist()
+                          if name
+                      ]
+
+                      if not names:
+                          raise Exception("Archive ZIP vide")
+
+                      return names[0].split("/")[0]
+
+              info = subprocess.run(
+                  ["file", "-b", filename],
+                  capture_output=True,
+                  text=True,
+                  check=False,
+              ).stdout.lower().strip()
+
+              print("[PATCH] file:", info)
+
+              if "bzip2 compressed data" in info:
+                  try:
+                      with tarfile.open(filename, "r:bz2") as archive:
+                          member = archive.next()
+
+                          if member is None:
+                              raise Exception("Archive vide")
+
+                          return member.name.split("/")[0]
+
+                  except tarfile.ReadError as exc:
+                      raise Exception(
+                          "Fichier bzip2 invalide: " + filename
+                      ) from exc
+
+              if "gzip compressed data" in info:
+                  try:
+                      with tarfile.open(filename, "r:gz") as archive:
+                          member = archive.next()
+
+                          if member is None:
+                              raise Exception("Archive vide")
+
+                          return member.name.split("/")[0]
+
+                  except tarfile.ReadError as exc:
+                      raise Exception(
+                          "Fichier gzip invalide: " + filename
+                      ) from exc
+
+              if "zip archive data" in info:
+                  with zipfile.ZipFile(filename) as archive:
+                      names = [
+                          name
+                          for name in archive.namelist()
+                          if name
+                      ]
+
+                      if not names:
+                          raise Exception("Archive ZIP vide")
+
+                      return names[0].split("/")[0]
+
+              raise Exception(
+                  "Format archive inconnu pour {}: {}".format(
+                      filename,
+                      info,
+                  )
+              )
+
+          '''
+
+          s = s[:start] + replacement + s[next_def:]
 
           compile(s, str(toolchain), "exec")
           toolchain.write_text(s)
@@ -266,63 +299,47 @@ jobs:
           print("[PATCH] toolchain.py OK")
 
           # --------------------------------------------------------
-          # Patch FreeType : outils hôte en macOS
+          # FreeType
+          #
+          # IMPORTANT :
+          # ne pas forcer CC/CXX ici.
+          # FreeType construit aussi des outils HOST comme apinames.
           # --------------------------------------------------------
 
           freetype = recipes / "freetype" / "__init__.py"
 
-          if freetype.exists():
-              text = freetype.read_text()
+          if not freetype.exists():
+              raise SystemExit("ERREUR: recipe FreeType introuvable")
 
-              text = text.replace(
-                  'shprint(sh.make, "-j1")',
-                  'shprint(sh.make, "-j1", "CC=clang", "CXX=clang++")',
-              )
+          text = freetype.read_text()
 
-              freetype.write_text(text)
+          bad_variants = (
+              'shprint(sh.make, "-j1", "CC=clang", "CXX=clang++")',
+              'shprint(sh.make, "-j1", "CC=clang")',
+              'shprint(sh.make, "-j1", "CXX=clang++")',
+          )
 
-              print("[PATCH] FreeType build patched")
+          for bad in bad_variants:
+              if bad in text:
+                  text = text.replace(
+                      bad,
+                      'shprint(sh.make, "-j1")',
+                  )
+                  print("[PATCH] FreeType: suppression CC/CXX forcé")
 
-          # --------------------------------------------------------
-          # Force -j1 dans les recipes
-          # --------------------------------------------------------
+          freetype.write_text(text)
 
-          count = 0
+          print("[PATCH] FreeType recipe OK")
 
-          for f in recipes.rglob("*.py"):
-              text = f.read_text()
-              patched = text.replace(
-                  "self.ctx.concurrent_make",
-                  '"-j1"',
-              )
-              patched = patched.replace(
-                  "self.concurrent_make",
-                  '"-j1"',
-              )
-
-              if patched != text:
-                  f.write_text(patched)
-                  count += 1
-
-          print("[PATCH] Recipes patchées:", count)
           PY
 
           python -m py_compile "$T"
 
           echo "=================================================="
-          echo "VERIFICATION"
-          echo "=================================================="
-
-          grep -n -A80 "def get_archive_rootdir" "$T" | head -90
-
-          echo "=================================================="
           echo "FREETYPE"
           echo "=================================================="
 
-          sed -n '1,80p' "$R/freetype/__init__.py"
-
-
-
+          sed -n '1,100p' "$R/freetype/__init__.py"
 
       # ============================================================
       # FREETYPE
@@ -364,17 +381,12 @@ jobs:
 
           for old in old_urls:
               if old in s:
-                  s = s.replace(
-                      old,
-                      new_url,
-                      1,
-                  )
+                  s = s.replace(old, new_url, 1)
                   changed = True
 
           if not changed and new_url not in s:
               raise SystemExit(
-                  "ERREUR: impossible de trouver "
-                  "l'URL FreeType actuelle"
+                  "ERREUR: impossible de trouver l'URL FreeType actuelle"
               )
 
           p.write_text(s)
@@ -389,35 +401,40 @@ jobs:
 
           cat "$F"
 
-          # Supprime l'ancien cache problématique :
-          #
-          # .cache/freetype-download
-          #
-          rm -rf .cache
+          # Nettoyage ciblé du cache/build FreeType
+          rm -rf \
+            .cache/freetype-freetype-2.5.5.tar.bz2 \
+            build/freetype \
+            dist/include/arm64/freetype \
+            dist/lib/arm64/libfreetype*
+
           mkdir -p .cache
 
       # ============================================================
       # CONFIGURATION IOS
       # ============================================================
 
-      - name: Configure iOS
+      - name: Configure iOS environment
         run: |
           set -euxo pipefail
 
-          export IPHONEOS_DEPLOYMENT_TARGET=12.0
-          export MACOSX_DEPLOYMENT_TARGET=12.0
-          export ARCHS=arm64
-          export KIVYIOS_ARCH=arm64
-          export MAKEFLAGS="-j1"
-          export CMAKE_BUILD_PARALLEL_LEVEL=1
-          export JOBS=1
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CC="$(xcrun --sdk iphoneos --find clang)"
+          CXX="$(xcrun --sdk iphoneos --find clang++)"
 
-          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-          export SDK_NAME="iphoneos"
-          export CC="$(xcrun --sdk iphoneos --find clang)"
-          export CXX="$(xcrun --sdk iphoneos --find clang++)"
+          {
+            echo "IPHONEOS_DEPLOYMENT_TARGET=12.0"
+            echo "ARCHS=arm64"
+            echo "KIVYIOS_ARCH=arm64"
+            echo "MAKEFLAGS=-j1"
+            echo "CMAKE_BUILD_PARALLEL_LEVEL=1"
+            echo "JOBS=1"
+            echo "SDKROOT=$SDKROOT"
+            echo "SDK_NAME=iphoneos"
+            echo "CC=$CC"
+            echo "CXX=$CXX"
+          } >> "$GITHUB_ENV"
 
-          echo "IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
           echo "SDKROOT=$SDKROOT"
           echo "CC=$CC"
           echo "CXX=$CXX"
@@ -426,7 +443,6 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-path
           xcrun --sdk iphoneos --find clang
 
-
       # ============================================================
       # HOST RECIPES
       # ============================================================
@@ -434,6 +450,11 @@ jobs:
       - name: Build host recipes
         run: |
           set -euxo pipefail
+
+          unset SDKROOT
+          unset CC
+          unset CXX
+          unset IPHONEOS_DEPLOYMENT_TARGET
 
           export MAKEFLAGS="-j1"
           export CMAKE_BUILD_PARALLEL_LEVEL=1
@@ -458,6 +479,22 @@ jobs:
           export IPHONEOS_DEPLOYMENT_TARGET=12.0
           export ARCHS=arm64
           export KIVYIOS_ARCH=arm64
+
+          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export SDK_NAME="iphoneos"
+          export CC="$(xcrun --sdk iphoneos --find clang)"
+          export CXX="$(xcrun --sdk iphoneos --find clang++)"
+
+          echo "=================================================="
+          echo "IOS ARM64 BUILD"
+          echo "=================================================="
+
+          echo "SDKROOT=$SDKROOT"
+          echo "CC=$CC"
+          echo "CXX=$CXX"
+          echo "IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
+
+          "$CC" --version
 
           toolchain build \
             libffi \
