@@ -110,49 +110,35 @@ jobs:
       # PATCH KIVY-IOS
       # ============================================================
 
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
-
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           R="$(python -c 'import kivy_ios.recipes as r; print(r.__path__[0])')"
-
           echo "Toolchain: $T"
           echo "Recipes: $R"
 
           python - "$T" "$R" <<'PY'
           import sys
-          import subprocess
           from pathlib import Path
 
           toolchain = Path(sys.argv[1])
           recipes = Path(sys.argv[2])
-
           s = toolchain.read_text()
 
-          # ========================================================
           # DOWNLOAD
-          # ========================================================
-
           if "import subprocess" not in s:
-              s = s.replace(
-                  "import sys\n",
-                  "import sys\nimport subprocess\n",
-                  1,
-              )
+              s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
 
           old = "urlretrieve(url, filename, report_hook)"
-
           new = """subprocess.run(
               [
-                  "curl",
-                  "-L",
-                  "--fail",
+                  "curl", "-L", "--fail",
                   "--retry", "5",
                   "--retry-delay", "5",
                   "--retry-all-errors",
-                  "-o", filename,
-                  url,
+                  "-o", filename, url,
               ],
               check=True,
           )"""
@@ -160,30 +146,13 @@ jobs:
           if old in s:
               s = s.replace(old, new, 1)
               print("[PATCH] download_file() patched")
-          else:
-              print("[PATCH] download_file() déjà patché ou pattern absent")
 
-          # ========================================================
           # Désactiver pigz / pbzip2
-          # ========================================================
-
           replacements = (
-              (
-                  "self.use_pigz = sh.which('pigz')",
-                  "self.use_pigz = False",
-              ),
-              (
-                  'self.use_pigz = sh.which("pigz")',
-                  "self.use_pigz = False",
-              ),
-              (
-                  "self.use_pbzip2 = sh.which('pbzip2')",
-                  "self.use_pbzip2 = False",
-              ),
-              (
-                  'self.use_pbzip2 = sh.which("pbzip2")',
-                  "self.use_pbzip2 = False",
-              ),
+              ("self.use_pigz = sh.which('pigz')", "self.use_pigz = False"),
+              ('self.use_pigz = sh.which("pigz")', "self.use_pigz = False"),
+              ("self.use_pbzip2 = sh.which('pbzip2')", "self.use_pbzip2 = False"),
+              ('self.use_pbzip2 = sh.which("pbzip2")', "self.use_pbzip2 = False"),
           )
 
           for old, new in replacements:
@@ -191,191 +160,103 @@ jobs:
                   s = s.replace(old, new)
                   print("[PATCH]", old)
 
-          # ========================================================
           # get_archive_rootdir()
-          # ========================================================
-
           marker = "    def get_archive_rootdir(self, filename):"
-
           start = s.find(marker)
 
           if start < 0:
-              raise SystemExit(
-                  "ERREUR: get_archive_rootdir(self, filename) introuvable"
-              )
+              raise SystemExit("ERREUR: get_archive_rootdir introuvable")
 
-          next_def = s.find(
-              "\n    def ",
-              start + len(marker),
-          )
+          next_def = s.find("\n    def ", start + len(marker))
 
           if next_def < 0:
-              raise SystemExit(
-                  "ERREUR: fin de get_archive_rootdir introuvable"
-              )
+              raise SystemExit("ERREUR: fin de get_archive_rootdir introuvable")
 
-          new_function = '''    def get_archive_rootdir(self, filename):
-              import os
-              import subprocess
-              import tarfile
-              import zipfile
+          lines = [
+              "    def get_archive_rootdir(self, filename):",
+              "        import os",
+              "        import subprocess",
+              "        import tarfile",
+              "        import zipfile",
+              "",
+              "        filename = os.path.abspath(filename)",
+              '        print("[PATCH] Detecting archive:", filename)',
+              "",
+              '        if filename.endswith((".tgz", ".tar.gz", ".tbz2", ".tar.bz2")):',
+              "            try:",
+              '                with tarfile.open(filename, "r:*") as archive:',
+              "                    member = archive.next()",
+              '                    if member is None:',
+              '                        raise Exception("Archive vide")',
+              '                    root = member.name.split("/")[0]',
+              "                    if not root:",
+              '                        raise Exception("Impossible de détecter le root directory")',
+              "                    return root",
+              "            except tarfile.ReadError as exc:",
+              '                raise Exception("Archive tar invalide ou téléchargement corrompu: " + filename) from exc',
+              "",
+              '        if filename.endswith(".zip"):',
+              "            with zipfile.ZipFile(filename) as archive:",
+              "                names = [name for name in archive.namelist() if name]",
+              "                if not names:",
+              '                    raise Exception("Archive ZIP vide")',
+              '                return names[0].split("/")[0]',
+              "",
+              '        info = subprocess.run(["file", "-b", filename], capture_output=True, text=True, check=False).stdout.lower().strip()',
+              '        print("[PATCH] file:", info)',
+              "",
+              '        if "bzip2 compressed data" in info:',
+              "            try:",
+              '                with tarfile.open(filename, "r:bz2") as archive:',
+              "                    member = archive.next()",
+              '                    if member is None:',
+              '                        raise Exception("Archive vide")',
+              '                    root = member.name.split("/")[0]',
+              "                    if not root:",
+              '                        raise Exception("Impossible de détecter le root directory")',
+              "                    return root",
+              "            except tarfile.ReadError as exc:",
+              '                raise Exception("Fichier bzip2 invalide: " + filename) from exc',
+              "",
+              '        if "gzip compressed data" in info:',
+              "            try:",
+              '                with tarfile.open(filename, "r:gz") as archive:',
+              "                    member = archive.next()",
+              '                    if member is None:',
+              '                        raise Exception("Archive vide")',
+              '                    root = member.name.split("/")[0]',
+              "                    if not root:",
+              '                        raise Exception("Impossible de détecter le root directory")',
+              "                    return root",
+              "            except tarfile.ReadError as exc:",
+              '                raise Exception("Fichier gzip invalide: " + filename) from exc',
+              "",
+              '        if "zip archive data" in info:',
+              "            with zipfile.ZipFile(filename) as archive:",
+              "                names = [name for name in archive.namelist() if name]",
+              "                if not names:",
+              '                    raise Exception("Archive ZIP vide")',
+              '                return names[0].split("/")[0]',
+              "",
+              '        raise Exception("Format archive inconnu pour {}: {}".format(filename, info))',
+              "",
+          ]
 
-              filename = os.path.abspath(filename)
-
-              print("[PATCH] Detecting archive:", filename)
-
-              if filename.endswith(
-                  (".tgz", ".tar.gz", ".tbz2", ".tar.bz2")
-              ):
-                  try:
-                      with tarfile.open(
-                          filename,
-                          "r:*",
-                      ) as archive:
-                          member = archive.next()
-
-                          if member is None:
-                              raise Exception("Archive vide")
-
-                          root = member.name.split("/")[0]
-
-                          if not root:
-                              raise Exception(
-                                  "Impossible de détecter le root directory"
-                              )
-
-                          return root
-
-                  except tarfile.ReadError as exc:
-                      raise Exception(
-                          "Archive tar invalide ou téléchargement "
-                          "corrompu: " + filename
-                      ) from exc
-
-              if filename.endswith(".zip"):
-                  with zipfile.ZipFile(filename) as archive:
-                      names = [
-                          name
-                          for name in archive.namelist()
-                          if name
-                      ]
-
-                      if not names:
-                          raise Exception("Archive ZIP vide")
-
-                      return names[0].split("/")[0]
-
-              info = subprocess.run(
-                  ["file", "-b", filename],
-                  capture_output=True,
-                  text=True,
-                  check=False,
-              ).stdout.lower().strip()
-
-              print("[PATCH] file:", info)
-
-              if "bzip2 compressed data" in info:
-                  try:
-                      with tarfile.open(
-                          filename,
-                          "r:bz2",
-                      ) as archive:
-                          member = archive.next()
-
-                          if member is None:
-                              raise Exception("Archive vide")
-
-                          root = member.name.split("/")[0]
-
-                          if not root:
-                              raise Exception(
-                                  "Impossible de détecter le root directory"
-                              )
-
-                          return root
-
-                  except tarfile.ReadError as exc:
-                      raise Exception(
-                          "Fichier bzip2 invalide: " + filename
-                      ) from exc
-
-              if "gzip compressed data" in info:
-                  try:
-                      with tarfile.open(
-                          filename,
-                          "r:gz",
-                      ) as archive:
-                          member = archive.next()
-
-                          if member is None:
-                              raise Exception("Archive vide")
-
-                          root = member.name.split("/")[0]
-
-                          if not root:
-                              raise Exception(
-                                  "Impossible de détecter le root directory"
-                              )
-
-                          return root
-
-                  except tarfile.ReadError as exc:
-                      raise Exception(
-                          "Fichier gzip invalide: " + filename
-                      ) from exc
-
-              if "zip archive data" in info:
-                  with zipfile.ZipFile(filename) as archive:
-                      names = [
-                          name
-                          for name in archive.namelist()
-                          if name
-                      ]
-
-                      if not names:
-                          raise Exception("Archive ZIP vide")
-
-                      return names[0].split("/")[0]
-
-              raise Exception(
-                  "Format archive inconnu pour {}: {}".format(
-                      filename,
-                      info,
-                  )
-              )
-          '''
-
+          new_function = "\n".join(lines)
           s = s[:start] + new_function + s[next_def:]
 
-          # ========================================================
-          # Vérification syntaxique AVANT écriture
-          # ========================================================
-
+          # Vérification syntaxique avant écriture
           compile(s, str(toolchain), "exec")
-
           toolchain.write_text(s)
-
           print("[PATCH] toolchain.py écrit avec succès")
 
-          # ========================================================
-          # Force make -j1 dans les recipes
-          # ========================================================
-
+          # Force make -j1
           count = 0
 
           for f in recipes.rglob("*.py"):
               text = f.read_text()
-              patched = text
-
-              patched = patched.replace(
-                  "self.ctx.concurrent_make",
-                  '"-j1"',
-              )
-
-              patched = patched.replace(
-                  "self.concurrent_make",
-                  '"-j1"',
-              )
+              patched = text.replace("self.ctx.concurrent_make", '"-j1"')
+              patched = patched.replace("self.concurrent_make", '"-j1"')
 
               if patched != text:
                   f.write_text(patched)
@@ -390,10 +271,9 @@ jobs:
           echo "=================================================="
           echo "VERIFICATION DU PATCH"
           echo "=================================================="
+          grep -n -A80 "def get_archive_rootdir" "$T" | head -90
 
-          grep -n -A80 \
-            "def get_archive_rootdir" \
-            "$T" | head -90
+
 
       # ============================================================
       # FREETYPE
