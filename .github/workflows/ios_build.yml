@@ -2507,5 +2507,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: fcvv-xcode-project
-          path: fcvv-ios/
+          name: fcvv-ipa
+          path: fcvv.ipa
