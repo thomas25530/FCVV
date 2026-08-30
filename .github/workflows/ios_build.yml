@@ -19,7 +19,7 @@ jobs:
       - name: Install tools
         run: |
           set -euxo pipefail
-          brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache
+          brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache pigz pbzip2
           brew link libtool --force
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
@@ -28,11 +28,13 @@ jobs:
           python -m pip show kivy-ios
           cython-2.7 --version
 
-      - name: Patch kivy-ios downloader
+      - name: Patch kivy-ios
         run: |
           set -euxo pipefail
+
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           cp "$T" "$T.backup"
+
           python - "$T" <<'PY'
           import sys
           from pathlib import Path
@@ -40,60 +42,48 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text()
 
-          if "urlretrieve(url, filename, report_hook)" in s:
-              if "import subprocess" not in s:
-                  s = s.replace(
-                      "import sys\n",
-                      "import sys\nimport subprocess\n",
-                      1,
-                  )
+          # sh.which() doit accepter l'absence de l'exécutable
+          s = s.replace(
+              "self.use_pigz = sh.which('pigz')",
+              "self.use_pigz = sh.which('pigz', _ok_code=[0, 1]).strip() or None",
+          )
 
-              s = s.replace(
-                  "urlretrieve(url, filename, report_hook)",
-                  'subprocess.run(["curl", "-L", "--fail", "--retry", "5", "--retry-delay", "5", "--retry-all-errors", url, "-o", filename], check=True)',
-                  1,
-              )
+          s = s.replace(
+              "self.use_pbzip2 = sh.which('pbzip2')",
+              "self.use_pbzip2 = sh.which('pbzip2', _ok_code=[0, 1]).strip() or None",
+          )
 
-              p.write_text(s)
-              print("Downloader curl installé.")
-          else:
-              print("Downloader déjà patché ou absent.")
+          # Certaines versions n'utilisent pas exactement cette forme.
+          s = s.replace(
+              'self.use_pigz = sh.which("pigz")',
+              'self.use_pigz = sh.which("pigz", _ok_code=[0, 1]).strip() or None',
+          )
+
+          s = s.replace(
+              'self.use_pbzip2 = sh.which("pbzip2")',
+              'self.use_pbzip2 = sh.which("pbzip2", _ok_code=[0, 1]).strip() or None',
+          )
+
+          p.write_text(s)
+
+          print("===== Vérification patch =====")
+          for line in s.splitlines():
+              if "use_pigz" in line or "use_pbzip2" in line:
+                  print(line)
           PY
+
           python -m py_compile "$T"
 
-      - name: Disable broken parallel decompressors
-        run: |
-          set -euxo pipefail
-          T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
-          python - "$T" <<'PY'
-          import sys
-          from pathlib import Path
+          python - <<'PY'
+          import kivy_ios.toolchain as t
+          import inspect
 
-          p = Path(sys.argv[1])
-          s = p.read_text()
+          print("toolchain:", t.__file__)
+          print("Recipe.get_recipe:", hasattr(t.Recipe, "get_recipe"))
 
-          replacements = {
-              'find_executable("pigz")': 'None',
-              'find_executable("pbzip2")': 'None',
-              "find_executable('pigz')": "None",
-              "find_executable('pbzip2')": "None",
-          }
-
-          changed = False
-
-          for old, new in replacements.items():
-              if old in s:
-                  s = s.replace(old, new)
-                  changed = True
-
-          if changed:
-              p.write_text(s)
-              print("pigz/pbzip2 désactivés dans kivy-ios.")
-          else:
-              print("Détection pigz/pbzip2 non trouvée; aucune modification.")
-
+          if not hasattr(t.Recipe, "get_recipe"):
+              raise SystemExit("ERREUR: Recipe.get_recipe() absente.")
           PY
-          python -m py_compile "$T"
 
       - name: Configure iOS
         run: |
@@ -130,6 +120,8 @@ jobs:
         run: |
           set -euxo pipefail
           toolchain pip install pyyaml requests urllib3
+
+
 
 
 
