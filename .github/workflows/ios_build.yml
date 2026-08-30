@@ -21,12 +21,9 @@ jobs:
           set -euxo pipefail
           brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache
           brew link libtool --force
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install \
-            "Cython==0.29.36" \
-            "kivy-ios==1.3.0" \
-            pillow requests urllib3 pyyaml
-          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7"
+          python -m pip install -U pip setuptools wheel
+          python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
+          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7
           python --version
           python -m pip show kivy-ios
           cython-2.7 --version
@@ -46,290 +43,184 @@ jobs:
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
-
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           cp "$T" "$T.backup"
 
           python - "$T" <<'PY'
-          import ast
-          import sys
-          import textwrap
+          import ast, sys, textwrap
           from pathlib import Path
 
-          path = Path(sys.argv[1])
-          source = path.read_text()
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          s = s.replace(
+              "urlretrieve(url, filename, report_hook)",
+              'subprocess.run(["curl","-L","--fail","--retry","5","--retry-delay","5","--retry-all-errors",url,"-o",filename],check=True)',
+              1,
+          ) if "urlretrieve(url, filename, report_hook)" in s else s
 
-          # ----------------------------------------------------------
-          # Downloader: urllib -> curl
-          # ----------------------------------------------------------
-          if "urlretrieve(url, filename, report_hook)" in source:
-              if "import subprocess" not in source:
-                  source = source.replace(
-                      "import sys\n",
-                      "import sys\nimport subprocess\n",
-                      1,
-                  )
+          if "import subprocess" not in s:
+              s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
 
-              source = source.replace(
-                  "urlretrieve(url, filename, report_hook)",
-                  (
-                      'subprocess.run(["curl", "-L", "--fail", '
-                      '"--retry", "5", "--retry-delay", "5", '
-                      '"--retry-all-errors", url, "-o", filename], '
-                      "check=True)"
-                  ),
-                  1,
+          s = s.replace("self.use_pigz = sh.which('pigz')", "self.use_pigz = False")
+          s = s.replace("self.use_pbzip2 = sh.which('pbzip2')", "self.use_pbzip2 = False")
+
+          tree = ast.parse(s)
+
+          def cls(name):
+              return next((n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == name), None)
+
+          def meth(c, name):
+              return next((n for n in c.body if isinstance(n, ast.FunctionDef) and n.name == name), None)
+
+          ctx = cls("Context")
+          recipe = cls("Recipe")
+          if not ctx or not recipe:
+              raise SystemExit("ERREUR: Context ou Recipe introuvable.")
+
+          init = meth(ctx, "__init__")
+          root = meth(recipe, "get_archive_rootdir")
+          extract = meth(recipe, "extract_file")
+          if not init or not root or not extract:
+              raise SystemExit("ERREUR: méthode kivy-ios requise introuvable.")
+
+          lines = s.splitlines()
+
+          # Force self.concurrent_make = '-j1' quelle que soit sa valeur initiale.
+          assigns = [
+              n for n in ast.walk(init)
+              if isinstance(n, ast.Assign)
+              and any(
+                  isinstance(t, ast.Attribute)
+                  and isinstance(t.value, ast.Name)
+                  and t.value.id == "self"
+                  and t.attr == "concurrent_make"
+                  for t in n.targets
               )
+          ]
+          if not assigns:
+              raise SystemExit("ERREUR: self.concurrent_make introuvable.")
 
-          # ----------------------------------------------------------
-          # Désactiver pigz / pbzip2
-          # ----------------------------------------------------------
-          source = source.replace(
-              "self.use_pigz = sh.which('pigz')",
-              "self.use_pigz = False",
-          )
-          source = source.replace(
-              "self.use_pbzip2 = sh.which('pbzip2')",
-              "self.use_pbzip2 = False",
-          )
+          for n in reversed(assigns):
+              i = n.lineno - 1
+              indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+              lines[n.lineno - 1:n.end_lineno] = [indent + "self.concurrent_make = '-j1'"]
 
-          # ----------------------------------------------------------
-          # Forcer tous les builds make en séquentiel
-          # ----------------------------------------------------------
-          source = source.replace(
-              "self.concurrent_make = '-j3'",
-              "self.concurrent_make = '-j1'",
-          )
-          source = source.replace(
-              'self.concurrent_make = "-j3"',
-              'self.concurrent_make = "-j1"',
-          )
+          s = "\n".join(lines) + "\n"
+          tree = ast.parse(s)
 
-          # Si la valeur est construite autrement, neutraliser aussi
-          # les appels directs make -jN.
-          source = source.replace(
-              "sh.make, self.ctx.concurrent_make",
-              "sh.make, '-j1'",
-          )
+          # Force également les appels make qui utilisent concurrent_make.
+          s = s.replace("sh.make, self.ctx.concurrent_make", "sh.make, '-j1'")
 
-          tree = ast.parse(source)
+          tree = ast.parse(s)
+          ctx = cls("Context")
+          recipe = cls("Recipe")
+          root = meth(recipe, "get_archive_rootdir")
+          extract = meth(recipe, "extract_file")
 
-          # ----------------------------------------------------------
-          # Trouver Recipe
-          # ----------------------------------------------------------
-          recipe = next(
-              (
-                  n for n in tree.body
-                  if isinstance(n, ast.ClassDef)
-                  and n.name == "Recipe"
-              ),
-              None,
-          )
-
-          if recipe is None:
-              raise SystemExit("ERREUR: classe Recipe introuvable.")
-
-          methods = {
-              n.name: n
-              for n in recipe.body
-              if isinstance(n, ast.FunctionDef)
-          }
-
-          root_node = methods.get("get_archive_rootdir")
-          extract_node = methods.get("extract_file")
-
-          if root_node is None:
-              raise SystemExit(
-                  "ERREUR: Recipe.get_archive_rootdir() introuvable."
-              )
-
-          if extract_node is None:
-              raise SystemExit(
-                  "ERREUR: Recipe.extract_file() introuvable."
-              )
-
-          # ----------------------------------------------------------
-          # get_archive_rootdir()
-          # ----------------------------------------------------------
           new_root = textwrap.dedent("""
           def get_archive_rootdir(self, filename):
-              import os
-              import tarfile
-              import zipfile
-
+              import os, tarfile, zipfile
               if zipfile.is_zipfile(filename):
-                  with zipfile.ZipFile(filename) as archive:
-                      names = [
-                          n for n in archive.namelist()
-                          if n and not n.endswith("/")
-                      ]
+                  with zipfile.ZipFile(filename) as a:
+                      names = [n for n in a.namelist() if n and not n.endswith("/")]
                       if not names:
-                          raise Exception(
-                              "Archive ZIP vide: {}".format(filename)
-                          )
-                      return os.path.normpath(
-                          names[0]
-                      ).split(os.sep)[0]
-
+                          raise Exception("Archive ZIP vide: {}".format(filename))
+                      return os.path.normpath(names[0]).split(os.sep)[0]
               try:
-                  with tarfile.open(filename, "r:*") as archive:
-                      names = [
-                          m.name
-                          for m in archive.getmembers()
-                          if m.name
-                      ]
+                  with tarfile.open(filename, "r:*") as a:
+                      names = [m.name for m in a.getmembers() if m.name]
                       if not names:
-                          raise Exception(
-                              "Archive TAR vide: {}".format(filename)
-                          )
-                      return os.path.normpath(
-                          names[0]
-                      ).split(os.sep)[0]
+                          raise Exception("Archive TAR vide: {}".format(filename))
+                      return os.path.normpath(names[0]).split(os.sep)[0]
               except (tarfile.TarError, OSError):
                   pass
-
-              raise Exception(
-                  "Impossible de détecter la racine de l'archive: "
-                  "{}".format(filename)
-              )
+              raise Exception("Impossible de détecter la racine de l'archive: {}".format(filename))
           """).strip()
 
-          # ----------------------------------------------------------
-          # extract_file()
-          # ----------------------------------------------------------
           new_extract = textwrap.dedent("""
           def extract_file(self, filename, cwd):
-              import os
-              import tarfile
-              import zipfile
-
+              import os, tarfile, zipfile
               if not filename:
                   return
-
               os.makedirs(cwd, exist_ok=True)
-
-              logger.info(
-                  "Extract {} into {}".format(filename, cwd)
-              )
-
+              logger.info("Extract {} into {}".format(filename, cwd))
               if zipfile.is_zipfile(filename):
-                  with zipfile.ZipFile(filename) as archive:
-                      archive.extractall(cwd)
+                  with zipfile.ZipFile(filename) as a:
+                      a.extractall(cwd)
                   return
-
               try:
-                  with tarfile.open(filename, "r:*") as archive:
-                      archive.extractall(cwd)
+                  with tarfile.open(filename, "r:*") as a:
+                      a.extractall(cwd)
                   return
               except (tarfile.TarError, OSError):
                   pass
-
-              raise Exception(
-                  "Impossible d'extraire l'archive: "
-                  "{}".format(filename)
-              )
+              raise Exception("Impossible d'extraire l'archive: {}".format(filename))
           """).strip()
 
-          # ----------------------------------------------------------
-          # Remplacer les méthodes en conservant leur indentation
-          # ----------------------------------------------------------
-          lines = source.splitlines()
-
+          lines = s.splitlines()
           for node, replacement in sorted(
-              [
-                  (root_node, new_root),
-                  (extract_node, new_extract),
-              ],
-              key=lambda item: item[0].lineno,
+              [(root, new_root), (extract, new_extract)],
+              key=lambda x: x[0].lineno,
               reverse=True,
           ):
-              start = node.lineno - 1
-              end = node.end_lineno
-
-              indent = lines[start][
-                  :len(lines[start]) - len(lines[start].lstrip())
+              i, j = node.lineno - 1, node.end_lineno
+              indent = lines[i][:len(lines[i]) - len(lines[i].lstrip())]
+              lines[i:j] = [
+                  indent + x if x.strip() else ""
+                  for x in replacement.splitlines()
               ]
 
-              replacement = "\n".join(
-                  indent + line if line.strip() else ""
-                  for line in replacement.splitlines()
-              )
+          s = "\n".join(lines) + "\n"
+          tree = ast.parse(s)
+          compile(s, str(p), "exec")
 
-              lines[start:end] = replacement.splitlines()
+          ctx = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Context")
+          recipe = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Recipe")
 
-          patched = "\n".join(lines) + "\n"
-
-          # ----------------------------------------------------------
-          # Validation AST
-          # ----------------------------------------------------------
-          tree = ast.parse(patched)
-          compile(patched, str(path), "exec")
-
-          recipe = next(
+          cm = next(
               (
-                  n for n in tree.body
-                  if isinstance(n, ast.ClassDef)
-                  and n.name == "Recipe"
+                  n for n in ast.walk(ctx)
+                  if isinstance(n, ast.Assign)
+                  and any(
+                      isinstance(t, ast.Attribute)
+                      and isinstance(t.value, ast.Name)
+                      and t.value.id == "self"
+                      and t.attr == "concurrent_make"
+                      for t in n.targets
+                  )
               ),
               None,
           )
 
-          if recipe is None:
-              raise SystemExit(
-                  "ERREUR: Recipe absente après patch."
-              )
-
-          methods = {
-              n.name
-              for n in recipe.body
+          names = {
+              n.name for n in recipe.body
               if isinstance(n, ast.FunctionDef)
           }
 
-          for name in ("get_archive_rootdir", "extract_file"):
-              if name not in methods:
-                  raise SystemExit(
-                      "ERREUR: Recipe.{}() absente.".format(name)
-                  )
+          if not cm or "get_archive_rootdir" not in names or "extract_file" not in names:
+              raise SystemExit("ERREUR: validation AST du patch échouée.")
 
-          path.write_text(patched)
-
+          p.write_text(s)
           print("toolchain.py patché: OK")
-          print("make: -j1")
-          print("Recipe.get_archive_rootdir: OK")
-          print("Recipe.extract_file: OK")
           PY
 
           python -m py_compile "$T"
 
           python - <<'PY'
           import kivy_ios.toolchain as t
-
-          ctx = t.Context()
-
+          c = t.Context()
           print("toolchain:", t.__file__)
-          print("use_pigz:", ctx.use_pigz)
-          print("use_pbzip2:", ctx.use_pbzip2)
-          print("concurrent_make:", ctx.concurrent_make)
+          print("use_pigz:", c.use_pigz)
+          print("use_pbzip2:", c.use_pbzip2)
+          print("concurrent_make:", c.concurrent_make)
 
-          if ctx.use_pigz or ctx.use_pbzip2:
-              raise SystemExit(
-                  "ERREUR: compression externe active."
-              )
+          if c.use_pigz or c.use_pbzip2 or str(c.concurrent_make) != "-j1":
+              raise SystemExit("ERREUR: configuration toolchain invalide.")
 
-          if str(ctx.concurrent_make) != "-j1":
-              raise SystemExit(
-                  "ERREUR: concurrent_make n'est pas -j1."
-              )
-
-          for name in ("get_archive_rootdir", "extract_file"):
-              method = getattr(t.Recipe, name, None)
-
-              if method is None:
-                  raise SystemExit(
-                      "ERREUR: Recipe.{}() absente.".format(name)
-                  )
-
-              print("Recipe.{}:".format(name), method)
+          for n in ("get_archive_rootdir", "extract_file"):
+              if not hasattr(t.Recipe, n):
+                  raise SystemExit("ERREUR: Recipe.{}() absente.".format(n))
+              print("Recipe.{}: OK".format(n))
 
           print("Patch validé.")
           PY
@@ -337,7 +228,6 @@ jobs:
       - name: Fix FreeType
         run: |
           set -euxo pipefail
-
           F="$(python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)')"
 
           python - "$F" <<'PY'
@@ -351,7 +241,6 @@ jobs:
               "https://download.savannah.gnu.org/releases/freetype/"
               "freetype-old/freetype-{version}.tar.bz2"
           )
-
           new = (
               "https://sourceforge.net/projects/freetype/files/"
               "freetype2/{version}/freetype-{version}.tar.bz2/download"
@@ -371,56 +260,32 @@ jobs:
       - name: Configure iOS
         run: |
           set -euxo pipefail
-          export IPHONEOS_DEPLOYMENT_TARGET=12.0
-          export ARCHS=arm64
-          export KIVYIOS_ARCH=arm64
+          export IPHONEOS_DEPLOYMENT_TARGET=12.0 ARCHS=arm64 KIVYIOS_ARCH=arm64
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-
           echo "SDKROOT=$SDKROOT"
-          echo "ARCHS=$ARCHS"
-          echo "IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
-
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
 
       - name: Build host recipes
         run: |
           set -euxo pipefail
-          export MAKEFLAGS="-j1"
-          export CMAKE_BUILD_PARALLEL_LEVEL=1
+          export MAKEFLAGS="-j1" CMAKE_BUILD_PARALLEL_LEVEL=1
           toolchain build hostpython3 hostopenssl
 
       - name: Build iPhone arm64 recipes
         run: |
           set -euxo pipefail
+          export MAKEFLAGS="-j1" CMAKE_BUILD_PARALLEL_LEVEL=1
+          export IPHONEOS_DEPLOYMENT_TARGET=12.0 ARCHS=arm64 KIVYIOS_ARCH=arm64
 
-          export MAKEFLAGS="-j1"
-          export CMAKE_BUILD_PARALLEL_LEVEL=1
-          export IPHONEOS_DEPLOYMENT_TARGET=12.0
-          export ARCHS=arm64
-          export KIVYIOS_ARCH=arm64
-
-          toolchain build \
-            libffi \
-            openssl \
-            freetype \
-            libjpeg \
-            sdl2 \
-            sdl2_image \
-            sdl2_mixer \
-            sdl2_ttf \
-            --arch=arm64
-
-          toolchain build \
-            python3 \
-            kivy \
-            pillow \
-            --arch=arm64
+          toolchain build libffi openssl freetype libjpeg sdl2 sdl2_image sdl2_mixer sdl2_ttf --arch=arm64
+          toolchain build python3 kivy pillow --arch=arm64
 
       - name: Install Python dependencies
         run: |
           set -euxo pipefail
           toolchain pip install pyyaml requests urllib3
+
 
 
 
