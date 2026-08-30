@@ -62,6 +62,7 @@ jobs:
           PY
 
 
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
@@ -72,15 +73,13 @@ jobs:
           python - "$T" <<'PY'
           import re
           import sys
+          import textwrap
           from pathlib import Path
 
           p = Path(sys.argv[1])
           s = p.read_text()
 
-          # -------------------------------------------------------
           # Downloader: urllib -> curl
-          # -------------------------------------------------------
-
           if "urlretrieve(url, filename, report_hook)" in s:
               if "import subprocess" not in s:
                   s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
@@ -94,11 +93,17 @@ jobs:
           else:
               print("Downloader déjà patché.")
 
-          # -------------------------------------------------------
-          # get_archive_rootdir()
-          # -------------------------------------------------------
+          # get_archive_rootdir(): détection TAR/ZIP sans extension
+          pattern = re.compile(
+              r"(?ms)^    def get_archive_rootdir\(self,\s*filename\):.*?(?=^    def |\Z)"
+          )
 
-          new_method = '''    def get_archive_rootdir(self, filename):
+          match = pattern.search(s)
+          if not match:
+              raise SystemExit("ERREUR: get_archive_rootdir() introuvable.")
+
+          method = textwrap.dedent('''
+          def get_archive_rootdir(self, filename):
               import os
               import tarfile
               import zipfile
@@ -143,37 +148,25 @@ jobs:
               root = next(iter(roots))
               logger.info("Archive root directory: {}".format(root))
               return root
-          '''
+          ''').strip()
 
-          # IMPORTANT:
-          # Match the complete method using indentation and replace it
-          # without modifying the indentation of the following method.
+          # Toute la méthode doit être indentée de 4 espaces
+          # car elle appartient à la classe Recipe.
+          method = textwrap.indent(method, "    ")
 
-          pattern = re.compile(
-              r"(?ms)^    def get_archive_rootdir\(self, filename\):\n"
-              r"(?:        .*\n|[ \t]*\n)*?"
-              r"(?=^    def |\Z)"
-          )
-
-          match = pattern.search(s)
-
-          if not match:
-              raise SystemExit(
-                  "ERREUR: get_archive_rootdir() introuvable."
-              )
-
-          s = s[:match.start()] + new_method + "\n" + s[match.end():]
-
+          s = s[:match.start()] + method + "\n" + s[match.end():]
           p.write_text(s)
-          print("get_archive_rootdir() corrigée.")
 
-          # Vérification immédiate
+          # Vérification avant même de quitter le script.
           compile(s, str(p), "exec")
+          print("get_archive_rootdir() corrigée.")
           print("Compilation du patch OK.")
           PY
 
           python -m py_compile "$T"
           echo "toolchain.py syntaxe OK."
+
+
 
 
 
