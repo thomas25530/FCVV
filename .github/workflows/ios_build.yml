@@ -60,6 +60,7 @@ jobs:
               raise SystemExit("ERREUR: URL FreeType introuvable.")
           PY
 
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
@@ -92,9 +93,10 @@ jobs:
               print("Downloader déjà patché.")
 
           def replace_method(lines, name, body):
+              prefix = f"    def {name}("
               start = next(
                   (i for i, line in enumerate(lines)
-                   if line.startswith(f"    def {name}(")),
+                   if line.startswith(prefix)),
                   None,
               )
               if start is None:
@@ -107,8 +109,6 @@ jobs:
               )
 
               method = body.strip("\n").splitlines()
-              while method and not method[0].strip():
-                  method.pop(0)
               lines[start:end] = method
               print(f"{name}() remplacée.")
 
@@ -141,9 +141,9 @@ jobs:
                   raise Exception()
 
               roots = {
-                  name.lstrip("/").split("/")[0]
-                  for name in names
-                  if name.lstrip("/")
+                  n.lstrip("/").split("/")[0]
+                  for n in names
+                  if n.lstrip("/")
               }
 
               if len(roots) != 1:
@@ -192,10 +192,30 @@ jobs:
           PY
 
           python -m py_compile "$T"
-          grep -n "subprocess.run" "$T"
-          grep -n "def get_archive_rootdir" "$T"
-          grep -n "def extract_file" "$T"
+
+          python - "$T" <<'PY'
+          import sys
+          from pathlib import Path
+
+          s = Path(sys.argv[1]).read_text()
+          required = [
+              "def get_archive_rootdir(",
+              "def extract_file(",
+              "subprocess.run(",
+          ]
+
+          missing = [x for x in required if x not in s]
+          if missing:
+              raise SystemExit("ERREUR: éléments manquants: " + ", ".join(missing))
+
+          print("toolchain.py vérifié : OK")
+          for x in required:
+              print("  OK:", x)
+          PY
+
           echo "toolchain.py syntaxe OK."
+
+
 
       - name: Configure arm64 build
         run: |
