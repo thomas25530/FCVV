@@ -141,6 +141,7 @@ jobs:
 
           python - "$TOOLCHAIN_FILE" <<'PY'
           import sys
+          import textwrap
           from pathlib import Path
 
           path = Path(sys.argv[1])
@@ -234,100 +235,102 @@ jobs:
                   "ERREUR : fin de get_archive_rootdir() introuvable."
               )
 
-          new_method = """    def get_archive_rootdir(self, filename):
-              \"\"\"
-              Determine the root directory of an archive.
+          new_method = textwrap.dedent("""
+              def get_archive_rootdir(self, filename):
+                  \"\"\"
+                  Determine the root directory of an archive.
 
-              Supports archives without a filename extension.
-              \"\"\"
+                  Supports archives without a filename extension.
+                  \"\"\"
 
-              import tarfile
-              import zipfile
+                  import tarfile
+                  import zipfile
 
-              if not os.path.exists(filename):
-                  logger.error(
-                      "Archive does not exist: {}".format(filename)
-                  )
-                  raise Exception()
+                  if not os.path.exists(filename):
+                      logger.error(
+                          "Archive does not exist: {}".format(filename)
+                      )
+                      raise Exception()
 
-              names = []
-
-              # ---------------------------------------------------------
-              # Try TAR.
-              # ---------------------------------------------------------
-
-              try:
-                  with tarfile.open(filename, "r:*") as archive:
-                      names = [
-                          member.name
-                          for member in archive.getmembers()
-                          if member.name
-                      ]
-
-              except (
-                  tarfile.TarError,
-                  EOFError,
-                  OSError,
-              ):
                   names = []
 
-              # ---------------------------------------------------------
-              # Try ZIP if TAR failed.
-              # ---------------------------------------------------------
+                  # ---------------------------------------------------------
+                  # Try TAR.
+                  # ---------------------------------------------------------
 
-              if not names:
                   try:
-                      with zipfile.ZipFile(filename) as archive:
+                      with tarfile.open(filename, "r:*") as archive:
                           names = [
-                              name
-                              for name in archive.namelist()
-                              if name
+                              member.name
+                              for member in archive.getmembers()
+                              if member.name
                           ]
 
                   except (
-                      zipfile.BadZipFile,
+                      tarfile.TarError,
+                      EOFError,
                       OSError,
                   ):
                       names = []
 
-              # ---------------------------------------------------------
-              # Archive not recognized.
-              # ---------------------------------------------------------
+                  # ---------------------------------------------------------
+                  # Try ZIP if TAR failed.
+                  # ---------------------------------------------------------
 
-              if not names:
-                  logger.error(
-                      "Unrecognized archive for {}".format(filename)
-                  )
-                  raise Exception()
+                  if not names:
+                      try:
+                          with zipfile.ZipFile(filename) as archive:
+                              names = [
+                                  name
+                                  for name in archive.namelist()
+                                  if name
+                              ]
 
-              # ---------------------------------------------------------
-              # Find the root directory.
-              # ---------------------------------------------------------
+                      except (
+                          zipfile.BadZipFile,
+                          OSError,
+                      ):
+                          names = []
 
-              roots = set()
+                  # ---------------------------------------------------------
+                  # Archive not recognized.
+                  # ---------------------------------------------------------
 
-              for name in names:
-                  parts = name.split("/")
-
-                  if parts and parts[0]:
-                      roots.add(parts[0])
-
-              if len(roots) != 1:
-                  logger.error(
-                      "Cannot detect root directory for {}: {}".format(
-                          filename,
-                          sorted(roots),
+                  if not names:
+                      logger.error(
+                          "Unrecognized archive for {}".format(filename)
                       )
+                      raise Exception()
+
+                  # ---------------------------------------------------------
+                  # Find the root directory.
+                  # ---------------------------------------------------------
+
+                  roots = set()
+
+                  for name in names:
+                      parts = name.split("/")
+
+                      if parts and parts[0]:
+                          roots.add(parts[0])
+
+                  if len(roots) != 1:
+                      logger.error(
+                          "Cannot detect root directory for {}: {}".format(
+                              filename,
+                              sorted(roots),
+                          )
+                      )
+                      raise Exception()
+
+                  root = next(iter(roots))
+
+                  logger.info(
+                      "Archive root directory: {}".format(root)
                   )
-                  raise Exception()
 
-              root = next(iter(roots))
-
-              logger.info(
-                  "Archive root directory: {}".format(root)
-              )
-
-              return root"""
+                  return root
+          """).strip("\n")
 
           text = (
               text[:start]
