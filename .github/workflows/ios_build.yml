@@ -61,106 +61,132 @@ jobs:
           PY
 
 
+
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
+
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           cp "$T" "$T.backup"
 
           python - "$T" <<'PY'
+          import re
           import sys
           from pathlib import Path
 
           p = Path(sys.argv[1])
-          lines = p.read_text().splitlines()
+          s = p.read_text()
 
-          # urllib -> curl
-          text = "\n".join(lines)
-          if "urlretrieve(url, filename, report_hook)" in text:
-              if "import subprocess" not in text:
-                  for i, line in enumerate(lines):
-                      if line.strip() == "import sys":
-                          lines.insert(i + 1, "import subprocess")
-                          break
-              text = "\n".join(lines).replace(
+          # Downloader : urllib -> curl
+          if "urlretrieve(url, filename, report_hook)" in s:
+              if "import subprocess" not in s:
+                  s = s.replace(
+                      "import sys\n",
+                      "import sys\nimport subprocess\n",
+                      1,
+                  )
+
+              s = s.replace(
                   "urlretrieve(url, filename, report_hook)",
                   'subprocess.run(["curl","-L","--fail","--retry","5","--retry-delay","5","--retry-all-errors",url,"-o",filename], check=True)',
                   1,
               )
-              lines = text.splitlines()
               print("Downloader curl installé.")
           else:
               print("Downloader déjà patché.")
 
-          def replace_method(lines, name, body):
-              prefix = f"    def {name}("
-              start = next(
-                  (i for i, line in enumerate(lines)
-                   if line.startswith(prefix)),
-                  None,
-              )
-              if start is None:
-                  raise SystemExit(f"ERREUR: {name}() introuvable.")
-
-              end = next(
-                  (i for i in range(start + 1, len(lines))
-                   if lines[i].startswith("    def ")),
-                  len(lines),
+          def replace_method(source, name, new_method):
+              pattern = re.compile(
+                  rf"(?ms)^    def {re.escape(name)}\(.*?(?=^    def |\Z)"
               )
 
-              method = body.strip("\n").splitlines()
-              lines[start:end] = method
-              print(f"{name}() remplacée.")
+              match = pattern.search(source)
 
-          replace_method(lines, "get_archive_rootdir", '''
-          def get_archive_rootdir(self, filename):
+              if not match:
+                  raise SystemExit(
+                      f"ERREUR: {name}() introuvable dans {p}"
+                  )
+
+              return (
+                  source[:match.start()]
+                  + new_method.rstrip()
+                  + "\n"
+                  + source[match.end():]
+              )
+
+          # get_archive_rootdir()
+          s = replace_method(
+              s,
+              "get_archive_rootdir",
+              """    def get_archive_rootdir(self, filename):
               import os
               import tarfile
               import zipfile
 
               if not os.path.exists(filename):
-                  logger.error("Archive does not exist: {}".format(filename))
+                  logger.error(
+                      "Archive does not exist: {}".format(filename)
+                  )
                   raise Exception()
 
               names = []
+
               try:
                   with tarfile.open(filename, "r:*") as archive:
-                      names = [m.name for m in archive.getmembers() if m.name]
+                      names = [
+                          m.name
+                          for m in archive.getmembers()
+                          if m.name
+                      ]
               except (tarfile.TarError, EOFError, OSError):
                   pass
 
               if not names:
                   try:
                       with zipfile.ZipFile(filename) as archive:
-                          names = [n for n in archive.namelist() if n]
+                          names = [
+                              n
+                              for n in archive.namelist()
+                              if n
+                          ]
                   except (zipfile.BadZipFile, OSError):
                       pass
 
               if not names:
-                  logger.error("Unrecognized archive for {}".format(filename))
+                  logger.error(
+                      "Unrecognized archive for {}".format(filename)
+                  )
                   raise Exception()
 
               roots = {
-                  n.lstrip("/").split("/")[0]
-                  for n in names
-                  if n.lstrip("/")
+                  name.lstrip("/").split("/")[0]
+                  for name in names
+                  if name.lstrip("/")
               }
 
               if len(roots) != 1:
                   logger.error(
                       "Cannot detect root directory for {}: {}".format(
-                          filename, sorted(roots)
+                          filename,
+                          sorted(roots),
                       )
                   )
                   raise Exception()
 
               root = next(iter(roots))
-              logger.info("Archive root directory: {}".format(root))
+              logger.info(
+                  "Archive root directory: {}".format(root)
+              )
               return root
-          ''')
+          """,
+          )
 
-          replace_method(lines, "extract_file", '''
-          def extract_file(self, filename, dest_dir):
+          # extract_file()
+          s = replace_method(
+              s,
+              "extract_file",
+              """    def extract_file(self, filename, dest_dir):
               import os
               import tarfile
               import zipfile
@@ -181,39 +207,51 @@ jobs:
               except (zipfile.BadZipFile, OSError):
                   pass
 
-              logger.error("Cannot extract archive: {}".format(filename))
+              logger.error(
+                  "Cannot extract archive: {}".format(filename)
+              )
               raise Exception()
-          ''')
+          """,
+          )
 
-          result = "\n".join(lines) + "\n"
-          compile(result, str(p), "exec")
-          p.write_text(result)
+          # Vérification avant écriture
+          compile(s, str(p), "exec")
+          p.write_text(s)
+
+          # Vérification finale
+          final = p.read_text()
+          compile(final, str(p), "exec")
+
+          required = [
+              r"def get_archive_rootdir\(self, filename\):",
+              r"def extract_file\(self, filename, dest_dir\):",
+              r"subprocess\.run\(",
+          ]
+
+          for pattern in required:
+              if not re.search(pattern, final):
+                  raise SystemExit(
+                      f"ERREUR: élément manquant: {pattern}"
+                  )
+
           print("Patch toolchain.py valide.")
+          print("get_archive_rootdir() : OK")
+          print("extract_file()        : OK")
+          print("Downloader curl       : OK")
           PY
 
           python -m py_compile "$T"
 
-          python - "$T" <<'PY'
-          import sys
-          from pathlib import Path
-
-          s = Path(sys.argv[1]).read_text()
-          required = [
-              "def get_archive_rootdir(",
-              "def extract_file(",
-              "subprocess.run(",
-          ]
-
-          missing = [x for x in required if x not in s]
-          if missing:
-              raise SystemExit("ERREUR: éléments manquants: " + ", ".join(missing))
-
-          print("toolchain.py vérifié : OK")
-          for x in required:
-              print("  OK:", x)
-          PY
+          echo "===== Vérification toolchain.py ====="
+          grep -n "def get_archive_rootdir" "$T"
+          grep -n "def extract_file" "$T"
+          grep -n "subprocess.run" "$T"
 
           echo "toolchain.py syntaxe OK."
+
+
+      
+      
 
 
 
