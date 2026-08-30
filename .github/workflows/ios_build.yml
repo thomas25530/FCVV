@@ -61,6 +61,14 @@ jobs:
           which cython-2.7
           cython-2.7 --version
 
+      - name: Cache kivy-ios
+        uses: actions/cache@v4
+        with:
+          path: ~/.kivy-ios
+          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-sourceforge-v6
+          restore-keys: |
+            ${{ runner.os }}-kivy-ios-v1.3.0-python310-
+
       - name: Fix FreeType recipe
         run: |
           set -euxo pipefail
@@ -74,6 +82,7 @@ jobs:
           echo "Recipe : $FREETYPE_RECIPE"
 
           echo "===== URL avant correction ====="
+
           grep -n "url" "$FREETYPE_RECIPE"
 
           python - "$FREETYPE_RECIPE" <<'PY'
@@ -97,8 +106,10 @@ jobs:
               text = text.replace(old, new, 1)
               path.write_text(text)
               print("URL FreeType remplacée par SourceForge.")
+
           elif new in text:
               print("La recette utilise déjà SourceForge.")
+
           else:
               raise SystemExit(
                   "ERREUR : URL FreeType connue introuvable."
@@ -106,10 +117,10 @@ jobs:
           PY
 
           echo "===== URL après correction ====="
+
           grep -n "url" "$FREETYPE_RECIPE"
 
-
-      - name: Patch kivy-ios downloader
+      - name: Patch kivy-ios downloader and FreeType archive name
         run: |
           set -euxo pipefail
 
@@ -125,7 +136,7 @@ jobs:
 
           cp "$TOOLCHAIN_FILE" "${TOOLCHAIN_FILE}.backup"
 
-          echo "===== Patch du downloader ====="
+          echo "===== Patch de toolchain.py ====="
 
           python - "$TOOLCHAIN_FILE" <<'PY'
           import sys
@@ -134,27 +145,31 @@ jobs:
           path = Path(sys.argv[1])
           text = path.read_text()
 
-          # ---------------------------------------------------------
-          # Ajouter subprocess si nécessaire
-          # ---------------------------------------------------------
+          # =========================================================
+          # 1. Ajouter subprocess
+          # =========================================================
 
           if "import subprocess" not in text:
-              if "import sys\n" in text:
+              marker = "import sys\n"
+
+              if marker in text:
                   text = text.replace(
-                      "import sys\n",
-                      "import sys\nimport subprocess\n",
+                      marker,
+                      marker + "import subprocess\n",
                       1,
                   )
               else:
                   text = "import subprocess\n" + text
 
-          # ---------------------------------------------------------
-          # Remplacer urlretrieve() par curl
-          # ---------------------------------------------------------
+          # =========================================================
+          # 2. Remplacer urlretrieve() par curl
+          # =========================================================
 
-          old = "                urlretrieve(url, filename, report_hook)"
+          old_download = (
+              "                urlretrieve(url, filename, report_hook)"
+          )
 
-          new = """                subprocess.run(
+          new_download = """                subprocess.run(
                       [
                           "curl",
                           "-L",
@@ -169,33 +184,117 @@ jobs:
                       check=True,
                   )"""
 
-          if old in text:
-              text = text.replace(old, new, 1)
-              print("urlretrieve() remplacé par curl.")
-          elif '"curl"' in text and "subprocess.run(" in text:
-              print("Le downloader curl est déjà installé.")
+          if old_download in text:
+              text = text.replace(
+                  old_download,
+                  new_download,
+                  1,
+              )
+
+              print(
+                  "urlretrieve() remplacé par curl."
+              )
+
+          elif (
+              '"curl"' in text
+              and "subprocess.run(" in text
+          ):
+              print(
+                  "Le downloader curl est déjà présent."
+              )
+
           else:
               raise SystemExit(
-                  "ERREUR : urlretrieve() introuvable dans toolchain.py."
+                  "ERREUR : urlretrieve() introuvable."
+              )
+
+          # =========================================================
+          # 3. Corriger Recipe.download()
+          #
+          # Le problème observé est :
+          #
+          #   .cache/freetype-download
+          #
+          # kivy-ios 1.3.0 passe ensuite ce fichier à
+          # get_archive_rootdir(), qui se base sur l'extension.
+          #
+          # On force donc FreeType à utiliser :
+          #
+          #   freetype-download.tar.bz2
+          # =========================================================
+
+          old_recipe = (
+              "            fn = self.archive_fn\n"
+              "            self.download_file("
+              "self.url.format(version=self.version), fn)\n"
+              "            status = self.get_archive_rootdir("
+              "self.archive_fn)"
+          )
+
+          new_recipe = (
+              "            fn = self.archive_fn\n"
+              "\n"
+              "            if self.name == 'freetype' "
+              "and not fn.endswith('.tar.bz2'):\n"
+              "                fn = fn + '.tar.bz2'\n"
+              "\n"
+              "            self.download_file("
+              "self.url.format(version=self.version), fn)\n"
+              "\n"
+              "            status = self.get_archive_rootdir(fn)"
+          )
+
+          if old_recipe in text:
+              text = text.replace(
+                  old_recipe,
+                  new_recipe,
+                  1,
+              )
+
+              print(
+                  "Recipe.download() corrigé pour FreeType."
+              )
+
+          elif (
+              "self.name == 'freetype'"
+              in text
+              and "fn.endswith('.tar.bz2')"
+              in text
+          ):
+              print(
+                  "Recipe.download() est déjà corrigé."
+              )
+
+          else:
+              raise SystemExit(
+                  "ERREUR : code Recipe.download() "
+                  "introuvable ou différent."
               )
 
           path.write_text(text)
 
-          print("Patch downloader terminé.")
+          print(
+              "Patch toolchain.py terminé avec succès."
+          )
           PY
 
-          echo "===== Vérification syntaxique de toolchain.py ====="
+          echo "===== Vérification syntaxique ====="
 
           python -m py_compile "$TOOLCHAIN_FILE"
 
-          echo "Syntaxe Python OK."
+          echo "Syntaxe de toolchain.py : OK"
 
-          echo "===== Downloader final ====="
+          echo "===== Vérification du downloader ====="
 
-          grep -n -A45 -B5 \
+          grep -n -A55 -B5 \
             "def download_file" \
             "$TOOLCHAIN_FILE"
 
+          echo "===== Vérification de Recipe.download() ====="
+
+          grep -n -A30 -B5 \
+            "def download(self)" \
+            "$TOOLCHAIN_FILE"
 
       - name: Verify FreeType recipe
         run: |
@@ -229,6 +328,8 @@ jobs:
 
           echo "URL : $FREETYPE_URL"
           echo "Fichier : $TEST_FILE"
+
+          rm -f "$TEST_FILE"
 
           curl \
             -L \
@@ -308,11 +409,6 @@ jobs:
             -path "*site-packages*" \
             -iname "*yaml*" \
             -print || true
-
-
-
-
-
 
 
 
