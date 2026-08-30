@@ -80,9 +80,6 @@ jobs:
                   ),
                   1,
               )
-              print("Downloader: curl OK")
-          else:
-              print("Downloader: déjà patché")
 
           # ----------------------------------------------------------
           # Désactiver pigz / pbzip2
@@ -96,10 +93,29 @@ jobs:
               "self.use_pbzip2 = False",
           )
 
+          # ----------------------------------------------------------
+          # Forcer tous les builds make en séquentiel
+          # ----------------------------------------------------------
+          source = source.replace(
+              "self.concurrent_make = '-j3'",
+              "self.concurrent_make = '-j1'",
+          )
+          source = source.replace(
+              'self.concurrent_make = "-j3"',
+              'self.concurrent_make = "-j1"',
+          )
+
+          # Si la valeur est construite autrement, neutraliser aussi
+          # les appels directs make -jN.
+          source = source.replace(
+              "sh.make, self.ctx.concurrent_make",
+              "sh.make, '-j1'",
+          )
+
           tree = ast.parse(source)
 
           # ----------------------------------------------------------
-          # Trouver la classe Recipe
+          # Trouver Recipe
           # ----------------------------------------------------------
           recipe = next(
               (
@@ -132,11 +148,8 @@ jobs:
                   "ERREUR: Recipe.extract_file() introuvable."
               )
 
-          print("Recipe.get_archive_rootdir:", root_node.lineno)
-          print("Recipe.extract_file:", extract_node.lineno)
-
           # ----------------------------------------------------------
-          # Nouvelles méthodes
+          # get_archive_rootdir()
           # ----------------------------------------------------------
           new_root = textwrap.dedent("""
           def get_archive_rootdir(self, filename):
@@ -181,6 +194,9 @@ jobs:
               )
           """).strip()
 
+          # ----------------------------------------------------------
+          # extract_file()
+          # ----------------------------------------------------------
           new_extract = textwrap.dedent("""
           def extract_file(self, filename, cwd):
               import os
@@ -215,7 +231,7 @@ jobs:
           """).strip()
 
           # ----------------------------------------------------------
-          # Remplacer en conservant EXACTEMENT l'indentation originale
+          # Remplacer les méthodes en conservant leur indentation
           # ----------------------------------------------------------
           lines = source.splitlines()
 
@@ -230,8 +246,9 @@ jobs:
               start = node.lineno - 1
               end = node.end_lineno
 
-              original = lines[start]
-              indent = original[:len(original) - len(original.lstrip())]
+              indent = lines[start][
+                  :len(lines[start]) - len(lines[start].lstrip())
+              ]
 
               replacement = "\n".join(
                   indent + line if line.strip() else ""
@@ -243,7 +260,7 @@ jobs:
           patched = "\n".join(lines) + "\n"
 
           # ----------------------------------------------------------
-          # Validation syntaxique + validation AST de Recipe
+          # Validation AST
           # ----------------------------------------------------------
           tree = ast.parse(patched)
           compile(patched, str(path), "exec")
@@ -268,22 +285,16 @@ jobs:
               if isinstance(n, ast.FunctionDef)
           }
 
-          required = {
-              "get_archive_rootdir",
-              "extract_file",
-          }
-
-          missing = required - methods
-
-          if missing:
-              raise SystemExit(
-                  "ERREUR: méthodes Recipe absentes après patch: "
-                  + ", ".join(sorted(missing))
-              )
+          for name in ("get_archive_rootdir", "extract_file"):
+              if name not in methods:
+                  raise SystemExit(
+                      "ERREUR: Recipe.{}() absente.".format(name)
+                  )
 
           path.write_text(patched)
 
           print("toolchain.py patché: OK")
+          print("make: -j1")
           print("Recipe.get_archive_rootdir: OK")
           print("Recipe.extract_file: OK")
           PY
@@ -293,33 +304,33 @@ jobs:
           python - <<'PY'
           import kivy_ios.toolchain as t
 
-          print("toolchain:", t.__file__)
-
           ctx = t.Context()
 
+          print("toolchain:", t.__file__)
           print("use_pigz:", ctx.use_pigz)
           print("use_pbzip2:", ctx.use_pbzip2)
+          print("concurrent_make:", ctx.concurrent_make)
 
           if ctx.use_pigz or ctx.use_pbzip2:
               raise SystemExit(
-                  "ERREUR: compression externe encore active."
+                  "ERREUR: compression externe active."
               )
 
-          root = getattr(t.Recipe, "get_archive_rootdir", None)
-          extract = getattr(t.Recipe, "extract_file", None)
-
-          if root is None:
+          if str(ctx.concurrent_make) != "-j1":
               raise SystemExit(
-                  "ERREUR: Recipe.get_archive_rootdir() absente."
+                  "ERREUR: concurrent_make n'est pas -j1."
               )
 
-          if extract is None:
-              raise SystemExit(
-                  "ERREUR: Recipe.extract_file() absente."
-              )
+          for name in ("get_archive_rootdir", "extract_file"):
+              method = getattr(t.Recipe, name, None)
 
-          print("Recipe.get_archive_rootdir:", root)
-          print("Recipe.extract_file:", extract)
+              if method is None:
+                  raise SystemExit(
+                      "ERREUR: Recipe.{}() absente.".format(name)
+                  )
+
+              print("Recipe.{}:".format(name), method)
+
           print("Patch validé.")
           PY
 
