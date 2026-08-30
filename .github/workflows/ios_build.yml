@@ -33,7 +33,7 @@ jobs:
           path: |
             ~/.kivy-ios
             .cache
-          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-sourceforge-v12
+          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-sourceforge-v13
           restore-keys: |
             ${{ runner.os }}-kivy-ios-v1.3.0-python310-
 
@@ -61,12 +61,9 @@ jobs:
               raise SystemExit("ERREUR: URL FreeType introuvable.")
           PY
 
-
-
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
-
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           cp "$T" "$T.backup"
 
@@ -79,10 +76,17 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text()
 
-          # Downloader: urllib -> curl
+          # =========================================================
+          # 1. Downloader: urllib -> curl
+          # =========================================================
+
           if "urlretrieve(url, filename, report_hook)" in s:
               if "import subprocess" not in s:
-                  s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
+                  s = s.replace(
+                      "import sys\n",
+                      "import sys\nimport subprocess\n",
+                      1,
+                  )
 
               s = s.replace(
                   "urlretrieve(url, filename, report_hook)",
@@ -93,82 +97,164 @@ jobs:
           else:
               print("Downloader déjà patché.")
 
-          # get_archive_rootdir(): détection TAR/ZIP sans extension
-          pattern = re.compile(
-              r"(?ms)^    def get_archive_rootdir\(self,\s*filename\):.*?(?=^    def |\Z)"
+          # =========================================================
+          # Fonction utilitaire pour remplacer une méthode de classe
+          # =========================================================
+
+          def replace_method(source, name, body):
+              pattern = re.compile(
+                  rf"(?ms)^    def {name}\(.*?(?=^    def |\Z)"
+              )
+
+              match = pattern.search(source)
+
+              if not match:
+                  raise SystemExit(
+                      f"ERREUR: méthode {name}() introuvable."
+                  )
+
+              method = textwrap.dedent(body).strip()
+              method = textwrap.indent(method, "    ")
+
+              return (
+                  source[:match.start()]
+                  + method
+                  + "\n"
+                  + source[match.end():]
+              )
+
+          # =========================================================
+          # 2. get_archive_rootdir()
+          #    Détection TAR/ZIP sans extension.
+          # =========================================================
+
+          s = replace_method(
+              s,
+              "get_archive_rootdir",
+              '''
+              def get_archive_rootdir(self, filename):
+                  import os
+                  import tarfile
+                  import zipfile
+
+                  if not os.path.exists(filename):
+                      logger.error(
+                          "Archive does not exist: {}".format(filename)
+                      )
+                      raise Exception()
+
+                  names = []
+
+                  try:
+                      with tarfile.open(filename, "r:*") as archive:
+                          names = [
+                              m.name
+                              for m in archive.getmembers()
+                              if m.name
+                          ]
+                  except (tarfile.TarError, EOFError, OSError):
+                      pass
+
+                  if not names:
+                      try:
+                          with zipfile.ZipFile(filename) as archive:
+                              names = [
+                                  n
+                                  for n in archive.namelist()
+                                  if n
+                              ]
+                      except (zipfile.BadZipFile, OSError):
+                          pass
+
+                  if not names:
+                      logger.error(
+                          "Unrecognized archive for {}".format(filename)
+                      )
+                      raise Exception()
+
+                  roots = set()
+
+                  for name in names:
+                      name = name.lstrip("/")
+
+                      if name:
+                          roots.add(name.split("/")[0])
+
+                  if len(roots) != 1:
+                      logger.error(
+                          "Cannot detect root directory for {}: {}".format(
+                              filename,
+                              sorted(roots),
+                          )
+                      )
+                      raise Exception()
+
+                  root = next(iter(roots))
+
+                  logger.info(
+                      "Archive root directory: {}".format(root)
+                  )
+
+                  return root
+              ''',
           )
 
-          match = pattern.search(s)
-          if not match:
-              raise SystemExit("ERREUR: get_archive_rootdir() introuvable.")
+          # =========================================================
+          # 3. extract_file()
+          #    Extraction TAR/ZIP sans extension.
+          # =========================================================
 
-          method = textwrap.dedent('''
-          def get_archive_rootdir(self, filename):
-              import os
-              import tarfile
-              import zipfile
+          s = replace_method(
+              s,
+              "extract_file",
+              '''
+              def extract_file(self, filename, dest_dir):
+                  import os
+                  import tarfile
+                  import zipfile
 
-              if not os.path.exists(filename):
-                  logger.error("Archive does not exist: {}".format(filename))
-                  raise Exception()
+                  os.makedirs(dest_dir, exist_ok=True)
 
-              names = []
+                  try:
+                      with tarfile.open(filename, "r:*") as archive:
+                          archive.extractall(dest_dir)
+                          return
+                  except (tarfile.TarError, EOFError, OSError):
+                      pass
 
-              try:
-                  with tarfile.open(filename, "r:*") as archive:
-                      names = [m.name for m in archive.getmembers() if m.name]
-              except (tarfile.TarError, EOFError, OSError):
-                  pass
-
-              if not names:
                   try:
                       with zipfile.ZipFile(filename) as archive:
-                          names = [n for n in archive.namelist() if n]
+                          archive.extractall(dest_dir)
+                          return
                   except (zipfile.BadZipFile, OSError):
                       pass
 
-              if not names:
-                  logger.error("Unrecognized archive for {}".format(filename))
-                  raise Exception()
-
-              roots = set()
-              for name in names:
-                  name = name.lstrip("/")
-                  if name:
-                      roots.add(name.split("/")[0])
-
-              if len(roots) != 1:
                   logger.error(
-                      "Cannot detect root directory for {}: {}".format(
-                          filename, sorted(roots)
-                      )
+                      "Cannot extract archive: {}".format(filename)
                   )
                   raise Exception()
+              ''',
+          )
 
-              root = next(iter(roots))
-              logger.info("Archive root directory: {}".format(root))
-              return root
-          ''').strip()
+          # =========================================================
+          # Vérification syntaxique avant écriture définitive
+          # =========================================================
 
-          # Toute la méthode doit être indentée de 4 espaces
-          # car elle appartient à la classe Recipe.
-          method = textwrap.indent(method, "    ")
-
-          s = s[:match.start()] + method + "\n" + s[match.end():]
+          compile(s, str(p), "exec")
           p.write_text(s)
 
-          # Vérification avant même de quitter le script.
-          compile(s, str(p), "exec")
           print("get_archive_rootdir() corrigée.")
-          print("Compilation du patch OK.")
+          print("extract_file() corrigée.")
+          print("Patch toolchain.py valide.")
           PY
 
           python -m py_compile "$T"
           echo "toolchain.py syntaxe OK."
 
-
-
-
+          echo "===== Vérification ====="
+          grep -n "def get_archive_rootdir" "$T"
+          grep -n "def extract_file" "$T"
+          grep -n "subprocess.run" "$T"
 
       - name: Verify kivy-ios
         run: |
@@ -176,8 +262,6 @@ jobs:
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           python -m py_compile "$T"
           python -c 'import kivy_ios; print("kivy-ios:", kivy_ios.__file__)'
-          grep -n "subprocess" "$T" || true
-          grep -n "get_archive_rootdir" "$T"
 
       - name: Build kivy-ios recipes
         run: |
@@ -188,6 +272,8 @@ jobs:
         run: |
           set -euxo pipefail
           toolchain pip install pyyaml requests urllib3
+
+
 
 
 
