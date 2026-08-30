@@ -65,11 +65,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-sourceforge-v4
+          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-sourceforge-v5
           restore-keys: |
             ${{ runner.os }}-kivy-ios-v1.3.0-python310-
 
-      - name: Fix FreeType recipe URL
+      - name: Fix FreeType recipe
         run: |
           set -euxo pipefail
 
@@ -81,11 +81,9 @@ jobs:
 
           echo "Recipe : $FREETYPE_RECIPE"
 
-          echo "===== URL originale ====="
+          echo "===== URL avant correction ====="
 
           grep -n "url" "$FREETYPE_RECIPE"
-
-          echo "===== Remplacement URL Savannah -> SourceForge ====="
 
           python - "$FREETYPE_RECIPE" <<'PY'
           import sys
@@ -105,27 +103,24 @@ jobs:
           )
 
           if old not in text:
-              print("URL Savannah introuvable.")
-              print("Le contenu actuel de la recette est :")
-              for line in text.splitlines():
-                  if "url" in line.lower():
-                      print(line)
-              raise SystemExit(
-                  "ERREUR : impossible de remplacer l'URL FreeType."
-              )
+              if new in text:
+                  print("La recette utilise déjà SourceForge.")
+              else:
+                  raise SystemExit(
+                      "ERREUR : URL FreeType connue introuvable."
+                  )
+          else:
+              text = text.replace(old, new, 1)
+              path.write_text(text)
+              print("URL FreeType remplacée par SourceForge.")
 
-          text = text.replace(old, new, 1)
-
-          path.write_text(text)
-
-          print("URL FreeType remplacée avec succès.")
           PY
 
-          echo "===== URL finale ====="
+          echo "===== URL après correction ====="
 
           grep -n "url" "$FREETYPE_RECIPE"
 
-      - name: Patch kivy-ios downloader
+      - name: Patch kivy-ios downloader and archive detection
         run: |
           set -euxo pipefail
 
@@ -137,6 +132,8 @@ jobs:
 
           echo "Toolchain : $TOOLCHAIN_FILE"
 
+          cp "$TOOLCHAIN_FILE" "${TOOLCHAIN_FILE}.backup"
+
           echo "===== Patch du downloader ====="
 
           python - "$TOOLCHAIN_FILE" <<'PY'
@@ -146,9 +143,15 @@ jobs:
           path = Path(sys.argv[1])
           text = path.read_text()
 
-          old = "                urlretrieve(url, filename, report_hook)"
+          # ------------------------------------------------------------
+          # 1. Remplacer urlretrieve() par curl
+          # ------------------------------------------------------------
 
-          new = """                subprocess.run(
+          old_download = (
+              "                urlretrieve(url, filename, report_hook)"
+          )
+
+          new_download = """                subprocess.run(
                       [
                           "curl",
                           "-L",
@@ -163,10 +166,26 @@ jobs:
                       check=True,
                   )"""
 
-          if old not in text:
-              raise SystemExit(
-                  "ERREUR : appel urlretrieve(url, filename, report_hook) introuvable."
+          if old_download in text:
+              text = text.replace(
+                  old_download,
+                  new_download,
+                  1,
               )
+
+              print("Downloader urlretrieve() remplacé par curl.")
+
+          elif "subprocess.run(" in text and '"curl"' in text:
+              print("Le downloader curl est déjà présent.")
+
+          else:
+              raise SystemExit(
+                  "ERREUR : impossible de trouver urlretrieve()."
+              )
+
+          # ------------------------------------------------------------
+          # 2. Import subprocess
+          # ------------------------------------------------------------
 
           if "import subprocess" not in text:
               import_marker = "import sys\n"
@@ -180,11 +199,147 @@ jobs:
               else:
                   text = "import subprocess\n" + text
 
-          text = text.replace(old, new, 1)
+          # ------------------------------------------------------------
+          # 3. Corriger get_archive_rootdir()
+          #
+          # kivy-ios 1.3.0 utilise parfois :
+          #
+          #   .cache/freetype-download
+          #
+          # au lieu de :
+          #
+          #   freetype-2.5.5.tar.bz2
+          #
+          # On détecte alors l'archive à partir de son contenu.
+          # ------------------------------------------------------------
+
+          marker = (
+              "    def get_archive_rootdir(self, filename):\n"
+          )
+
+          if marker not in text:
+              raise SystemExit(
+                  "ERREUR : get_archive_rootdir() introuvable."
+              )
+
+          start = text.index(marker)
+
+          next_def = text.find(
+              "\n    def ",
+              start + len(marker),
+          )
+
+          if next_def == -1:
+              raise SystemExit(
+                  "ERREUR : impossible de déterminer la fin "
+                  "de get_archive_rootdir()."
+              )
+
+          old_method = text[start:next_def]
+
+          new_method = '''    def get_archive_rootdir(self, filename):
+          """
+          Determine the root directory of an archive.
+
+          kivy-ios 1.3.0 can use a cache filename without an extension,
+          for example .cache/freetype-download. Detect the archive type
+          from the file contents in that case.
+          """
+          from pathlib import Path
+          import tarfile
+          import zipfile
+
+          path = Path(filename)
+
+          if not path.exists():
+              raise Exception(
+                  "Archive does not exist: {}".format(filename)
+              )
+
+          # Standard extensions first.
+          name = path.name.lower()
+
+          if (
+              name.endswith(".tar.bz2")
+              or name.endswith(".tbz2")
+              or name.endswith(".tar.gz")
+              or name.endswith(".tgz")
+              or name.endswith(".tar.xz")
+              or name.endswith(".txz")
+              or name.endswith(".tar")
+          ):
+              if name.endswith(".tar.bz2") or name.endswith(".tbz2"):
+                  mode = "r:bz2"
+              elif name.endswith(".tar.gz") or name.endswith(".tgz"):
+                  mode = "r:gz"
+              elif name.endswith(".tar.xz") or name.endswith(".txz"):
+                  mode = "r:xz"
+              else:
+                  mode = "r:"
+
+              with tarfile.open(str(path), mode) as archive:
+                  names = [
+                      member.name
+                      for member in archive.getmembers()
+                      if member.name
+                  ]
+
+          elif name.endswith(".zip"):
+              with zipfile.ZipFile(str(path)) as archive:
+                  names = archive.namelist()
+
+          else:
+              # No useful extension: inspect the archive itself.
+              try:
+                  with tarfile.open(str(path), "r:*") as archive:
+                      names = [
+                          member.name
+                          for member in archive.getmembers()
+                          if member.name
+                      ]
+              except (tarfile.TarError, OSError):
+                  try:
+                      with zipfile.ZipFile(str(path)) as archive:
+                          names = archive.namelist()
+                  except (zipfile.BadZipFile, OSError):
+                      logger.error(
+                          "Unrecognized archive for {}".format(filename)
+                      )
+                      raise Exception()
+
+          if not names:
+              logger.error(
+                  "Archive contains no files: {}".format(filename)
+              )
+              raise Exception()
+
+          roots = set()
+
+          for name in names:
+              parts = name.split("/")
+
+              if parts and parts[0]:
+                  roots.add(parts[0])
+
+          if len(roots) != 1:
+              logger.error(
+                  "Cannot detect root directory for {}: {}".format(
+                      filename,
+                      sorted(roots),
+                  )
+              )
+              raise Exception()
+
+          return next(iter(roots))
+'''
+
+          text = text[:start] + new_method + text[next_def:]
 
           path.write_text(text)
 
-          print("Downloader kivy-ios patché avec curl.")
+          print(
+              "toolchain.py patché : curl + détection du type d'archive."
+          )
           PY
 
           echo "===== Vérification syntaxique ====="
@@ -193,9 +348,11 @@ jobs:
 
           echo "toolchain.py est syntaxiquement valide."
 
-          echo "===== Downloader final ====="
+          echo "===== Vérification du patch ====="
 
-          sed -n '449,510p' "$TOOLCHAIN_FILE"
+          grep -n -A45 -B5 "def download_file" "$TOOLCHAIN_FILE"
+
+          grep -n -A80 -B5 "def get_archive_rootdir" "$TOOLCHAIN_FILE"
 
       - name: Verify FreeType recipe
         run: |
@@ -216,6 +373,38 @@ jobs:
           echo "===== URL ====="
 
           grep -n "url" "$FREETYPE_RECIPE"
+
+      - name: Test FreeType download
+        run: |
+          set -euxo pipefail
+
+          FREETYPE_URL="https://sourceforge.net/projects/freetype/files/freetype2/2.5.5/freetype-2.5.5.tar.bz2/download"
+
+          TEST_FILE="$RUNNER_TEMP/freetype-2.5.5.tar.bz2"
+
+          echo "===== Test téléchargement FreeType ====="
+
+          echo "URL : $FREETYPE_URL"
+          echo "Fichier : $TEST_FILE"
+
+          curl \
+            -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            "$FREETYPE_URL" \
+            -o "$TEST_FILE"
+
+          echo "===== Vérification archive ====="
+
+          ls -lh "$TEST_FILE"
+
+          file "$TEST_FILE"
+
+          tar -tjf "$TEST_FILE" >/dev/null
+
+          echo "FreeType 2.5.5 téléchargé et vérifié."
 
       - name: Validate kivy-ios
         run: |
@@ -251,38 +440,6 @@ jobs:
 
           ls -lah "$HOME/.kivy-ios" || true
 
-      - name: Test FreeType download
-        run: |
-          set -euxo pipefail
-
-          FREETYPE_URL="https://sourceforge.net/projects/freetype/files/freetype2/2.5.5/freetype-2.5.5.tar.bz2/download"
-
-          TEST_FILE="$RUNNER_TEMP/freetype-2.5.5.tar.bz2"
-
-          echo "===== Test téléchargement FreeType ====="
-
-          echo "URL : $FREETYPE_URL"
-          echo "Fichier : $TEST_FILE"
-
-          curl \
-            -L \
-            --fail \
-            --retry 5 \
-            --retry-delay 5 \
-            --retry-all-errors \
-            "$FREETYPE_URL" \
-            -o "$TEST_FILE"
-
-          echo "===== Vérification archive ====="
-
-          ls -lh "$TEST_FILE"
-
-          file "$TEST_FILE"
-
-          tar -tjf "$TEST_FILE" >/dev/null
-
-          echo "FreeType 2.5.5 téléchargé et vérifié."
-
       - name: Build kivy-ios recipes
         run: |
           set -euxo pipefail
@@ -308,10 +465,6 @@ jobs:
             -path "*site-packages*" \
             -iname "*yaml*" \
             -print || true
-
-
-
-
 
 
 
