@@ -36,22 +36,29 @@ jobs:
             .cache
             dist
             build
-          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-patch-v3-freetype-v18
+          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-patch-v4-freetype-v18
           restore-keys: |
             ${{ runner.os }}-kivy-ios-arm64-v1.3.0-
 
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
+
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
+          R="$(python -c 'import kivy_ios.recipes as r; print(r.__path__[0])')"
           cp "$T" "$T.backup"
 
-          python - "$T" <<'PY'
-          import ast, sys, textwrap
+          python - "$T" "$R" <<'PY'
+          import sys
           from pathlib import Path
 
-          p = Path(sys.argv[1])
-          s = p.read_text()
+          toolchain = Path(sys.argv[1])
+          recipes = Path(sys.argv[2])
+
+          # ============================================================
+          # toolchain.py
+          # ============================================================
+          s = toolchain.read_text()
 
           # Downloader: urllib -> curl
           if "urlretrieve(url, filename, report_hook)" in s:
@@ -65,7 +72,7 @@ jobs:
                   1,
               )
 
-          # Désactiver pigz / pbzip2
+          # Désactiver pigz / pbzip2.
           for old, new in (
               ("self.use_pigz = sh.which('pigz')", "self.use_pigz = False"),
               ('self.use_pigz = sh.which("pigz")', "self.use_pigz = False"),
@@ -74,138 +81,64 @@ jobs:
           ):
               s = s.replace(old, new)
 
-          # Forcer tous les appels make du toolchain à -j1.
-          s = s.replace("self.ctx.concurrent_make", "'-j1'")
-          s = s.replace("self.concurrent_make", "'-j1'")
+          toolchain.write_text(s)
 
-          tree = ast.parse(s)
+          # ============================================================
+          # recipes/*.py
+          # ============================================================
+          count = 0
 
-          recipe = next(
-              (n for n in tree.body
-               if isinstance(n, ast.ClassDef) and n.name == "Recipe"),
-              None,
-          )
-          if recipe is None:
-              raise SystemExit("ERREUR: Recipe introuvable.")
+          for f in recipes.rglob("*.py"):
+              text = f.read_text()
+              original = text
 
-          methods = {
-              n.name: n for n in recipe.body
-              if isinstance(n, ast.FunctionDef)
-          }
-          root = methods.get("get_archive_rootdir")
-          extract = methods.get("extract_file")
+              # C'est ici que kivy-ios 1.3.0 lance notamment:
+              # sh.make, self.ctx.concurrent_make
+              text = text.replace("self.ctx.concurrent_make", '"-j1"')
+              text = text.replace("self.concurrent_make", '"-j1"')
 
-          if root is None or extract is None:
-              raise SystemExit("ERREUR: méthodes Recipe introuvables.")
+              if text != original:
+                  f.write_text(text)
+                  count += 1
+                  print("Patch make -j1:", f)
 
-          new_root = textwrap.dedent("""
-          def get_archive_rootdir(self, filename):
-              import os, tarfile, zipfile
-              if zipfile.is_zipfile(filename):
-                  with zipfile.ZipFile(filename) as a:
-                      names = [n for n in a.namelist() if n and not n.endswith("/")]
-                      if not names:
-                          raise Exception("Archive ZIP vide: {}".format(filename))
-                      return os.path.normpath(names[0]).split(os.sep)[0]
-              try:
-                  with tarfile.open(filename, "r:*") as a:
-                      names = [m.name for m in a.getmembers() if m.name]
-                      if not names:
-                          raise Exception("Archive TAR vide: {}".format(filename))
-                      return os.path.normpath(names[0]).split(os.sep)[0]
-              except (tarfile.TarError, OSError):
-                  pass
-              raise Exception(
-                  "Impossible de détecter la racine de l'archive: {}".format(filename)
+          print("Recipes modifiées:", count)
+
+          if count == 0:
+              raise SystemExit(
+                  "ERREUR: aucune recipe utilisant concurrent_make trouvée."
               )
-          """).strip()
 
-          new_extract = textwrap.dedent("""
-          def extract_file(self, filename, cwd):
-              import os, tarfile, zipfile
-              if not filename:
-                  return
-              os.makedirs(cwd, exist_ok=True)
-              logger.info("Extract {} into {}".format(filename, cwd))
-              if zipfile.is_zipfile(filename):
-                  with zipfile.ZipFile(filename) as a:
-                      a.extractall(cwd)
-                  return
-              try:
-                  with tarfile.open(filename, "r:*") as a:
-                      a.extractall(cwd)
-                  return
-              except (tarfile.TarError, OSError):
-                  pass
-              raise Exception(
-                  "Impossible d'extraire l'archive: {}".format(filename)
+          # ============================================================
+          # Vérification globale
+          # ============================================================
+          remaining = []
+
+          for f in recipes.rglob("*.py"):
+              text = f.read_text()
+              if "self.ctx.concurrent_make" in text:
+                  remaining.append(str(f))
+
+          if remaining:
+              raise SystemExit(
+                  "ERREUR: concurrent_make encore présent:\n"
+                  + "\n".join(remaining)
               )
-          """).strip()
 
-          lines = s.splitlines()
-
-          for node, replacement in sorted(
-              [(root, new_root), (extract, new_extract)],
-              key=lambda x: x[0].lineno,
-              reverse=True,
-          ):
-              start, end = node.lineno - 1, node.end_lineno
-              indent = lines[start][:len(lines[start]) - len(lines[start].lstrip())]
-              replacement = "\n".join(
-                  indent + line if line.strip() else ""
-                  for line in replacement.splitlines()
-              )
-              lines[start:end] = replacement.splitlines()
-
-          patched = "\n".join(lines) + "\n"
-          ast.parse(patched)
-          compile(patched, str(p), "exec")
-
-          # Vérification: aucun appel direct ne doit encore utiliser
-          # self.ctx.concurrent_make / self.concurrent_make.
-          if "self.ctx.concurrent_make" in patched or "self.concurrent_make" in patched:
-              raise SystemExit("ERREUR: concurrent_make encore présent dans toolchain.py.")
-
-          recipe = next(
-              (n for n in ast.parse(patched).body
-               if isinstance(n, ast.ClassDef) and n.name == "Recipe"),
-              None,
-          )
-          methods = {
-              n.name for n in recipe.body
-              if isinstance(n, ast.FunctionDef)
-          }
-
-          for name in ("get_archive_rootdir", "extract_file"):
-              if name not in methods:
-                  raise SystemExit("ERREUR: Recipe.{}() absente.".format(name))
-
-          p.write_text(patched)
-          print("toolchain.py patché: OK")
-          print("make parallèle forcé à -j1")
-          print("Recipe.get_archive_rootdir: OK")
-          print("Recipe.extract_file: OK")
+          print("Patch kivy-ios: OK")
+          print("Tous les appels self.ctx.concurrent_make sont forcés à -j1.")
           PY
 
           python -m py_compile "$T"
 
-          python - <<'PY'
-          import kivy_ios.toolchain as t
-          ctx = t.Context()
+          # Vérification ciblée FreeType.
+          F="$(python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)')"
+          if grep -n "concurrent_make" "$F"; then
+            echo "ERREUR: FreeType utilise encore concurrent_make."
+            exit 1
+          fi
 
-          print("toolchain:", t.__file__)
-          print("use_pigz:", getattr(ctx, "use_pigz", None))
-          print("use_pbzip2:", getattr(ctx, "use_pbzip2", None))
-
-          if getattr(ctx, "use_pigz", False) or getattr(ctx, "use_pbzip2", False):
-              raise SystemExit("ERREUR: compression externe active.")
-
-          for name in ("get_archive_rootdir", "extract_file"):
-              if not hasattr(t.Recipe, name):
-                  raise SystemExit("ERREUR: Recipe.{}() absente.".format(name))
-
-          print("Patch validé.")
-          PY
+          echo "FreeType: make -j1 forcé."
 
       - name: Fix FreeType
         run: |
@@ -239,7 +172,11 @@ jobs:
           export IPHONEOS_DEPLOYMENT_TARGET=12.0
           export ARCHS=arm64
           export KIVYIOS_ARCH=arm64
+          export MAKEFLAGS="-j1"
+          export CMAKE_BUILD_PARALLEL_LEVEL=1
+          export JOBS=1
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+
           echo "SDKROOT=$SDKROOT"
           echo "ARCHS=$ARCHS"
           echo "IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
@@ -263,6 +200,7 @@ jobs:
           export IPHONEOS_DEPLOYMENT_TARGET=12.0
           export ARCHS=arm64
           export KIVYIOS_ARCH=arm64
+
           toolchain build libffi openssl freetype libjpeg sdl2 sdl2_image sdl2_mixer sdl2_ttf --arch=arm64
           toolchain build python3 kivy pillow --arch=arm64
 
