@@ -17,11 +17,12 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks | grep -E "iOS|iPhoneOS" || true
 
-      - uses: actions/setup-python@v5
+      - name: Installer Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install system tools
+      - name: Installer les outils système
         run: |
           brew install \
             autoconf \
@@ -45,9 +46,11 @@ jobs:
             urllib3 \
             pyyaml
 
-          echo "===== Python / Cython ====="
+          echo "===== Python ====="
           which python
           python --version
+
+          echo "===== Cython ====="
           which cython
           cython --version
 
@@ -55,7 +58,7 @@ jobs:
           CYTHON_PATH="$(which cython)"
           ln -sf "$CYTHON_PATH" "$(dirname "$CYTHON_PATH")/cython-2.7"
 
-          echo "===== Vérification ====="
+          echo "===== Vérification Cython ====="
           which cython-2.7
           cython-2.7 --version
 
@@ -67,7 +70,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kivy-ios-v1.3.0-
 
-      - name: Validate kivy-ios
+      - name: Vérifier les outils kivy-ios
         run: |
           set -euxo pipefail
 
@@ -85,8 +88,38 @@ jobs:
           which pbzip2
           which rsync
 
+          echo "===== Version kivy-ios ====="
+          pip show kivy-ios
+
+      - name: Diagnostic FreeType
+        run: |
+          set -euxo pipefail
+
+          echo "===== Recipe FreeType ====="
+
+          python - <<'PY'
+          from kivy_ios.recipes.freetype import FreetypeRecipe
+
+          recipe = FreetypeRecipe()
+
+          print("Nom      :", recipe.name)
+          print("Version  :", recipe.version)
+          print("URL      :", recipe.url)
+          PY
+
+          echo "===== Contenu du cache kivy-ios ====="
+          find "$HOME/.kivy-ios" -maxdepth 5 -type f | head -100 || true
+
+      - name: Vérifier les recipes
+        run: |
+          set -euxo pipefail
+
           echo "===== Recipes ====="
           toolchain recipes
+
+      - name: Compiler kivy-ios
+        run: |
+          set -euxo pipefail
 
           echo "===== Build ====="
           toolchain build python3 kivy openssl pillow
