@@ -58,6 +58,7 @@ jobs:
               raise SystemExit("ERREUR: URL FreeType introuvable.")
           PY
 
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
@@ -65,92 +66,159 @@ jobs:
           cp "$T" "$T.backup"
 
           python - "$T" <<'PY'
-          import re
           import sys
           from pathlib import Path
 
           p = Path(sys.argv[1])
-          s = p.read_text()
+          lines = p.read_text().splitlines()
 
-          if "urlretrieve(url, filename, report_hook)" in s:
-              s = s.replace(
-                  "import sys\n",
-                  "import sys\nimport subprocess\n",
-                  1,
-              ) if "import subprocess" not in s else s
-              s = s.replace(
+          # -------------------------------------------------------
+          # Downloader: urllib -> curl
+          # -------------------------------------------------------
+          text = "\n".join(lines)
+
+          if "urlretrieve(url, filename, report_hook)" in text:
+              if "import subprocess" not in text:
+                  for i, line in enumerate(lines):
+                      if line.strip() == "import sys":
+                          lines.insert(i + 1, "import subprocess")
+                          break
+              text = "\n".join(lines).replace(
                   "urlretrieve(url, filename, report_hook)",
-                  'subprocess.run(["curl","-L","--fail","--retry","5","--retry-delay","5","--retry-all-errors",url,"-o",filename],check=True)',
+                  'subprocess.run(["curl","-L","--fail","--retry","5","--retry-delay","5","--retry-all-errors",url,"-o",filename], check=True)',
                   1,
               )
+              lines = text.splitlines()
               print("Downloader curl installé.")
           else:
               print("Downloader déjà patché.")
 
-          def replace_method(src, name, body):
-              pattern = re.compile(
-                  rf"(?ms)^    def {name}\(.*?(?=^    def |\Z)"
+          # -------------------------------------------------------
+          # Remplacement sûr d'une méthode de classe
+          # -------------------------------------------------------
+          def replace_method(lines, name, new_method):
+              start = next(
+                  (i for i, line in enumerate(lines)
+                   if line.startswith(f"    def {name}(")),
+                  None,
               )
-              m = pattern.search(src)
-              if not m:
-                  raise SystemExit(f"ERREUR: {name}() introuvable.")
-              return src[:m.start()] + body.rstrip() + "\n\n" + src[m.end():]
 
-          s = replace_method(s, "get_archive_rootdir", '''    def get_archive_rootdir(self, filename):
-          import os, tarfile, zipfile
-          if not os.path.exists(filename):
-              logger.error("Archive does not exist: {}".format(filename))
-              raise Exception()
-          names = []
-          try:
-              with tarfile.open(filename, "r:*") as a:
-                  names = [m.name for m in a.getmembers() if m.name]
-          except (tarfile.TarError, EOFError, OSError):
-              pass
-          if not names:
-              try:
-                  with zipfile.ZipFile(filename) as a:
-                      names = [n for n in a.namelist() if n]
-              except (zipfile.BadZipFile, OSError):
-                  pass
-          if not names:
-              logger.error("Unrecognized archive for {}".format(filename))
-              raise Exception()
-          roots = {n.lstrip("/").split("/")[0] for n in names if n.lstrip("/")}
-          if len(roots) != 1:
-              logger.error("Cannot detect root directory for {}: {}".format(filename, sorted(roots)))
-              raise Exception()
-          root = next(iter(roots))
-          logger.info("Archive root directory: {}".format(root))
-          return root''')
+              if start is None:
+                  raise SystemExit(
+                      f"ERREUR: {name}() introuvable."
+                  )
 
-          s = replace_method(s, "extract_file", '''    def extract_file(self, filename, dest_dir):
-          import os, tarfile, zipfile
-          os.makedirs(dest_dir, exist_ok=True)
-          try:
-              with tarfile.open(filename, "r:*") as a:
-                  a.extractall(dest_dir)
-                  return
-          except (tarfile.TarError, EOFError, OSError):
-              pass
-          try:
-              with zipfile.ZipFile(filename) as a:
-                  a.extractall(dest_dir)
-                  return
-          except (zipfile.BadZipFile, OSError):
-              pass
-          logger.error("Cannot extract archive: {}".format(filename))
-          raise Exception()''')
+              end = next(
+                  (i for i in range(start + 1, len(lines))
+                   if lines[i].startswith("    def ")),
+                  len(lines),
+              )
 
-          compile(s, str(p), "exec")
-          p.write_text(s)
-          print("toolchain.py patché et compilable.")
+              lines[start:end] = new_method.strip("\n").splitlines()
+              print(f"{name}() remplacée.")
+
+          # -------------------------------------------------------
+          # get_archive_rootdir()
+          # -------------------------------------------------------
+          replace_method(lines, "get_archive_rootdir", '''
+              def get_archive_rootdir(self, filename):
+                  import os
+                  import tarfile
+                  import zipfile
+
+                  if not os.path.exists(filename):
+                      logger.error("Archive does not exist: {}".format(filename))
+                      raise Exception()
+
+                  names = []
+
+                  try:
+                      with tarfile.open(filename, "r:*") as archive:
+                          names = [m.name for m in archive.getmembers() if m.name]
+                  except (tarfile.TarError, EOFError, OSError):
+                      pass
+
+                  if not names:
+                      try:
+                          with zipfile.ZipFile(filename) as archive:
+                              names = [n for n in archive.namelist() if n]
+                      except (zipfile.BadZipFile, OSError):
+                          pass
+
+                  if not names:
+                      logger.error("Unrecognized archive for {}".format(filename))
+                      raise Exception()
+
+                  roots = set()
+                  for name in names:
+                      name = name.lstrip("/")
+                      if name:
+                          roots.add(name.split("/")[0])
+
+                  if len(roots) != 1:
+                      logger.error(
+                          "Cannot detect root directory for {}: {}".format(
+                              filename, sorted(roots)
+                          )
+                      )
+                      raise Exception()
+
+                  root = next(iter(roots))
+                  logger.info("Archive root directory: {}".format(root))
+                  return root
+          ''')
+
+          # -------------------------------------------------------
+          # extract_file()
+          # -------------------------------------------------------
+          replace_method(lines, "extract_file", '''
+              def extract_file(self, filename, dest_dir):
+                  import os
+                  import tarfile
+                  import zipfile
+
+                  os.makedirs(dest_dir, exist_ok=True)
+
+                  try:
+                      with tarfile.open(filename, "r:*") as archive:
+                          archive.extractall(dest_dir)
+                          return
+                  except (tarfile.TarError, EOFError, OSError):
+                      pass
+
+                  try:
+                      with zipfile.ZipFile(filename) as archive:
+                          archive.extractall(dest_dir)
+                          return
+                  except (zipfile.BadZipFile, OSError):
+                      pass
+
+                  logger.error(
+                      "Cannot extract archive: {}".format(filename)
+                  )
+                  raise Exception()
+          ''')
+
+          # -------------------------------------------------------
+          # Vérification AVANT écriture
+          # -------------------------------------------------------
+          result = "\n".join(lines) + "\n"
+          compile(result, str(p), "exec")
+          p.write_text(result)
+
+          print("Patch toolchain.py valide.")
           PY
 
           python -m py_compile "$T"
+
+          echo "===== Vérification toolchain.py ====="
+          grep -n "import subprocess" "$T"
           grep -n "subprocess.run" "$T"
           grep -n "def get_archive_rootdir" "$T"
           grep -n "def extract_file" "$T"
+
+          echo "toolchain.py syntaxe OK."
+
 
       - name: Configure iOS arm64
         run: |
