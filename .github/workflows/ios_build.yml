@@ -53,13 +53,14 @@ jobs:
           python - "$T" <<'PY'
           import ast
           import sys
+          import textwrap
           from pathlib import Path
 
           path = Path(sys.argv[1])
           source = path.read_text()
 
           # ----------------------------------------------------------
-          # urllib.urlretrieve -> curl
+          # Downloader: urllib -> curl
           # ----------------------------------------------------------
           if "urlretrieve(url, filename, report_hook)" in source:
               if "import subprocess" not in source:
@@ -95,15 +96,16 @@ jobs:
               "self.use_pbzip2 = False",
           )
 
-          # ----------------------------------------------------------
-          # Trouver une méthode DIRECTEMENT dans Recipe
-          # ----------------------------------------------------------
           tree = ast.parse(source)
 
+          # ----------------------------------------------------------
+          # Trouver la classe Recipe
+          # ----------------------------------------------------------
           recipe = next(
               (
                   n for n in tree.body
-                  if isinstance(n, ast.ClassDef) and n.name == "Recipe"
+                  if isinstance(n, ast.ClassDef)
+                  and n.name == "Recipe"
               ),
               None,
           )
@@ -114,7 +116,7 @@ jobs:
           methods = {
               n.name: n
               for n in recipe.body
-              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+              if isinstance(n, ast.FunctionDef)
           }
 
           root_node = methods.get("get_archive_rootdir")
@@ -136,7 +138,7 @@ jobs:
           # ----------------------------------------------------------
           # Nouvelles méthodes
           # ----------------------------------------------------------
-          new_root = '''\
+          new_root = textwrap.dedent("""
           def get_archive_rootdir(self, filename):
               import os
               import tarfile
@@ -152,30 +154,34 @@ jobs:
                           raise Exception(
                               "Archive ZIP vide: {}".format(filename)
                           )
-                      return os.path.normpath(names[0]).split(os.sep)[0]
+                      return os.path.normpath(
+                          names[0]
+                      ).split(os.sep)[0]
 
               try:
                   with tarfile.open(filename, "r:*") as archive:
                       names = [
-                          m.name for m in archive.getmembers()
+                          m.name
+                          for m in archive.getmembers()
                           if m.name
                       ]
                       if not names:
                           raise Exception(
                               "Archive TAR vide: {}".format(filename)
                           )
-                      return os.path.normpath(names[0]).split(os.sep)[0]
+                      return os.path.normpath(
+                          names[0]
+                      ).split(os.sep)[0]
               except (tarfile.TarError, OSError):
                   pass
 
               raise Exception(
-                  "Impossible de détecter la racine de l'archive: {}".format(
-                      filename
-                  )
+                  "Impossible de détecter la racine de l'archive: "
+                  "{}".format(filename)
               )
-          '''
+          """).strip()
 
-          new_extract = '''\
+          new_extract = textwrap.dedent("""
           def extract_file(self, filename, cwd):
               import os
               import tarfile
@@ -185,6 +191,7 @@ jobs:
                   return
 
               os.makedirs(cwd, exist_ok=True)
+
               logger.info(
                   "Extract {} into {}".format(filename, cwd)
               )
@@ -202,44 +209,83 @@ jobs:
                   pass
 
               raise Exception(
-                  "Impossible d'extraire l'archive: {}".format(filename)
+                  "Impossible d'extraire l'archive: "
+                  "{}".format(filename)
               )
-          '''
+          """).strip()
 
           # ----------------------------------------------------------
-          # Préserver l'indentation de la classe Recipe
+          # Remplacer en conservant EXACTEMENT l'indentation originale
           # ----------------------------------------------------------
           lines = source.splitlines()
 
-          replacements = [
-              (root_node, new_root),
-              (extract_node, new_extract),
-          ]
-
           for node, replacement in sorted(
-              replacements,
+              [
+                  (root_node, new_root),
+                  (extract_node, new_extract),
+              ],
               key=lambda item: item[0].lineno,
               reverse=True,
           ):
               start = node.lineno - 1
               end = node.end_lineno
 
-              # Les nouvelles méthodes sont déjà indentées de 4 espaces.
-              replacement_lines = replacement.rstrip().splitlines()
+              original = lines[start]
+              indent = original[:len(original) - len(original.lstrip())]
 
-              lines[start:end] = replacement_lines
+              replacement = "\n".join(
+                  indent + line if line.strip() else ""
+                  for line in replacement.splitlines()
+              )
+
+              lines[start:end] = replacement.splitlines()
 
           patched = "\n".join(lines) + "\n"
 
           # ----------------------------------------------------------
-          # Validation syntaxique
+          # Validation syntaxique + validation AST de Recipe
           # ----------------------------------------------------------
-          ast.parse(patched)
+          tree = ast.parse(patched)
           compile(patched, str(path), "exec")
+
+          recipe = next(
+              (
+                  n for n in tree.body
+                  if isinstance(n, ast.ClassDef)
+                  and n.name == "Recipe"
+              ),
+              None,
+          )
+
+          if recipe is None:
+              raise SystemExit(
+                  "ERREUR: Recipe absente après patch."
+              )
+
+          methods = {
+              n.name
+              for n in recipe.body
+              if isinstance(n, ast.FunctionDef)
+          }
+
+          required = {
+              "get_archive_rootdir",
+              "extract_file",
+          }
+
+          missing = required - methods
+
+          if missing:
+              raise SystemExit(
+                  "ERREUR: méthodes Recipe absentes après patch: "
+                  + ", ".join(sorted(missing))
+              )
 
           path.write_text(patched)
 
           print("toolchain.py patché: OK")
+          print("Recipe.get_archive_rootdir: OK")
+          print("Recipe.extract_file: OK")
           PY
 
           python -m py_compile "$T"
@@ -259,16 +305,21 @@ jobs:
                   "ERREUR: compression externe encore active."
               )
 
-          for name in ("get_archive_rootdir", "extract_file"):
-              method = getattr(t.Recipe, name, None)
+          root = getattr(t.Recipe, "get_archive_rootdir", None)
+          extract = getattr(t.Recipe, "extract_file", None)
 
-              if method is None:
-                  raise SystemExit(
-                      "ERREUR: Recipe.{}() absente.".format(name)
-                  )
+          if root is None:
+              raise SystemExit(
+                  "ERREUR: Recipe.get_archive_rootdir() absente."
+              )
 
-              print("Recipe.{}:".format(name), method)
+          if extract is None:
+              raise SystemExit(
+                  "ERREUR: Recipe.extract_file() absente."
+              )
 
+          print("Recipe.get_archive_rootdir:", root)
+          print("Recipe.extract_file:", extract)
           print("Patch validé.")
           PY
 
