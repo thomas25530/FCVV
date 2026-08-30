@@ -71,6 +71,8 @@ jobs:
           p = Path(sys.argv[1])
           lines = p.read_text().splitlines()
 
+          print("--- méthodes archive/root/download ---")
+
           for i, line in enumerate(lines):
               l = line.lower()
 
@@ -105,7 +107,7 @@ jobs:
           python -m pip show kivy-ios
 
       # ============================================================
-      # PATCH KIVY-IOS 1.3.0
+      # PATCH KIVY-IOS
       # ============================================================
 
       - name: Patch kivy-ios
@@ -116,7 +118,7 @@ jobs:
           R="$(python -c 'import kivy_ios.recipes as r; print(r.__path__[0])')"
 
           echo "Toolchain: $T"
-          echo "Recipes:   $R"
+          echo "Recipes: $R"
 
           python - "$T" "$R" <<'PY'
           import sys
@@ -128,17 +130,14 @@ jobs:
           s = toolchain.read_text()
 
           # ========================================================
-          # 1. DOWNLOAD
-          #
-          # kivy-ios 1.3.0 utilise urllib.request.urlretrieve().
-          # On remplace réellement cet appel par curl.
+          # DOWNLOAD
           # ========================================================
 
           if "import subprocess" not in s:
               s = s.replace(
                   "import sys\n",
                   "import sys\nimport subprocess\n",
-                  1
+                  1,
               )
 
           old = "urlretrieve(url, filename, report_hook)"
@@ -161,10 +160,13 @@ jobs:
               s = s.replace(old, new, 1)
               print("[PATCH] download_file() patched")
           else:
-              print("[PATCH] download_file() already patched or pattern absent")
+              print(
+                  "[PATCH] download_file() déjà patché "
+                  "ou pattern absent"
+              )
 
           # ========================================================
-          # 2. Désactivation pigz / pbzip2
+          # Désactiver pigz / pbzip2
           # ========================================================
 
           replacements = (
@@ -192,16 +194,14 @@ jobs:
                   print("[PATCH]", old)
 
           # ========================================================
-          # 3. get_archive_rootdir()
+          # get_archive_rootdir()
           #
           # IMPORTANT:
-          # La vraie signature de kivy-ios 1.3.0 est :
+          # Kivy-iOS 1.3.0 utilise :
           #
           #     def get_archive_rootdir(self, filename):
           #
-          # et PAS archive.
-          #
-          # On remplace la méthode complète.
+          # et non "archive".
           # ========================================================
 
           marker = "    def get_archive_rootdir(self, filename):"
@@ -210,12 +210,13 @@ jobs:
 
           if start < 0:
               raise SystemExit(
-                  "ERREUR: get_archive_rootdir(self, filename) introuvable"
+                  "ERREUR: get_archive_rootdir(self, filename) "
+                  "introuvable"
               )
 
           next_def = s.find(
               "\n    def ",
-              start + len(marker)
+              start + len(marker),
           )
 
           if next_def < 0:
@@ -234,15 +235,17 @@ jobs:
               print("[PATCH] Detecting archive:", filename)
 
               # ----------------------------------------------------
-              # Si le fichier possède une extension reconnue,
-              # utiliser directement le lecteur correspondant.
+              # Extensions normales
               # ----------------------------------------------------
 
               if filename.endswith(
                   (".tgz", ".tar.gz", ".tbz2", ".tar.bz2")
               ):
                   try:
-                      with tarfile.open(filename, "r:*") as archive:
+                      with tarfile.open(
+                          filename,
+                          "r:*",
+                      ) as archive:
                           member = archive.next()
 
                           if member is None:
@@ -252,22 +255,24 @@ jobs:
 
                           if not root:
                               raise Exception(
-                                  "Impossible de détecter le root directory"
+                                  "Impossible de détecter le "
+                                  "root directory"
                               )
 
                           return root
 
-                  except tarfile.ReadError:
+                  except tarfile.ReadError as exc:
                       raise Exception(
-                          "Archive tar invalide ou téléchargement corrompu: "
-                          + filename
-                      )
+                          "Archive tar invalide ou téléchargement "
+                          "corrompu: " + filename
+                      ) from exc
 
               if filename.endswith(".zip"):
                   with zipfile.ZipFile(filename) as archive:
                       names = [
-                          n for n in archive.namelist()
-                          if n
+                          name
+                          for name in archive.namelist()
+                          if name
                       ]
 
                       if not names:
@@ -276,13 +281,11 @@ jobs:
                       return names[0].split("/")[0]
 
               # ----------------------------------------------------
-              # Fichier sans extension.
+              # Fichier sans extension
               #
-              # C'est précisément le cas qui provoquait :
+              # Exemple :
               #
-              #   .cache/freetype-download
-              #
-              # On demande à macOS quel est le format réel.
+              # .cache/freetype-download
               # ----------------------------------------------------
 
               info = subprocess.run(
@@ -294,9 +297,16 @@ jobs:
 
               print("[PATCH] file:", info)
 
+              # ----------------------------------------------------
+              # bzip2
+              # ----------------------------------------------------
+
               if "bzip2 compressed data" in info:
                   try:
-                      with tarfile.open(filename, "r:bz2") as archive:
+                      with tarfile.open(
+                          filename,
+                          "r:bz2",
+                      ) as archive:
                           member = archive.next()
 
                           if member is None:
@@ -306,21 +316,27 @@ jobs:
 
                           if not root:
                               raise Exception(
-                                  "Impossible de détecter le root directory"
+                                  "Impossible de détecter le "
+                                  "root directory"
                               )
 
                           return root
 
                   except tarfile.ReadError as exc:
                       raise Exception(
-                          "Le fichier est détecté comme bzip2 "
-                          "mais n'est pas un tar.bz2 valide: "
-                          + filename
+                          "Fichier bzip2 invalide: " + filename
                       ) from exc
+
+              # ----------------------------------------------------
+              # gzip
+              # ----------------------------------------------------
 
               if "gzip compressed data" in info:
                   try:
-                      with tarfile.open(filename, "r:gz") as archive:
+                      with tarfile.open(
+                          filename,
+                          "r:gz",
+                      ) as archive:
                           member = archive.next()
 
                           if member is None:
@@ -330,23 +346,27 @@ jobs:
 
                           if not root:
                               raise Exception(
-                                  "Impossible de détecter le root directory"
+                                  "Impossible de détecter le "
+                                  "root directory"
                               )
 
                           return root
 
                   except tarfile.ReadError as exc:
                       raise Exception(
-                          "Le fichier est détecté comme gzip "
-                          "mais n'est pas un tar.gz valide: "
-                          + filename
+                          "Fichier gzip invalide: " + filename
                       ) from exc
+
+              # ----------------------------------------------------
+              # ZIP
+              # ----------------------------------------------------
 
               if "zip archive data" in info:
                   with zipfile.ZipFile(filename) as archive:
                       names = [
-                          n for n in archive.namelist()
-                          if n
+                          name
+                          for name in archive.namelist()
+                          if name
                       ]
 
                       if not names:
@@ -360,14 +380,14 @@ jobs:
                       info,
                   )
               )
-'''
+          '''
 
           s = s[:start] + new_function + s[next_def:]
 
           toolchain.write_text(s)
 
           # ========================================================
-          # 4. Force les builds make à -j1
+          # Force make -j1 dans les recipes
           # ========================================================
 
           count = 0
@@ -389,19 +409,22 @@ jobs:
               if patched != text:
                   f.write_text(patched)
                   count += 1
-                  print("[PATCH] recipe:", f)
 
-          print("[PATCH] Recipes patchées:", count)
+                  print(
+                      "[PATCH] recipe:",
+                      f,
+                  )
+
+          print(
+              "[PATCH] Recipes patchées:",
+              count,
+          )
           PY
-
-          # ==========================================================
-          # Vérification
-          # ==========================================================
 
           python -m py_compile "$T"
 
           echo "=================================================="
-          echo "PATCH get_archive_rootdir"
+          echo "VERIFICATION DU PATCH"
           echo "=================================================="
 
           grep -n -A80 \
@@ -425,25 +448,17 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text()
 
-          # IMPORTANT :
-          #
-          # Ne PAS utiliser l'URL SourceForge /download ici.
-          #
-          # Avec /download :
-          #
-          # basename(url)
-          #
-          # devient "download", donc kivy-ios crée :
-          #
-          # .cache/freetype-https...-download
-          #
-          # et extract_file() ne reconnaît pas l'extension.
-          #
-          # On utilise donc directement le fichier .tar.bz2.
-
           old_urls = [
-              "https://download.savannah.gnu.org/releases/freetype/freetype-old/freetype-{version}.tar.bz2",
-              "https://sourceforge.net/projects/freetype/files/freetype2/{version}/freetype-{version}.tar.bz2/download",
+              (
+                  "https://download.savannah.gnu.org/releases/"
+                  "freetype/freetype-old/"
+                  "freetype-{version}.tar.bz2"
+              ),
+              (
+                  "https://sourceforge.net/projects/freetype/"
+                  "files/freetype2/{version}/"
+                  "freetype-{version}.tar.bz2/download"
+              ),
           ]
 
           new_url = (
@@ -456,12 +471,17 @@ jobs:
 
           for old in old_urls:
               if old in s:
-                  s = s.replace(old, new_url, 1)
+                  s = s.replace(
+                      old,
+                      new_url,
+                      1,
+                  )
                   changed = True
 
           if not changed and new_url not in s:
               raise SystemExit(
-                  "Impossible de trouver l'URL FreeType actuelle"
+                  "ERREUR: impossible de trouver "
+                  "l'URL FreeType actuelle"
               )
 
           p.write_text(s)
@@ -476,14 +496,11 @@ jobs:
 
           cat "$F"
 
-          # Le cache précédent contient potentiellement :
+          # Supprime l'ancien cache problématique :
           #
           # .cache/freetype-download
           #
-          # qui est précisément le fichier problématique.
-          #
           rm -rf .cache
-
           mkdir -p .cache
 
       # ============================================================
@@ -511,7 +528,7 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-path
 
       # ============================================================
-      # HOST
+      # HOST RECIPES
       # ============================================================
 
       - name: Build host recipes
@@ -522,10 +539,12 @@ jobs:
           export CMAKE_BUILD_PARALLEL_LEVEL=1
           export JOBS=1
 
-          toolchain build hostpython3 hostopenssl
+          toolchain build \
+            hostpython3 \
+            hostopenssl
 
       # ============================================================
-      # IOS ARM64
+      # IOS ARM64 RECIPES
       # ============================================================
 
       - name: Build iPhone arm64 recipes
