@@ -28,6 +28,41 @@ jobs:
           python -m pip show kivy-ios
           cython-2.7 --version
 
+      - name: Diagnose kivy-ios
+        run: |
+          set -euxo pipefail
+
+          python - <<'PY'
+          import inspect
+          import kivy_ios
+          import kivy_ios.toolchain as t
+
+          print("===== KIVY-IOS =====")
+          print("module:", kivy_ios.__file__)
+          print("toolchain:", t.__file__)
+
+          print("\n===== RECIPE =====")
+          print("Recipe:", t.Recipe)
+          print("Recipe module:", inspect.getmodule(t.Recipe))
+          print("Recipe file:", inspect.getfile(t.Recipe))
+
+          print("\n===== RECIPE METHODS =====")
+          for name in sorted(dir(t.Recipe)):
+              if not name.startswith("_"):
+                  print(name)
+
+          print("\n===== GET_RECIPE =====")
+          print("get_recipe:", getattr(t.Recipe, "get_recipe", None))
+
+          print("\n===== RECIPE SOURCE =====")
+          print(inspect.getsource(t.Recipe))
+
+          print("\n===== BUILD_RECIPES =====")
+          print(inspect.getsource(t.build_recipes))
+          PY
+
+      
+      
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
