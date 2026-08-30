@@ -196,44 +196,32 @@ jobs:
                   new_download,
                   1,
               )
-
               print("urlretrieve() remplacé par curl.")
-
-          elif (
-              '"curl"' in text
-              and "subprocess.run(" in text
-          ):
+          elif '"curl"' in text and "subprocess.run(" in text:
               print("Le downloader curl est déjà présent.")
-
           else:
               raise SystemExit(
                   "ERREUR : urlretrieve() introuvable dans toolchain.py."
               )
 
           # =========================================================
-          # 3. Remplacer get_archive_rootdir()
+          # 3. Remplacer get_archive_rootdir() de manière exacte
           # =========================================================
 
-          method_start = (
-              "    def get_archive_rootdir(self, filename):"
-          )
-
-          if method_start not in text:
-              raise SystemExit(
-                  "ERREUR : get_archive_rootdir() introuvable."
-              )
-
-          start = text.index(method_start)
-
-          next_method = text.find(
-              "\n    def ",
-              start + len(method_start),
-          )
-
-          if next_method == -1:
-              raise SystemExit(
-                  "ERREUR : fin de get_archive_rootdir() introuvable."
-              )
+          old_method = textwrap.dedent("""
+              def get_archive_rootdir(self, filename):
+                  if filename.endswith(".tar.gz") or filename.endswith(".tgz"):
+                      with tarfile.open(filename, "r:gz") as f:
+                          return f.getnames()[0].split("/")[0]
+                  elif filename.endswith(".tar.bz2") or filename.endswith(".tbz2"):
+                      with tarfile.open(filename, "r:bz2") as f:
+                          return f.getnames()[0].split("/")[0]
+                  elif filename.endswith(".zip"):
+                      with zipfile.ZipFile(filename) as f:
+                          return f.namelist()[0].split("/")[0]
+                  else:
+                      raise Exception("Unknown archive type for {}".format(filename))
+          """).strip("\n")
 
           new_method = textwrap.dedent("""
               def get_archive_rootdir(self, filename):
@@ -242,7 +230,6 @@ jobs:
 
                   Supports archives without a filename extension.
                   \"\"\"
-
                   import tarfile
                   import zipfile
 
@@ -254,10 +241,6 @@ jobs:
 
                   names = []
 
-                  # ---------------------------------------------------------
-                  # Try TAR.
-                  # ---------------------------------------------------------
-
                   try:
                       with tarfile.open(filename, "r:*") as archive:
                           names = [
@@ -265,17 +248,12 @@ jobs:
                               for member in archive.getmembers()
                               if member.name
                           ]
-
                   except (
                       tarfile.TarError,
                       EOFError,
                       OSError,
                   ):
                       names = []
-
-                  # ---------------------------------------------------------
-                  # Try ZIP if TAR failed.
-                  # ---------------------------------------------------------
 
                   if not names:
                       try:
@@ -285,16 +263,11 @@ jobs:
                                   for name in archive.namelist()
                                   if name
                               ]
-
                       except (
                           zipfile.BadZipFile,
                           OSError,
                       ):
                           names = []
-
-                  # ---------------------------------------------------------
-                  # Archive not recognized.
-                  # ---------------------------------------------------------
 
                   if not names:
                       logger.error(
@@ -302,15 +275,9 @@ jobs:
                       )
                       raise Exception()
 
-                  # ---------------------------------------------------------
-                  # Find the root directory.
-                  # ---------------------------------------------------------
-
                   roots = set()
-
                   for name in names:
                       parts = name.split("/")
-
                       if parts and parts[0]:
                           roots.add(parts[0])
 
@@ -324,29 +291,24 @@ jobs:
                       raise Exception()
 
                   root = next(iter(roots))
-
                   logger.info(
                       "Archive root directory: {}".format(root)
                   )
-
                   return root
           """).strip("\n")
 
-          text = (
-              text[:start]
-              + new_method
-              + text[next_method:]
-          )
+          # Indenter correctement les méthodes pour la classe Recipe
+          indented_old_method = "\n".join("    " + line if line else "" for line in old_method.splitlines())
+          indented_new_method = "\n".join("    " + line if line else "" for line in new_method.splitlines())
+
+          if indented_old_method in text:
+              text = text.replace(indented_old_method, indented_new_method, 1)
+              print("get_archive_rootdir() remplacé avec succès.")
+          else:
+              raise SystemExit("ERREUR : get_archive_rootdir() originale introuvable dans toolchain.py.")
 
           path.write_text(text)
-
-          print(
-              "get_archive_rootdir() remplacé avec succès."
-          )
-
-          print(
-              "Patch toolchain.py terminé."
-          )
+          print("Patch toolchain.py terminé.")
           PY
 
           echo "===== Vérification syntaxique ====="
