@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: macos-14
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,10 +24,11 @@ jobs:
 
       - name: Clean kivy-ios cache
         run: |
-          rm -rf ~/.kivy-ios
+          rm -rf "$HOME/.kivy-ios"
 
       - name: Create Kivy-iOS directory
-        run: mkdir -p "$HOME/.kivy-ios"
+        run: |
+          mkdir -p "$HOME/.kivy-ios"
 
       - name: Cache kivy-ios
         id: cache
@@ -37,20 +39,61 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kivy-ios-v4-
 
+      - name: Download FreeType 2.5.5
+        run: |
+          set -euxo pipefail
+
+          FREETYPE_URL="https://sourceforge.net/projects/freetype/files/freetype2/2.5.5/freetype-2.5.5.tar.bz2/download"
+          FREETYPE_FILE="$HOME/.kivy-ios/freetype-freetype-2.5.5.tar.bz2"
+
+          echo "===== Téléchargement FreeType 2.5.5 ====="
+          echo "URL: $FREETYPE_URL"
+          echo "Destination: $FREETYPE_FILE"
+
+          curl -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            "$FREETYPE_URL" \
+            -o "$FREETYPE_FILE"
+
+          echo "===== Vérification du fichier ====="
+          ls -lh "$FREETYPE_FILE"
+          file "$FREETYPE_FILE"
+
+          echo "===== Vérification de l'archive ====="
+          tar -tjf "$FREETYPE_FILE" >/dev/null
+
+          echo "FreeType 2.5.5 OK"
+
       - name: Validate cache and Build
         run: |
           set -euxo pipefail
+
           echo "===== Informations kivy-ios ====="
           which toolchain
+
+          echo "===== Recipes ====="
           toolchain recipes
+
           toolchain status || true
+
           echo "===== Contenu ~/.kivy-ios ====="
           ls -la "$HOME/.kivy-ios" || true
-          find "$HOME/.kivy-ios" -maxdepth 3 || true
+
+          find "$HOME/.kivy-ios" -maxdepth 2 -type f -print || true
+
           echo "===== Compilation des recettes ====="
           toolchain build python3 kivy openssl pillow
+
+          echo "===== Installation des dépendances Python ====="
           toolchain pip install pyyaml requests urllib3
-          find ~/.kivy-ios -path "*site-packages*" -iname "*yaml*"
+
+          echo "===== Vérification ====="
+          find "$HOME/.kivy-ios" -path "*site-packages*" -iname "*yaml*" || true
+
+
 
 
 
