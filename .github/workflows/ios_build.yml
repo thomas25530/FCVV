@@ -356,20 +356,27 @@ jobs:
           set -euxo pipefail
 
           export IPHONEOS_DEPLOYMENT_TARGET=12.0
+          export MACOSX_DEPLOYMENT_TARGET=12.0
           export ARCHS=arm64
           export KIVYIOS_ARCH=arm64
           export MAKEFLAGS="-j1"
           export CMAKE_BUILD_PARALLEL_LEVEL=1
           export JOBS=1
+
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export SDK_NAME="iphoneos"
+          export CC="$(xcrun --sdk iphoneos --find clang)"
+          export CXX="$(xcrun --sdk iphoneos --find clang++)"
 
           echo "IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
-          echo "ARCHS=$ARCHS"
-          echo "KIVYIOS_ARCH=$KIVYIOS_ARCH"
           echo "SDKROOT=$SDKROOT"
+          echo "CC=$CC"
+          echo "CXX=$CXX"
 
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk iphoneos --find clang
+
 
       # ============================================================
       # HOST RECIPES
