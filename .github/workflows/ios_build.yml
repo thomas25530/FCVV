@@ -922,7 +922,10 @@ jobs:
           
           
           
-          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier org.fcvv.fcvv" "$PLIST_FILE"
+          #####/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier org.fcvv.fcvv" "$PLIST_FILE"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.thomas25530.fcvvapp" "$PLIST_FILE"
+          
+          
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST_FILE" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string FCVV" "$PLIST_FILE"
           
@@ -2465,12 +2468,6 @@ jobs:
           echo "============================================================"
           echo "===== FIN DEBUG ÉTAT DU PROJET AVANT BUILD ====="
           echo "============================================================"
-          
-      
-      - name: Install CocoaPods
-        run: |
-          cd fcvv-ios
-          pod install
       
       
       - name: Build for Real Device
