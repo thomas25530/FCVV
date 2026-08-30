@@ -896,75 +896,75 @@ jobs:
       - name: Configure and Install Pods
         run: |
           set -euxo pipefail
+      
           PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           PROJ_NAME=$(basename "$PROJECT_FILE")
+      
           PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | grep -v "GoogleService" | head -1)
-          
-          # Ajout d'une sécurité pour vérifier qu'on a bien trouvé le bon fichier
+      
           echo "Plist détecté : $PLIST_FILE"
+      
           if [[ "$PLIST_FILE" != *"Info.plist" ]]; then
             echo "Erreur : Impossible de localiser le Info.plist principal."
             exit 1
           fi
+      
           plutil -convert xml1 "$PLIST_FILE"
-          
-          # --- GESTION DE LA VERSION DE L'APP ---
-          # 1. Version commerciale / Marketing (ex: 1.0.0)
+      
           /usr/libexec/PlistBuddy -c "Delete :CFBundleShortVersionString" "$PLIST_FILE" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.1.0" "$PLIST_FILE"
-
-          # 2. Numéro de Build interne (ex: 2 ou ${{ github.run_number }})
+      
           /usr/libexec/PlistBuddy -c "Delete :CFBundleVersion" "$PLIST_FILE" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${{ github.run_number }}" "$PLIST_FILE"
-          # --------------------------------------
-          
-          
-          
-          
-          #####/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier org.fcvv.fcvv" "$PLIST_FILE"
+      
           /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.thomas25530.fcvvapp" "$PLIST_FILE"
-          
-          
+      
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST_FILE" 2>/dev/null || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string FCVV" "$PLIST_FILE"
-          
-          
-          # Réinstallation du catalogue d'icônes iOS
+      
           if [ -d "assets/Images.xcassets" ]; then
             echo "[iOS] Installation Images.xcassets"
+      
             rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
             cp -R assets/Images.xcassets "$PROJ_DIR/fcvv/"
-            
-            echo "===== Vérification Images.xcassets ====="
+      
             find "$PROJ_DIR/fcvv/Images.xcassets" -maxdepth 2
-            
-            echo "===== Vérification AppIcon ====="
             find "$PROJ_DIR/fcvv/Images.xcassets/AppIcon.appiconset"
-          else
-            echo "[iOS] Images.xcassets introuvable"
           fi
-          
+      
           cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
+      
           use_frameworks!
           use_modular_headers!
+      
           project '$PROJ_NAME'
+      
           target 'fcvv' do
             pod 'FirebaseCore', '10.29.0'
             pod 'FirebaseMessaging', '10.29.0'
           end
           EOF
+      
           cd "$PROJ_DIR"
+      
+          echo "===== CocoaPods ====="
+          ruby --version
+          pod --version
+          pod repo list
+      
+          echo "===== Installation Pods ====="
           pod deintegrate
-          pod install --repo-update
-          
-          
-          
+          pod install --verbose
+      
+          echo "===== Vérification ====="
           ls -la
-          ls Pods
-          ls *.xcworkspace
-          sed -i '' 's/OTHER_LDFLAGS = "-all_load";/OTHER_LDFLAGS = "$(inherited) -ObjC -all_load";/g' fcvv.xcodeproj/project.pbxproj
+          ls -la Pods
+          ls -la *.xcworkspace
+      
+          sed -i '' 's/OTHER_LDFLAGS = "-all_load";/OTHER_LDFLAGS = "$(inherited) -ObjC -all_load";/g' \
+            fcvv.xcodeproj/project.pbxproj
 
       - name: Configure iOS Launch Screen (Presplash)
         run: |
