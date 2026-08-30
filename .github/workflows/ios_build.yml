@@ -22,8 +22,12 @@ jobs:
           brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache
           brew link libtool --force
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
-          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7"
+          python -m pip install \
+            "Cython==0.29.36" \
+            "kivy-ios==1.3.0" \
+            pillow requests urllib3 pyyaml
+          ln -sf "$(command -v cython)" \
+            "$(dirname "$(command -v cython)")/cython-2.7"
           python --version
           python -m pip show kivy-ios
           cython-2.7 --version
@@ -52,8 +56,14 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text()
 
-          old = "https://download.savannah.gnu.org/releases/freetype/freetype-old/freetype-{version}.tar.bz2"
-          new = "https://sourceforge.net/projects/freetype/files/freetype2/{version}/freetype-{version}.tar.bz2/download"
+          old = (
+              "https://download.savannah.gnu.org/releases/freetype/"
+              "freetype-old/freetype-{version}.tar.bz2"
+          )
+          new = (
+              "https://sourceforge.net/projects/freetype/files/"
+              "freetype2/{version}/freetype-{version}.tar.bz2/download"
+          )
 
           if old in s:
               p.write_text(s.replace(old, new, 1))
@@ -80,7 +90,7 @@ jobs:
           p = Path(sys.argv[1])
           source = p.read_text()
 
-          # urllib -> curl
+          # Downloader: urllib -> curl
           if "urlretrieve(url, filename, report_hook)" in source:
               if "import subprocess" not in source:
                   source = source.replace(
@@ -91,9 +101,10 @@ jobs:
 
               source = source.replace(
                   "urlretrieve(url, filename, report_hook)",
-                  'subprocess.run(["curl", "-L", "--fail", "--retry", "5", '
-                  '"--retry-delay", "5", "--retry-all-errors", '
-                  'url, "-o", filename], check=True)',
+                  'subprocess.run(["curl", "-L", "--fail", '
+                  '"--retry", "5", "--retry-delay", "5", '
+                  '"--retry-all-errors", url, "-o", filename], '
+                  "check=True)",
                   1,
               )
               print("Downloader curl: OK")
@@ -102,10 +113,10 @@ jobs:
 
           tree = ast.parse(source)
 
-          # Recherche de extract_file()
+          # extract_file() est une fonction globale dans kivy-ios 1.3.0
           extract_node = next(
               (
-                  n for n in ast.walk(tree)
+                  n for n in tree.body
                   if isinstance(n, ast.FunctionDef)
                   and n.name == "extract_file"
               ),
@@ -113,10 +124,12 @@ jobs:
           )
 
           if extract_node is None:
-              raise SystemExit("ERREUR: extract_file() introuvable.")
+              raise SystemExit(
+                  "ERREUR: extract_file() introuvable."
+              )
 
           new_extract = textwrap.dedent("""
-              def extract_file(self, filename, cwd):
+              def extract_file(filename, cwd):
                   import os
                   import tarfile
                   import zipfile
@@ -125,7 +138,10 @@ jobs:
                       return
 
                   os.makedirs(cwd, exist_ok=True)
-                  logger.info("Extract {} into {}".format(filename, cwd))
+
+                  logger.info(
+                      "Extract {} into {}".format(filename, cwd)
+                  )
 
                   try:
                       with tarfile.open(filename, "r:*") as archive:
@@ -141,14 +157,16 @@ jobs:
                   except (zipfile.BadZipFile, OSError):
                       pass
 
-                  logger.error("Cannot extract archive {}".format(filename))
+                  logger.error(
+                      "Cannot extract archive {}".format(filename)
+                  )
                   raise Exception()
           """).strip()
 
           lines = source.splitlines()
-          lines[extract_node.lineno - 1:extract_node.end_lineno] = (
-              new_extract.splitlines()
-          )
+          start = extract_node.lineno - 1
+          end = extract_node.end_lineno
+          lines[start:end] = new_extract.splitlines()
 
           result = "\n".join(lines) + "\n"
 
@@ -159,17 +177,19 @@ jobs:
           # Validation réelle
           tree = ast.parse(result)
 
-          extract_ok = any(
+          if not any(
               isinstance(n, ast.FunctionDef)
               and n.name == "extract_file"
-              for n in ast.walk(tree)
-          )
-
-          if not extract_ok:
-              raise SystemExit("ERREUR: extract_file() absente après patch.")
+              for n in tree.body
+          ):
+              raise SystemExit(
+                  "ERREUR: extract_file() absente après patch."
+              )
 
           if "subprocess.run(" not in result:
-              raise SystemExit("ERREUR: curl non installé dans toolchain.py.")
+              raise SystemExit(
+                  "ERREUR: remplacement curl absent."
+              )
 
           p.write_text(result)
           print("Patch toolchain.py: OK")
@@ -181,12 +201,16 @@ jobs:
           import kivy_ios.toolchain as t
 
           print("toolchain:", t.__file__)
+          print("extract_file:", hasattr(t, "extract_file"))
           print("Recipe:", t.Recipe)
 
-          if not hasattr(t.Recipe, "extract_file"):
-              raise SystemExit("ERREUR: Recipe.extract_file() absente.")
+          if not hasattr(t, "extract_file"):
+              raise SystemExit(
+                  "ERREUR: kivy_ios.toolchain.extract_file() absente."
+              )
 
-          print("Recipe.extract_file(): OK")
+          print("extract_file(): OK")
+          print("Patch kivy-ios: VALIDÉ")
           PY
 
       - name: Configure iOS
