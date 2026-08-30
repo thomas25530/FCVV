@@ -78,7 +78,10 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text()
 
+          # ============================================================
           # Downloader : urllib -> curl
+          # ============================================================
+
           if "urlretrieve(url, filename, report_hook)" in s:
               if "import subprocess" not in s:
                   s = s.replace(
@@ -96,158 +99,219 @@ jobs:
           else:
               print("Downloader déjà patché.")
 
-          def replace_method(source, name, new_method):
+          # ============================================================
+          # Remplacement robuste d'une méthode
+          # ============================================================
+
+          def replace_method(source, method_name, replacement):
               pattern = re.compile(
-                  rf"(?ms)^    def {re.escape(name)}\(.*?(?=^    def |\Z)"
+                  rf"(?ms)^    def {re.escape(method_name)}\("
+                  rf".*?"
+                  rf"(?=^    (?:def|class) |\Z)"
               )
 
               match = pattern.search(source)
 
               if not match:
                   raise SystemExit(
-                      f"ERREUR: {name}() introuvable dans {p}"
+                      f"ERREUR: {method_name}() introuvable."
                   )
 
               return (
                   source[:match.start()]
-                  + new_method.rstrip()
-                  + "\n"
+                  + replacement.rstrip()
+                  + "\n\n"
                   + source[match.end():]
               )
 
+          # ============================================================
           # get_archive_rootdir()
-          s = replace_method(
-              s,
-              "get_archive_rootdir",
-              """    def get_archive_rootdir(self, filename):
-              import os
-              import tarfile
-              import zipfile
+          # ============================================================
 
-              if not os.path.exists(filename):
-                  logger.error(
-                      "Archive does not exist: {}".format(filename)
-                  )
-                  raise Exception()
+          GET_ARCHIVE_ROOTDIR = '''    def get_archive_rootdir(self, filename):
+          import os
+          import tarfile
+          import zipfile
 
-              names = []
-
-              try:
-                  with tarfile.open(filename, "r:*") as archive:
-                      names = [
-                          m.name
-                          for m in archive.getmembers()
-                          if m.name
-                      ]
-              except (tarfile.TarError, EOFError, OSError):
-                  pass
-
-              if not names:
-                  try:
-                      with zipfile.ZipFile(filename) as archive:
-                          names = [
-                              n
-                              for n in archive.namelist()
-                              if n
-                          ]
-                  except (zipfile.BadZipFile, OSError):
-                      pass
-
-              if not names:
-                  logger.error(
-                      "Unrecognized archive for {}".format(filename)
-                  )
-                  raise Exception()
-
-              roots = {
-                  name.lstrip("/").split("/")[0]
-                  for name in names
-                  if name.lstrip("/")
-              }
-
-              if len(roots) != 1:
-                  logger.error(
-                      "Cannot detect root directory for {}: {}".format(
-                          filename,
-                          sorted(roots),
-                      )
-                  )
-                  raise Exception()
-
-              root = next(iter(roots))
-              logger.info(
-                  "Archive root directory: {}".format(root)
+          if not os.path.exists(filename):
+              logger.error(
+                  "Archive does not exist: {}".format(filename)
               )
-              return root
-          """,
-          )
+              raise Exception()
 
-          # extract_file()
-          s = replace_method(
-              s,
-              "extract_file",
-              """    def extract_file(self, filename, dest_dir):
-              import os
-              import tarfile
-              import zipfile
+          names = []
 
-              os.makedirs(dest_dir, exist_ok=True)
+          try:
+              with tarfile.open(filename, "r:*") as archive:
+                  names = [
+                      member.name
+                      for member in archive.getmembers()
+                      if member.name
+                  ]
+          except (tarfile.TarError, EOFError, OSError):
+              pass
 
-              try:
-                  with tarfile.open(filename, "r:*") as archive:
-                      archive.extractall(dest_dir)
-                      return
-              except (tarfile.TarError, EOFError, OSError):
-                  pass
-
+          if not names:
               try:
                   with zipfile.ZipFile(filename) as archive:
-                      archive.extractall(dest_dir)
-                      return
+                      names = [
+                          name
+                          for name in archive.namelist()
+                          if name
+                      ]
               except (zipfile.BadZipFile, OSError):
                   pass
 
+          if not names:
               logger.error(
-                  "Cannot extract archive: {}".format(filename)
+                  "Unrecognized archive for {}".format(filename)
               )
               raise Exception()
-          """,
+
+          roots = {
+              name.lstrip("/").split("/")[0]
+              for name in names
+              if name.lstrip("/")
+          }
+
+          if len(roots) != 1:
+              logger.error(
+                  "Cannot detect root directory for {}: {}".format(
+                      filename,
+                      sorted(roots),
+                  )
+              )
+              raise Exception()
+
+          root = next(iter(roots))
+
+          logger.info(
+              "Archive root directory: {}".format(root)
           )
 
-          # Vérification avant écriture
-          compile(s, str(p), "exec")
-          p.write_text(s)
+          return root
+          '''
 
-          # Vérification finale
-          final = p.read_text()
-          compile(final, str(p), "exec")
+          s = replace_method(
+              s,
+              "get_archive_rootdir",
+              GET_ARCHIVE_ROOTDIR,
+          )
+
+          print("get_archive_rootdir() remplacée.")
+
+          # ============================================================
+          # extract_file()
+          # ============================================================
+
+          EXTRACT_FILE = '''    def extract_file(self, filename, dest_dir):
+          import os
+          import tarfile
+          import zipfile
+
+          os.makedirs(dest_dir, exist_ok=True)
+
+          try:
+              with tarfile.open(filename, "r:*") as archive:
+                  archive.extractall(dest_dir)
+                  return
+          except (tarfile.TarError, EOFError, OSError):
+              pass
+
+          try:
+              with zipfile.ZipFile(filename) as archive:
+                  archive.extractall(dest_dir)
+                  return
+          except (zipfile.BadZipFile, OSError):
+              pass
+
+          logger.error(
+              "Cannot extract archive: {}".format(filename)
+          )
+          raise Exception()
+          '''
+
+          s = replace_method(
+              s,
+              "extract_file",
+              EXTRACT_FILE,
+          )
+
+          print("extract_file() remplacée.")
+
+          # ============================================================
+          # Vérification AVANT écriture
+          # ============================================================
+
+          compile(s, str(p), "exec")
 
           required = [
-              r"def get_archive_rootdir\(self, filename\):",
-              r"def extract_file\(self, filename, dest_dir\):",
-              r"subprocess\.run\(",
+              "def get_archive_rootdir(self, filename):",
+              "def extract_file(self, filename, dest_dir):",
+              "subprocess.run(",
           ]
 
-          for pattern in required:
-              if not re.search(pattern, final):
+          missing = [
+              item for item in required
+              if item not in s
+          ]
+
+          if missing:
+              raise SystemExit(
+                  "ERREUR: éléments manquants: "
+                  + ", ".join(missing)
+              )
+
+          # Vérification que les méthodes ont bien un corps
+          for method in (
+              "get_archive_rootdir",
+              "extract_file",
+          ):
+              match = re.search(
+                  rf"(?ms)^    def {method}\(.*?"
+                  rf"(?=^    (?:def|class) |\Z)",
+                  s,
+              )
+
+              if not match:
                   raise SystemExit(
-                      f"ERREUR: élément manquant: {pattern}"
+                      f"ERREUR: {method}() invalide."
                   )
 
+              block = match.group(0)
+
+              if len(block.splitlines()) < 2:
+                  raise SystemExit(
+                      f"ERREUR: {method}() sans corps."
+                  )
+
+          # ============================================================
+          # Écriture définitive
+          # ============================================================
+
+          p.write_text(s)
+
           print("Patch toolchain.py valide.")
+          print("Syntaxe Python : OK")
+          print("Downloader curl : OK")
           print("get_archive_rootdir() : OK")
-          print("extract_file()        : OK")
-          print("Downloader curl       : OK")
+          print("extract_file() : OK")
           PY
+
+          # ============================================================
+          # Vérification finale
+          # ============================================================
 
           python -m py_compile "$T"
 
-          echo "===== Vérification toolchain.py ====="
+          echo "===== toolchain.py ====="
           grep -n "def get_archive_rootdir" "$T"
           grep -n "def extract_file" "$T"
           grep -n "subprocess.run" "$T"
 
           echo "toolchain.py syntaxe OK."
+
+
 
 
       
