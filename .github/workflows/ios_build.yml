@@ -74,7 +74,7 @@ jobs:
               raise SystemExit("ERREUR: URL FreeType introuvable.")
           PY
 
-      - name: Patch kivy-ios
+      - name: Inspect and patch kivy-ios
         run: |
           set -euxo pipefail
 
@@ -84,14 +84,66 @@ jobs:
           python - "$T" <<'PY'
           import ast
           import sys
-          import textwrap
           from pathlib import Path
 
           p = Path(sys.argv[1])
           source = p.read_text()
+          tree = ast.parse(source)
 
-          # Downloader: urllib -> curl
-          if "urlretrieve(url, filename, report_hook)" in source:
+          print("=== kivy-ios toolchain.py ===")
+          print("Fichier:", p)
+
+          print("\n=== Fonctions/classes liées à l'extraction ===")
+
+          found = False
+
+          for node in ast.walk(tree):
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                  name = node.name.lower()
+
+                  if any(
+                      x in name
+                      for x in ("extract", "archive", "download", "unpack")
+                  ):
+                      found = True
+                      print(
+                          "FUNCTION:",
+                          node.name,
+                          "line",
+                          node.lineno,
+                      )
+
+              elif isinstance(node, ast.ClassDef):
+                  name = node.name.lower()
+
+                  if any(
+                      x in name
+                      for x in ("recipe", "archive", "download")
+                  ):
+                      found = True
+                      print(
+                          "CLASS:",
+                          node.name,
+                          "line",
+                          node.lineno,
+                      )
+
+          print("\n=== Références pigz/pbzip2/tar/zip ===")
+
+          for i, line in enumerate(source.splitlines(), 1):
+              low = line.lower()
+
+              if any(
+                  x in low
+                  for x in ("pigz", "pbzip2", "tar ", "tar.", "zipfile")
+              ):
+                  print(f"{i}: {line}")
+
+          print("\n=== Recherche urlretrieve ===")
+
+          if "urlretrieve" in source:
+              print("urlretrieve: PRESENT")
+
               if "import subprocess" not in source:
                   source = source.replace(
                       "import sys\n",
@@ -107,111 +159,17 @@ jobs:
                   "check=True)",
                   1,
               )
+
+              p.write_text(source)
               print("Downloader curl: OK")
           else:
-              print("Downloader déjà patché.")
+              print("urlretrieve: ABSENT")
 
-          tree = ast.parse(source)
-
-          # extract_file() est une fonction globale dans kivy-ios 1.3.0
-          extract_node = next(
-              (
-                  n for n in tree.body
-                  if isinstance(n, ast.FunctionDef)
-                  and n.name == "extract_file"
-              ),
-              None,
-          )
-
-          if extract_node is None:
-              raise SystemExit(
-                  "ERREUR: extract_file() introuvable."
-              )
-
-          new_extract = textwrap.dedent("""
-              def extract_file(filename, cwd):
-                  import os
-                  import tarfile
-                  import zipfile
-
-                  if not filename:
-                      return
-
-                  os.makedirs(cwd, exist_ok=True)
-
-                  logger.info(
-                      "Extract {} into {}".format(filename, cwd)
-                  )
-
-                  try:
-                      with tarfile.open(filename, "r:*") as archive:
-                          archive.extractall(cwd)
-                          return
-                  except (tarfile.TarError, EOFError, OSError):
-                      pass
-
-                  try:
-                      with zipfile.ZipFile(filename) as archive:
-                          archive.extractall(cwd)
-                          return
-                  except (zipfile.BadZipFile, OSError):
-                      pass
-
-                  logger.error(
-                      "Cannot extract archive {}".format(filename)
-                  )
-                  raise Exception()
-          """).strip()
-
-          lines = source.splitlines()
-          start = extract_node.lineno - 1
-          end = extract_node.end_lineno
-          lines[start:end] = new_extract.splitlines()
-
-          result = "\n".join(lines) + "\n"
-
-          # Validation syntax
-          ast.parse(result)
-          compile(result, str(p), "exec")
-
-          # Validation réelle
-          tree = ast.parse(result)
-
-          if not any(
-              isinstance(n, ast.FunctionDef)
-              and n.name == "extract_file"
-              for n in tree.body
-          ):
-              raise SystemExit(
-                  "ERREUR: extract_file() absente après patch."
-              )
-
-          if "subprocess.run(" not in result:
-              raise SystemExit(
-                  "ERREUR: remplacement curl absent."
-              )
-
-          p.write_text(result)
-          print("Patch toolchain.py: OK")
+          print("\nInspection terminée.")
+          print("Le workflow s'arrête volontairement ici.")
           PY
 
           python -m py_compile "$T"
-
-          python - <<'PY'
-          import kivy_ios.toolchain as t
-
-          print("toolchain:", t.__file__)
-          print("extract_file:", hasattr(t, "extract_file"))
-          print("Recipe:", t.Recipe)
-
-          if not hasattr(t, "extract_file"):
-              raise SystemExit(
-                  "ERREUR: kivy_ios.toolchain.extract_file() absente."
-              )
-
-          print("extract_file(): OK")
-          print("Patch kivy-ios: VALIDÉ")
-          PY
 
       - name: Configure iOS
         run: |
