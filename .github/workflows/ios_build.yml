@@ -47,7 +47,7 @@ jobs:
             .cache
             dist
             build
-          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-freetype-v16
+          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-freetype-v17
           restore-keys: |
             ${{ runner.os }}-kivy-ios-arm64-v1.3.0-
 
@@ -91,7 +91,7 @@ jobs:
               print("Downloader déjà patché.")
 
           # ----------------------------------------------------------
-          # Désactiver pigz/pbzip2
+          # Désactiver pigz / pbzip2
           # ----------------------------------------------------------
           source = source.replace(
               "self.use_pigz = sh.which('pigz')",
@@ -106,19 +106,13 @@ jobs:
           print("pigz/pbzip2 désactivés.")
 
           # ----------------------------------------------------------
-          # Corriger get_archive_rootdir()
-          #
-          # kivy-ios 1.3.0 peut recevoir un fichier téléchargé
-          # sous .cache/freetype-download sans extension.
-          #
-          # On détecte alors automatiquement le format avec tarfile
-          # au lieu de dépendre de l'extension.
+          # Trouver la fonction GLOBALE get_archive_rootdir()
           # ----------------------------------------------------------
           tree = ast.parse(source)
 
           target = None
 
-          for node in ast.walk(tree):
+          for node in tree.body:
               if (
                   isinstance(node, ast.FunctionDef)
                   and node.name == "get_archive_rootdir"
@@ -128,47 +122,71 @@ jobs:
 
           if target is None:
               raise SystemExit(
-                  "ERREUR: get_archive_rootdir() introuvable."
+                  "ERREUR: fonction globale get_archive_rootdir() introuvable."
               )
 
+          # ----------------------------------------------------------
+          # Nouvelle fonction.
+          #
+          # Elle détecte le format réel du fichier avec tarfile
+          # même si le fichier n'a aucune extension.
+          # ----------------------------------------------------------
           new_func = '''\
-          def get_archive_rootdir(self, filename):
+          def get_archive_rootdir(filename):
               import os
               import tarfile
               import zipfile
 
-              if filename.endswith((".zip",)):
+              if zipfile.is_zipfile(filename):
                   with zipfile.ZipFile(filename) as zf:
-                      names = [n for n in zf.namelist() if n]
+                      names = [
+                          n for n in zf.namelist()
+                          if n and not n.endswith("/")
+                      ]
+
                       if not names:
                           raise Exception()
-                      return os.path.normpath(names[0]).split(os.sep)[0]
+
+                      return os.path.normpath(
+                          names[0]
+                      ).split(os.sep)[0]
 
               try:
                   with tarfile.open(filename, "r:*") as tf:
-                      names = [n.name for n in tf.getmembers() if n.name]
+                      names = [
+                          m.name
+                          for m in tf.getmembers()
+                          if m.name
+                      ]
+
                       if not names:
                           raise Exception()
-                      return os.path.normpath(names[0]).split(os.sep)[0]
+
+                      return os.path.normpath(
+                          names[0]
+                      ).split(os.sep)[0]
+
               except (tarfile.TarError, OSError):
                   pass
 
               raise Exception(
-                  "Cannot detect archive root directory: {}".format(filename)
+                  "Cannot detect archive root directory: {}".format(
+                      filename
+                  )
               )
           '''
 
           lines = source.splitlines()
+
           start = target.lineno - 1
           end = target.end_lineno
 
-          new_lines = new_func.splitlines()
-          lines[start:end] = new_lines
+          lines[start:end] = new_func.splitlines()
 
           source = "\n".join(lines) + "\n"
 
           # ----------------------------------------------------------
-          # Validation
+          # Validation syntax
           # ----------------------------------------------------------
           ast.parse(source)
           compile(source, str(p), "exec")
@@ -178,7 +196,7 @@ jobs:
               "subprocess.run(",
               "self.use_pigz = False",
               "self.use_pbzip2 = False",
-              "def get_archive_rootdir(self, filename):",
+              "def get_archive_rootdir(filename):",
           )
 
           for item in required:
@@ -211,7 +229,17 @@ jobs:
               raise SystemExit("ERREUR: pbzip2 encore actif.")
 
           print("Compression externe désactivée: OK")
-          print("get_archive_rootdir:", t.Recipe.get_archive_rootdir)
+
+          if not hasattr(t, "get_archive_rootdir"):
+              raise SystemExit(
+                  "ERREUR: get_archive_rootdir() absente."
+              )
+
+          print(
+              "get_archive_rootdir:",
+              t.get_archive_rootdir
+          )
+
           print("Patch validé.")
           PY
 
@@ -246,6 +274,10 @@ jobs:
           else:
               print("URL FreeType non modifiée.")
           PY
+
+          rm -f .cache/freetype-download
+
+          echo "Cache FreeType nettoyé."
 
       - name: Configure iOS
         run: |
@@ -303,6 +335,8 @@ jobs:
         run: |
           set -euxo pipefail
           toolchain pip install pyyaml requests urllib3
+
+
 
 
 
