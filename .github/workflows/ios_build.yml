@@ -63,6 +63,7 @@ jobs:
 
 
 
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
@@ -71,26 +72,26 @@ jobs:
           cp "$T" "$T.backup"
 
           python - "$T" <<'PY'
-          import re
+          import ast
           import sys
           from pathlib import Path
 
           p = Path(sys.argv[1])
-          s = p.read_text()
+          source = p.read_text()
 
           # ============================================================
           # Downloader : urllib -> curl
           # ============================================================
 
-          if "urlretrieve(url, filename, report_hook)" in s:
-              if "import subprocess" not in s:
-                  s = s.replace(
+          if "urlretrieve(url, filename, report_hook)" in source:
+              if "import subprocess" not in source:
+                  source = source.replace(
                       "import sys\n",
                       "import sys\nimport subprocess\n",
                       1,
                   )
 
-              s = s.replace(
+              source = source.replace(
                   "urlretrieve(url, filename, report_hook)",
                   'subprocess.run(["curl","-L","--fail","--retry","5","--retry-delay","5","--retry-all-errors",url,"-o",filename], check=True)',
                   1,
@@ -100,35 +101,32 @@ jobs:
               print("Downloader déjà patché.")
 
           # ============================================================
-          # Remplacement robuste d'une méthode
+          # Parse AST du fichier original
           # ============================================================
 
-          def replace_method(source, method_name, replacement):
-              pattern = re.compile(
-                  rf"(?ms)^    def {re.escape(method_name)}\("
-                  rf".*?"
-                  rf"(?=^    (?:def|class) |\Z)"
-              )
+          tree = ast.parse(source)
 
-              match = pattern.search(source)
+          methods = {}
 
-              if not match:
+          for node in ast.walk(tree):
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                  if node.name in (
+                      "get_archive_rootdir",
+                      "extract_file",
+                  ):
+                      methods[node.name] = node
+
+          for name in ("get_archive_rootdir", "extract_file"):
+              if name not in methods:
                   raise SystemExit(
-                      f"ERREUR: {method_name}() introuvable."
+                      f"ERREUR: {name}() introuvable."
                   )
 
-              return (
-                  source[:match.start()]
-                  + replacement.rstrip()
-                  + "\n\n"
-                  + source[match.end():]
-              )
-
           # ============================================================
-          # get_archive_rootdir()
+          # Nouvelles méthodes
           # ============================================================
 
-          GET_ARCHIVE_ROOTDIR = '''    def get_archive_rootdir(self, filename):
+          get_archive_rootdir = '''    def get_archive_rootdir(self, filename):
           import os
           import tarfile
           import zipfile
@@ -192,19 +190,7 @@ jobs:
           return root
           '''
 
-          s = replace_method(
-              s,
-              "get_archive_rootdir",
-              GET_ARCHIVE_ROOTDIR,
-          )
-
-          print("get_archive_rootdir() remplacée.")
-
-          # ============================================================
-          # extract_file()
-          # ============================================================
-
-          EXTRACT_FILE = '''    def extract_file(self, filename, dest_dir):
+          extract_file = '''    def extract_file(self, filename, dest_dir):
           import os
           import tarfile
           import zipfile
@@ -231,65 +217,65 @@ jobs:
           raise Exception()
           '''
 
-          s = replace_method(
-              s,
-              "extract_file",
-              EXTRACT_FILE,
-          )
-
-          print("extract_file() remplacée.")
+          replacements = {
+              "get_archive_rootdir": get_archive_rootdir.rstrip(),
+              "extract_file": extract_file.rstrip(),
+          }
 
           # ============================================================
-          # Vérification AVANT écriture
+          # Remplacement par lignes AST
           # ============================================================
 
-          compile(s, str(p), "exec")
+          lines = source.splitlines()
 
-          required = [
+          ranges = []
+
+          for name, node in methods.items():
+              start = node.lineno - 1
+              end = node.end_lineno
+              ranges.append((start, end, name))
+
+          # Remplacer de bas en haut pour ne jamais décaler
+          # les lignes des méthodes restantes.
+          for start, end, name in sorted(
+              ranges,
+              reverse=True,
+          ):
+              lines[start:end] = replacements[name].splitlines()
+              print(f"{name}() remplacée.")
+
+          result = "\n".join(lines) + "\n"
+
+          # ============================================================
+          # Validation complète AVANT écriture
+          # ============================================================
+
+          try:
+              ast.parse(result)
+              compile(result, str(p), "exec")
+          except SyntaxError as exc:
+              print("===== ERREUR SYNTAXE =====")
+              print(exc)
+              print("==========================")
+              raise
+
+          required = (
               "def get_archive_rootdir(self, filename):",
               "def extract_file(self, filename, dest_dir):",
               "subprocess.run(",
-          ]
+          )
 
-          missing = [
-              item for item in required
-              if item not in s
-          ]
-
-          if missing:
-              raise SystemExit(
-                  "ERREUR: éléments manquants: "
-                  + ", ".join(missing)
-              )
-
-          # Vérification que les méthodes ont bien un corps
-          for method in (
-              "get_archive_rootdir",
-              "extract_file",
-          ):
-              match = re.search(
-                  rf"(?ms)^    def {method}\(.*?"
-                  rf"(?=^    (?:def|class) |\Z)",
-                  s,
-              )
-
-              if not match:
+          for item in required:
+              if item not in result:
                   raise SystemExit(
-                      f"ERREUR: {method}() invalide."
-                  )
-
-              block = match.group(0)
-
-              if len(block.splitlines()) < 2:
-                  raise SystemExit(
-                      f"ERREUR: {method}() sans corps."
+                      f"ERREUR: élément manquant: {item}"
                   )
 
           # ============================================================
-          # Écriture définitive
+          # Écriture uniquement après validation
           # ============================================================
 
-          p.write_text(s)
+          p.write_text(result)
 
           print("Patch toolchain.py valide.")
           print("Syntaxe Python : OK")
@@ -298,10 +284,7 @@ jobs:
           print("extract_file() : OK")
           PY
 
-          # ============================================================
-          # Vérification finale
-          # ============================================================
-
+          # Vérification finale indépendante
           python -m py_compile "$T"
 
           echo "===== toolchain.py ====="
@@ -310,6 +293,8 @@ jobs:
           grep -n "subprocess.run" "$T"
 
           echo "toolchain.py syntaxe OK."
+
+
 
 
 
