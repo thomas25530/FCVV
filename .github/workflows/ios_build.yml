@@ -51,8 +51,12 @@ jobs:
           cython --version
 
           echo "===== Création de cython-2.7 ====="
+
           CYTHON_PATH="$(which cython)"
-          ln -sf "$CYTHON_PATH" "$(dirname "$CYTHON_PATH")/cython-2.7"
+
+          ln -sf \
+            "$CYTHON_PATH" \
+            "$(dirname "$CYTHON_PATH")/cython-2.7"
 
           which cython-2.7
           cython-2.7 --version
@@ -61,7 +65,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-curl-v2
+          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-curl-v3
           restore-keys: |
             ${{ runner.os }}-kivy-ios-v1.3.0-python310-
 
@@ -78,7 +82,8 @@ jobs:
           echo "Toolchain : $TOOLCHAIN_FILE"
 
           echo "===== Code original du downloader ====="
-          grep -n -A25 -B5 "def download_file" "$TOOLCHAIN_FILE" || true
+
+          sed -n '449,505p' "$TOOLCHAIN_FILE"
 
           echo "===== Patch du downloader ====="
 
@@ -89,11 +94,9 @@ jobs:
           path = Path(sys.argv[1])
           text = path.read_text()
 
-          old = "        urlretrieve(url, filename, report_hook)"
+          old = "                urlretrieve(url, filename, report_hook)"
 
-          new = """        import subprocess
-
-                  subprocess.run(
+          new = """                subprocess.run(
                       [
                           "curl",
                           "-L",
@@ -106,13 +109,24 @@ jobs:
                           filename,
                       ],
                       check=True,
-                  )
-          """
+                  )"""
 
           if old not in text:
               raise SystemExit(
-                  "ERREUR : appel urlretrieve introuvable dans toolchain.py"
+                  "ERREUR : appel urlretrieve(url, filename, report_hook) introuvable."
               )
+
+          if "import subprocess" not in text:
+              import_marker = "import sys\n"
+
+              if import_marker in text:
+                  text = text.replace(
+                      import_marker,
+                      import_marker + "import subprocess\n",
+                      1,
+                  )
+              else:
+                  text = "import subprocess\n" + text
 
           text = text.replace(old, new, 1)
 
@@ -121,9 +135,15 @@ jobs:
           print("Downloader kivy-ios patché avec curl.")
           PY
 
-          echo "===== Vérification du patch ====="
+          echo "===== Vérification syntaxique ====="
 
-          grep -n -A25 -B5 '"curl"' "$TOOLCHAIN_FILE"
+          python -m py_compile "$TOOLCHAIN_FILE"
+
+          echo "toolchain.py est syntaxiquement valide."
+
+          echo "===== Downloader final ====="
+
+          sed -n '449,510p' "$TOOLCHAIN_FILE"
 
       - name: Verify FreeType recipe
         run: |
@@ -138,9 +158,11 @@ jobs:
           echo "Recipe : $FREETYPE_RECIPE"
 
           echo "===== Version ====="
+
           grep -n "version" "$FREETYPE_RECIPE"
 
           echo "===== URL ====="
+
           grep -n "url" "$FREETYPE_RECIPE"
 
       - name: Validate kivy-ios
@@ -148,14 +170,17 @@ jobs:
           set -euxo pipefail
 
           echo "===== Toolchain ====="
+
           which toolchain
 
           echo "===== Cython ====="
+
           which cython
           which cython-2.7
           cython-2.7 --version
 
           echo "===== Outils système ====="
+
           which ccache
           which pigz
           which pbzip2
@@ -163,12 +188,15 @@ jobs:
           which curl
 
           echo "===== Recipes ====="
+
           toolchain recipes
 
           echo "===== Status ====="
+
           toolchain status || true
 
           echo "===== Contenu ~/.kivy-ios ====="
+
           ls -lah "$HOME/.kivy-ios" || true
 
       - name: Build kivy-ios recipes
@@ -185,7 +213,10 @@ jobs:
 
           echo "===== Installation des dépendances Python ====="
 
-          toolchain pip install pyyaml requests urllib3
+          toolchain pip install \
+            pyyaml \
+            requests \
+            urllib3
 
           echo "===== Vérification ====="
 
@@ -193,6 +224,7 @@ jobs:
             -path "*site-packages*" \
             -iname "*yaml*" \
             -print || true
+
 
 
 
