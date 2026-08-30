@@ -56,7 +56,9 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text()
 
-          # Downloader
+          # ------------------------------------------------------------
+          # Downloader: urllib -> curl
+          # ------------------------------------------------------------
           if "urlretrieve(url, filename, report_hook)" in s:
               if "import subprocess" not in s:
                   s = s.replace(
@@ -64,6 +66,7 @@ jobs:
                       "import sys\nimport subprocess\n",
                       1,
                   )
+
               s = s.replace(
                   "urlretrieve(url, filename, report_hook)",
                   'subprocess.run(["curl", "-L", "--fail", '
@@ -72,7 +75,9 @@ jobs:
                   1,
               )
 
-          # Désactiver les compresseurs parallèles
+          # ------------------------------------------------------------
+          # Désactiver pigz / pbzip2
+          # ------------------------------------------------------------
           s = s.replace(
               "self.use_pigz = sh.which('pigz')",
               "self.use_pigz = False",
@@ -92,7 +97,9 @@ jobs:
 
           tree = ast.parse(s)
 
-          # Forcer Context.concurrent_make = "-j1"
+          # ------------------------------------------------------------
+          # Trouver Context.__init__
+          # ------------------------------------------------------------
           context = next(
               (
                   n for n in tree.body
@@ -115,36 +122,25 @@ jobs:
           )
 
           if context_init is None:
-              raise SystemExit("ERREUR: Context.__init__() introuvable.")
-
-          concurrent_assign = None
-
-          for node in ast.walk(context_init):
-              if not isinstance(node, ast.Assign):
-                  continue
-
-              for target in node.targets:
-                  if (
-                      isinstance(target, ast.Attribute)
-                      and isinstance(target.value, ast.Name)
-                      and target.value.id == "self"
-                      and target.attr == "concurrent_make"
-                  ):
-                      concurrent_assign = node
-                      break
-
-              if concurrent_assign is not None:
-                  break
-
-          if concurrent_assign is None:
               raise SystemExit(
-                  "ERREUR: self.concurrent_make introuvable "
-                  "dans Context.__init__()."
+                  "ERREUR: Context.__init__() introuvable."
               )
 
-          concurrent_assign.value = ast.Constant(value="-j1")
+          # ------------------------------------------------------------
+          # Ajouter self.concurrent_make = "-j1" à la fin de __init__
+          #
+          # On ne cherche plus la définition originale.
+          # On force simplement notre valeur après toute initialisation.
+          # ------------------------------------------------------------
+          force_make = ast.parse(
+              'self.concurrent_make = "-j1"'
+          ).body[0]
 
+          context_init.body.append(force_make)
+
+          # ------------------------------------------------------------
           # Recipe
+          # ------------------------------------------------------------
           recipe = next(
               (
                   n for n in tree.body
@@ -167,8 +163,13 @@ jobs:
           extract = methods.get("extract_file")
 
           if root is None or extract is None:
-              raise SystemExit("ERREUR: méthodes Recipe introuvables.")
+              raise SystemExit(
+                  "ERREUR: méthodes Recipe introuvables."
+              )
 
+          # ------------------------------------------------------------
+          # Nouvelle détection de racine d'archive
+          # ------------------------------------------------------------
           new_root = textwrap.dedent("""
           def get_archive_rootdir(self, filename):
               import os
@@ -192,9 +193,9 @@ jobs:
               try:
                   with tarfile.open(filename, "r:*") as archive:
                       names = [
-                          member.name
-                          for member in archive.getmembers()
-                          if member.name
+                          m.name
+                          for m in archive.getmembers()
+                          if m.name
                       ]
                       if not names:
                           raise Exception(
@@ -213,6 +214,9 @@ jobs:
               )
           """).strip()
 
+          # ------------------------------------------------------------
+          # Nouvelle extraction ZIP/TAR
+          # ------------------------------------------------------------
           new_extract = textwrap.dedent("""
           def extract_file(self, filename, cwd):
               import os
@@ -223,6 +227,7 @@ jobs:
                   return
 
               os.makedirs(cwd, exist_ok=True)
+
               logger.info(
                   "Extract {} into {}".format(filename, cwd)
               )
@@ -244,33 +249,42 @@ jobs:
               )
           """).strip()
 
+          # ------------------------------------------------------------
+          # Remplacer les méthodes Recipe
+          # ------------------------------------------------------------
           lines = s.splitlines()
 
           for node, replacement in sorted(
-              [(root, new_root), (extract, new_extract)],
+              [
+                  (root, new_root),
+                  (extract, new_extract),
+              ],
               key=lambda x: x[0].lineno,
               reverse=True,
           ):
               start = node.lineno - 1
               end = node.end_lineno
+
               indent = lines[start][
                   :len(lines[start]) - len(lines[start].lstrip())
               ]
 
-              replacement = "\n".join(
+              replacement_lines = [
                   indent + line if line.strip() else ""
                   for line in replacement.splitlines()
-              )
+              ]
 
-              lines[start:end] = replacement.splitlines()
+              lines[start:end] = replacement_lines
 
           patched = "\n".join(lines) + "\n"
 
+          # ------------------------------------------------------------
           # Validation syntaxique
+          # ------------------------------------------------------------
           tree = ast.parse(patched)
           compile(patched, str(p), "exec")
 
-          # Vérification concurrent_make
+          # Vérifier que Context.__init__ contient bien notre override
           context = next(
               (
                   n for n in tree.body
@@ -289,7 +303,7 @@ jobs:
               None,
           )
 
-          concurrent_value = None
+          found = False
 
           for node in ast.walk(context_init):
               if not isinstance(node, ast.Assign):
@@ -302,17 +316,17 @@ jobs:
                       and target.value.id == "self"
                       and target.attr == "concurrent_make"
                       and isinstance(node.value, ast.Constant)
+                      and node.value.value == "-j1"
                   ):
-                      concurrent_value = node.value.value
+                      found = True
 
-          if concurrent_value != "-j1":
+          if not found:
               raise SystemExit(
-                  "ERREUR: concurrent_make != -j1 dans le patch: {!r}".format(
-                      concurrent_value
-                  )
+                  "ERREUR: impossible d'ajouter "
+                  "Context.concurrent_make = -j1."
               )
 
-          # Vérification Recipe
+          # Vérifier Recipe
           recipe = next(
               (
                   n for n in tree.body
@@ -337,9 +351,9 @@ jobs:
           p.write_text(patched)
 
           print("toolchain.py patché: OK")
-          print("Context.concurrent_make = -j1")
-          print("Recipe.get_archive_rootdir = OK")
-          print("Recipe.extract_file = OK")
+          print("Context.concurrent_make forcé à -j1")
+          print("Recipe.get_archive_rootdir: OK")
+          print("Recipe.extract_file: OK")
           PY
 
           python -m py_compile "$T"
