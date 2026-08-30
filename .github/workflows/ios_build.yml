@@ -19,11 +19,22 @@ jobs:
       - name: Install tools
         run: |
           set -euxo pipefail
+
           brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache
           brew link libtool --force
+
           python -m pip install --upgrade pip wheel
-          python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
-          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7"
+
+          python -m pip install \
+            "Cython==0.29.36" \
+            "kivy-ios==1.3.0" \
+            pillow \
+            requests \
+            urllib3 \
+            pyyaml
+
+          ln -sf "$(command -v cython)" \
+            "$(dirname "$(command -v cython)")/cython-2.7"
 
       - name: Cache kivy-ios
         uses: actions/cache@v4
@@ -33,10 +44,13 @@ jobs:
             .cache
             dist
             build
-          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-fix-v22
+          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-fix-v23
           restore-keys: |
             ${{ runner.os }}-kivy-ios-arm64-v1.3.0-
 
+      # ============================================================
+      # INSPECTION
+      # ============================================================
 
       - name: Inspect kivy-ios
         run: |
@@ -57,22 +71,22 @@ jobs:
           p = Path(sys.argv[1])
           lines = p.read_text().splitlines()
 
-          print("\n--- méthodes contenant archive/root/download ---\n")
-
           for i, line in enumerate(lines):
               l = line.lower()
+
               if any(x in l for x in (
                   "get_archive_rootdir",
                   "archive_fn",
-                  "archive",
                   "def download",
                   "tarfile",
-                  "unpack",
-                  "extract",
+                  "extract_file",
+                  "extract_arch",
               )):
-                  a = max(0, i - 5)
-                  b = min(len(lines), i + 12)
+                  a = max(0, i - 3)
+                  b = min(len(lines), i + 10)
+
                   print(f"\n### lignes {a + 1}-{b}")
+
                   for n in range(a, b):
                       print(f"{n + 1:5}: {lines[n]}")
           PY
@@ -90,33 +104,10 @@ jobs:
 
           python -m pip show kivy-ios
 
-          echo "=================================================="
-          echo "ACTUAL TOOLCHAIN METHODS"
-          echo "=================================================="
+      # ============================================================
+      # PATCH KIVY-IOS 1.3.0
+      # ============================================================
 
-          python - <<'PY'
-          import inspect
-          import kivy_ios.toolchain as t
-
-          print("toolchain:", t.__file__)
-
-          for name in dir(t):
-              if "archive" in name.lower() or "download" in name.lower():
-                  obj = getattr(t, name)
-                  if callable(obj):
-                      print("\n###", name)
-                      try:
-                          print(inspect.getsource(obj))
-                      except Exception as e:
-                          print("SOURCE ERROR:", e)
-          PY
-      
-      
-      
-      
-      
-      
-      
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
@@ -124,157 +115,302 @@ jobs:
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           R="$(python -c 'import kivy_ios.recipes as r; print(r.__path__[0])')"
 
+          echo "Toolchain: $T"
+          echo "Recipes:   $R"
+
           python - "$T" "$R" <<'PY'
           import sys
           from pathlib import Path
 
           toolchain = Path(sys.argv[1])
           recipes = Path(sys.argv[2])
+
           s = toolchain.read_text()
 
-          # ----------------------------------------------------------
-          # curl
-          # ----------------------------------------------------------
+          # ========================================================
+          # 1. DOWNLOAD
+          #
+          # kivy-ios 1.3.0 utilise urllib.request.urlretrieve().
+          # On remplace réellement cet appel par curl.
+          # ========================================================
+
           if "import subprocess" not in s:
-              s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
+              s = s.replace(
+                  "import sys\n",
+                  "import sys\nimport subprocess\n",
+                  1
+              )
 
           old = "urlretrieve(url, filename, report_hook)"
-          new = '''subprocess.run(
-              ["curl", "-L", "--fail", "--retry", "5",
-               "--retry-delay", "5", "--retry-all-errors",
-               "-o", filename, url],
-              check=True
-          )'''
+
+          new = """subprocess.run(
+                  [
+                      "curl",
+                      "-L",
+                      "--fail",
+                      "--retry", "5",
+                      "--retry-delay", "5",
+                      "--retry-all-errors",
+                      "-o", filename,
+                      url,
+                  ],
+                  check=True,
+              )"""
 
           if old in s:
               s = s.replace(old, new, 1)
+              print("[PATCH] download_file() patched")
+          else:
+              print("[PATCH] download_file() already patched or pattern absent")
 
-          # ----------------------------------------------------------
-          # pigz / pbzip2
-          # ----------------------------------------------------------
-          for old, new in (
-              ("self.use_pigz = sh.which('pigz')", "self.use_pigz = False"),
-              ('self.use_pigz = sh.which("pigz")', "self.use_pigz = False"),
-              ("self.use_pbzip2 = sh.which('pbzip2')", "self.use_pbzip2 = False"),
-              ('self.use_pbzip2 = sh.which("pbzip2")', "self.use_pbzip2 = False"),
-          ):
-              s = s.replace(old, new)
+          # ========================================================
+          # 2. Désactivation pigz / pbzip2
+          # ========================================================
 
-          # ----------------------------------------------------------
-          # Remplace réellement get_archive_rootdir()
-          # ----------------------------------------------------------
-          marker = "    def get_archive_rootdir(self, archive):"
+          replacements = (
+              (
+                  "self.use_pigz = sh.which('pigz')",
+                  "self.use_pigz = False",
+              ),
+              (
+                  'self.use_pigz = sh.which("pigz")',
+                  "self.use_pigz = False",
+              ),
+              (
+                  "self.use_pbzip2 = sh.which('pbzip2')",
+                  "self.use_pbzip2 = False",
+              ),
+              (
+                  'self.use_pbzip2 = sh.which("pbzip2")',
+                  "self.use_pbzip2 = False",
+              ),
+          )
+
+          for old, new in replacements:
+              if old in s:
+                  s = s.replace(old, new)
+                  print("[PATCH]", old)
+
+          # ========================================================
+          # 3. get_archive_rootdir()
+          #
+          # IMPORTANT:
+          # La vraie signature de kivy-ios 1.3.0 est :
+          #
+          #     def get_archive_rootdir(self, filename):
+          #
+          # et PAS archive.
+          #
+          # On remplace la méthode complète.
+          # ========================================================
+
+          marker = "    def get_archive_rootdir(self, filename):"
+
           start = s.find(marker)
 
           if start < 0:
-              raise SystemExit("get_archive_rootdir introuvable")
+              raise SystemExit(
+                  "ERREUR: get_archive_rootdir(self, filename) introuvable"
+              )
 
-          next_def = s.find("\n    def ", start + len(marker))
+          next_def = s.find(
+              "\n    def ",
+              start + len(marker)
+          )
+
           if next_def < 0:
-              raise SystemExit("Fin de get_archive_rootdir introuvable")
+              raise SystemExit(
+                  "ERREUR: fin de get_archive_rootdir introuvable"
+              )
 
-          original = s[start:next_def]
-
-          new_function = '''    def get_archive_rootdir(self, archive):
+          new_function = '''    def get_archive_rootdir(self, filename):
               import os
               import subprocess
               import tarfile
               import zipfile
-              import tempfile
-              import shutil
 
-              archive = os.path.abspath(archive)
+              filename = os.path.abspath(filename)
 
-              # Le cache kivy-ios 1.3.0 peut s'appeler :
-              # freetype-download
-              # sans extension.
-              #
-              # On détecte donc le format réel du fichier.
+              print("[PATCH] Detecting archive:", filename)
 
-              info = subprocess.run(
-                  ["file", "-b", archive],
-                  capture_output=True,
-                  text=True,
-                  check=False
-              ).stdout.lower()
+              # ----------------------------------------------------
+              # Si le fichier possède une extension reconnue,
+              # utiliser directement le lecteur correspondant.
+              # ----------------------------------------------------
 
-              print("[PATCH] archive:", archive)
-              print("[PATCH] file:", info.strip())
+              if filename.endswith(
+                  (".tgz", ".tar.gz", ".tbz2", ".tar.bz2")
+              ):
+                  try:
+                      with tarfile.open(filename, "r:*") as archive:
+                          member = archive.next()
 
-              if "bzip2" in info:
-                  ext = ".tar.bz2"
-              elif "gzip" in info:
-                  ext = ".tar.gz"
-              elif "xz" in info:
-                  ext = ".tar.xz"
-              elif "zip archive" in info:
-                  ext = ".zip"
-              else:
-                  raise Exception(
-                      "Format archive inconnu: " + info
-                  )
+                          if member is None:
+                              raise Exception("Archive vide")
 
-              temporary = archive + ext
-              shutil.copyfile(archive, temporary)
+                          root = member.name.split("/")[0]
 
-              try:
-                  if ext == ".zip":
-                      with zipfile.ZipFile(temporary) as z:
-                          names = [n for n in z.namelist() if n]
-                  else:
-                      with tarfile.open(temporary, "r:*") as t:
-                          names = t.getnames()
+                          if not root:
+                              raise Exception(
+                                  "Impossible de détecter le root directory"
+                              )
 
-                  if not names:
-                      raise Exception("Archive vide")
+                          return root
 
-                  roots = {
-                      name.split("/")[0]
-                      for name in names
-                      if name.split("/")[0]
-                  }
-
-                  if len(roots) != 1:
+                  except tarfile.ReadError:
                       raise Exception(
-                          "Impossible de détecter le root directory: "
-                          + repr(roots)
+                          "Archive tar invalide ou téléchargement corrompu: "
+                          + filename
                       )
 
-                  root = next(iter(roots))
-                  print("[PATCH] Archive root:", root)
-                  return root
+              if filename.endswith(".zip"):
+                  with zipfile.ZipFile(filename) as archive:
+                      names = [
+                          n for n in archive.namelist()
+                          if n
+                      ]
 
-              finally:
+                      if not names:
+                          raise Exception("Archive ZIP vide")
+
+                      return names[0].split("/")[0]
+
+              # ----------------------------------------------------
+              # Fichier sans extension.
+              #
+              # C'est précisément le cas qui provoquait :
+              #
+              #   .cache/freetype-download
+              #
+              # On demande à macOS quel est le format réel.
+              # ----------------------------------------------------
+
+              info = subprocess.run(
+                  ["file", "-b", filename],
+                  capture_output=True,
+                  text=True,
+                  check=False,
+              ).stdout.lower().strip()
+
+              print("[PATCH] file:", info)
+
+              if "bzip2 compressed data" in info:
                   try:
-                      os.remove(temporary)
-                  except OSError:
-                      pass
-          '''
+                      with tarfile.open(filename, "r:bz2") as archive:
+                          member = archive.next()
+
+                          if member is None:
+                              raise Exception("Archive vide")
+
+                          root = member.name.split("/")[0]
+
+                          if not root:
+                              raise Exception(
+                                  "Impossible de détecter le root directory"
+                              )
+
+                          return root
+
+                  except tarfile.ReadError as exc:
+                      raise Exception(
+                          "Le fichier est détecté comme bzip2 "
+                          "mais n'est pas un tar.bz2 valide: "
+                          + filename
+                      ) from exc
+
+              if "gzip compressed data" in info:
+                  try:
+                      with tarfile.open(filename, "r:gz") as archive:
+                          member = archive.next()
+
+                          if member is None:
+                              raise Exception("Archive vide")
+
+                          root = member.name.split("/")[0]
+
+                          if not root:
+                              raise Exception(
+                                  "Impossible de détecter le root directory"
+                              )
+
+                          return root
+
+                  except tarfile.ReadError as exc:
+                      raise Exception(
+                          "Le fichier est détecté comme gzip "
+                          "mais n'est pas un tar.gz valide: "
+                          + filename
+                      ) from exc
+
+              if "zip archive data" in info:
+                  with zipfile.ZipFile(filename) as archive:
+                      names = [
+                          n for n in archive.namelist()
+                          if n
+                      ]
+
+                      if not names:
+                          raise Exception("Archive ZIP vide")
+
+                      return names[0].split("/")[0]
+
+              raise Exception(
+                  "Format archive inconnu pour {}: {}".format(
+                      filename,
+                      info,
+                  )
+              )
+'''
 
           s = s[:start] + new_function + s[next_def:]
+
           toolchain.write_text(s)
 
-          # ----------------------------------------------------------
-          # Force -j1 dans les recipes
-          # ----------------------------------------------------------
+          # ========================================================
+          # 4. Force les builds make à -j1
+          # ========================================================
+
           count = 0
 
           for f in recipes.rglob("*.py"):
               text = f.read_text()
-              patched = text.replace("self.ctx.concurrent_make", '"-j1"')
-              patched = patched.replace("self.concurrent_make", '"-j1"')
+              patched = text
+
+              patched = patched.replace(
+                  "self.ctx.concurrent_make",
+                  '"-j1"',
+              )
+
+              patched = patched.replace(
+                  "self.concurrent_make",
+                  '"-j1"',
+              )
 
               if patched != text:
                   f.write_text(patched)
                   count += 1
+                  print("[PATCH] recipe:", f)
 
-          print("Recipes patchées:", count)
+          print("[PATCH] Recipes patchées:", count)
           PY
+
+          # ==========================================================
+          # Vérification
+          # ==========================================================
 
           python -m py_compile "$T"
 
-          echo "=== Vérification du patch ==="
-          grep -n -A35 "def get_archive_rootdir" "$T" | head -45
+          echo "=================================================="
+          echo "PATCH get_archive_rootdir"
+          echo "=================================================="
+
+          grep -n -A80 \
+            "def get_archive_rootdir" \
+            "$T" | head -90
+
+      # ============================================================
+      # FREETYPE
+      # ============================================================
 
       - name: Fix FreeType
         run: |
@@ -289,22 +425,75 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text()
 
-          old = "https://download.savannah.gnu.org/releases/freetype/freetype-old/freetype-{version}.tar.bz2"
-          new = "https://sourceforge.net/projects/freetype/files/freetype2/{version}/freetype-{version}.tar.bz2/download"
+          # IMPORTANT :
+          #
+          # Ne PAS utiliser l'URL SourceForge /download ici.
+          #
+          # Avec /download :
+          #
+          # basename(url)
+          #
+          # devient "download", donc kivy-ios crée :
+          #
+          # .cache/freetype-https...-download
+          #
+          # et extract_file() ne reconnaît pas l'extension.
+          #
+          # On utilise donc directement le fichier .tar.bz2.
 
-          if old in s:
-              s = s.replace(old, new, 1)
+          old_urls = [
+              "https://download.savannah.gnu.org/releases/freetype/freetype-old/freetype-{version}.tar.bz2",
+              "https://sourceforge.net/projects/freetype/files/freetype2/{version}/freetype-{version}.tar.bz2/download",
+          ]
+
+          new_url = (
+              "https://downloads.sourceforge.net/project/"
+              "freetype/freetype2/{version}/"
+              "freetype-{version}.tar.bz2"
+          )
+
+          changed = False
+
+          for old in old_urls:
+              if old in s:
+                  s = s.replace(old, new_url, 1)
+                  changed = True
+
+          if not changed and new_url not in s:
+              raise SystemExit(
+                  "Impossible de trouver l'URL FreeType actuelle"
+              )
 
           p.write_text(s)
-          print("FreeType URL:", new)
+
+          print("FreeType recipe:", p)
+          print("FreeType URL:", new_url)
           PY
 
+          echo "=================================================="
+          echo "FREETYPE RECIPE AFTER PATCH"
+          echo "=================================================="
+
+          cat "$F"
+
+          # Le cache précédent contient potentiellement :
+          #
+          # .cache/freetype-download
+          #
+          # qui est précisément le fichier problématique.
+          #
           rm -rf .cache
+
           mkdir -p .cache
+
+      # ============================================================
+      # CONFIGURATION IOS
+      # ============================================================
 
       - name: Configure iOS
         run: |
           set -euxo pipefail
+
           export IPHONEOS_DEPLOYMENT_TARGET=12.0
           export ARCHS=arm64
           export KIVYIOS_ARCH=arm64
@@ -313,38 +502,73 @@ jobs:
           export JOBS=1
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
 
+          echo "IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
+          echo "ARCHS=$ARCHS"
+          echo "KIVYIOS_ARCH=$KIVYIOS_ARCH"
+          echo "SDKROOT=$SDKROOT"
+
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
+
+      # ============================================================
+      # HOST
+      # ============================================================
 
       - name: Build host recipes
         run: |
           set -euxo pipefail
+
           export MAKEFLAGS="-j1"
           export CMAKE_BUILD_PARALLEL_LEVEL=1
           export JOBS=1
+
           toolchain build hostpython3 hostopenssl
+
+      # ============================================================
+      # IOS ARM64
+      # ============================================================
 
       - name: Build iPhone arm64 recipes
         run: |
           set -euxo pipefail
+
           export MAKEFLAGS="-j1"
           export CMAKE_BUILD_PARALLEL_LEVEL=1
           export JOBS=1
+
           export IPHONEOS_DEPLOYMENT_TARGET=12.0
           export ARCHS=arm64
           export KIVYIOS_ARCH=arm64
 
           toolchain build \
-            libffi openssl freetype libjpeg \
-            sdl2 sdl2_image sdl2_mixer sdl2_ttf \
+            libffi \
+            openssl \
+            freetype \
+            libjpeg \
+            sdl2 \
+            sdl2_image \
+            sdl2_mixer \
+            sdl2_ttf \
             --arch=arm64
 
-          toolchain build python3 kivy pillow --arch=arm64
+          toolchain build \
+            python3 \
+            kivy \
+            pillow \
+            --arch=arm64
+
+      # ============================================================
+      # PYTHON DEPENDENCIES
+      # ============================================================
 
       - name: Install Python dependencies
         run: |
           set -euxo pipefail
-          toolchain pip install pyyaml requests urllib3
+
+          toolchain pip install \
+            pyyaml \
+            requests \
+            urllib3
 
 
 
