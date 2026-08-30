@@ -23,7 +23,7 @@ jobs:
           brew link libtool --force
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
-          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7
+          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7"
           python --version
           python -m pip show kivy-ios
           cython-2.7 --version
