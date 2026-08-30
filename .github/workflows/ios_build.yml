@@ -91,7 +91,9 @@ jobs:
           python -m pip show kivy-ios
 
 
+
       - name: Patch kivy-ios
+        shell: bash
         run: |
           set -euxo pipefail
 
@@ -102,6 +104,7 @@ jobs:
           echo "Recipes: $R"
 
           python - "$T" "$R" <<'PY'
+          import re
           import sys
           from pathlib import Path
 
@@ -145,60 +148,42 @@ jobs:
           # Désactiver pigz / pbzip2
           # ========================================================
 
-          for old, new in (
-              (
-                  "self.use_pigz = sh.which('pigz')",
+          replacements = {
+              "self.use_pigz = sh.which('pigz')":
                   "self.use_pigz = False",
-              ),
-              (
-                  'self.use_pigz = sh.which("pigz")',
+
+              'self.use_pigz = sh.which("pigz")':
                   "self.use_pigz = False",
-              ),
-              (
-                  "self.use_pbzip2 = sh.which('pbzip2')",
+
+              "self.use_pbzip2 = sh.which('pbzip2')":
                   "self.use_pbzip2 = False",
-              ),
-              (
-                  'self.use_pbzip2 = sh.which("pbzip2")',
+
+              'self.use_pbzip2 = sh.which("pbzip2")':
                   "self.use_pbzip2 = False",
-              ),
-          ):
+          }
+
+          for old, new in replacements.items():
               if old in s:
                   s = s.replace(old, new)
                   print("[PATCH]", old)
 
           # ========================================================
-          # get_archive_rootdir()
+          # Remplacer entièrement get_archive_rootdir()
           # ========================================================
 
-          lines = s.splitlines(keepends=True)
+          pattern = re.compile(
+              r"(?ms)^    def get_archive_rootdir\(self, filename\):.*?"
+              r"(?=^    def |\Z)"
+          )
 
-          start = None
-          end = None
+          match = pattern.search(s)
 
-          for i, line in enumerate(lines):
-              if line.startswith(
-                  "    def get_archive_rootdir(self, filename):"
-              ):
-                  start = i
-                  break
-
-          if start is None:
+          if not match:
               raise SystemExit(
-                  "ERREUR: get_archive_rootdir introuvable"
+                  "ERREUR: get_archive_rootdir() introuvable"
               )
 
-          for i in range(start + 1, len(lines)):
-              if lines[i].startswith("    def "):
-                  end = i
-                  break
-
-          if end is None:
-              raise SystemExit(
-                  "ERREUR: prochaine méthode introuvable"
-              )
-
-          method = '''    def get_archive_rootdir(self, filename):
+          new_method = '''    def get_archive_rootdir(self, filename):
           import os
           import subprocess
           import tarfile
@@ -208,7 +193,14 @@ jobs:
 
           print("[PATCH] Detecting archive:", filename)
 
-          if filename.endswith((".tgz", ".tar.gz", ".tbz2", ".tar.bz2")):
+          if filename.endswith(
+              (
+                  ".tgz",
+                  ".tar.gz",
+                  ".tbz2",
+                  ".tar.bz2",
+              )
+          ):
               try:
                   with tarfile.open(filename, "r:*") as archive:
                       member = archive.next()
@@ -232,17 +224,24 @@ jobs:
                   ) from exc
 
           if filename.endswith(".zip"):
-              with zipfile.ZipFile(filename) as archive:
-                  names = [
-                      name
-                      for name in archive.namelist()
-                      if name
-                  ]
+              try:
+                  with zipfile.ZipFile(filename) as archive:
+                      names = [
+                          name
+                          for name in archive.namelist()
+                          if name
+                      ]
 
-                  if not names:
-                      raise Exception("Archive ZIP vide")
+                      if not names:
+                          raise Exception("Archive ZIP vide")
 
-                  return names[0].split("/")[0]
+                      return names[0].split("/")[0]
+
+              except zipfile.BadZipFile as exc:
+                  raise Exception(
+                      "Archive ZIP invalide ou téléchargement corrompu: "
+                      + filename
+                  ) from exc
 
           info = subprocess.run(
               ["file", "-b", filename],
@@ -284,17 +283,23 @@ jobs:
                   ) from exc
 
           if "zip archive data" in info:
-              with zipfile.ZipFile(filename) as archive:
-                  names = [
-                      name
-                      for name in archive.namelist()
-                      if name
-                  ]
+              try:
+                  with zipfile.ZipFile(filename) as archive:
+                      names = [
+                          name
+                          for name in archive.namelist()
+                          if name
+                      ]
 
-                  if not names:
-                      raise Exception("Archive ZIP vide")
+                      if not names:
+                          raise Exception("Archive ZIP vide")
 
-                  return names[0].split("/")[0]
+                      return names[0].split("/")[0]
+
+              except zipfile.BadZipFile as exc:
+                  raise Exception(
+                      "Fichier ZIP invalide: " + filename
+                  ) from exc
 
           raise Exception(
               "Format archive inconnu pour {}: {}".format(
@@ -303,24 +308,47 @@ jobs:
               )
           )
 
-          '''
+'''
 
-          lines[start:end] = [method]
-          s = "".join(lines)
+          s = (
+              s[:match.start()]
+              + new_method
+              + s[match.end():]
+          )
 
           # ========================================================
-          # Vérification syntaxique AVANT écriture
+          # Vérification syntaxique avant écriture
           # ========================================================
 
           compile(s, str(toolchain), "exec")
+
           toolchain.write_text(s)
 
           print("[PATCH] toolchain.py syntax OK")
           print("[PATCH] toolchain.py written")
 
           # ========================================================
-          # FreeType
-          # Ne pas forcer CC/CXX ici.
+          # Vérifier qu'il n'existe qu'une seule fonction
+          # ========================================================
+
+          count = len(
+              re.findall(
+                  r"^    def get_archive_rootdir\(self, filename\):",
+                  s,
+                  re.MULTILINE,
+              )
+          )
+
+          if count != 1:
+              raise SystemExit(
+                  "ERREUR: nombre incorrect de get_archive_rootdir(): "
+                  + str(count)
+              )
+
+          print("[PATCH] get_archive_rootdir() unique OK")
+
+          # ========================================================
+          # Patch FreeType
           # ========================================================
 
           freetype = recipes / "freetype" / "__init__.py"
@@ -349,23 +377,68 @@ jobs:
           freetype.write_text(text)
 
           print("[PATCH] FreeType recipe OK")
+
+          # ========================================================
+          # Force -j1 dans les recipes
+          # ========================================================
+
+          patched_count = 0
+
+          for recipe in recipes.rglob("*.py"):
+              text = recipe.read_text()
+
+              patched = text.replace(
+                  "self.ctx.concurrent_make",
+                  '"-j1"',
+              )
+
+              patched = patched.replace(
+                  "self.concurrent_make",
+                  '"-j1"',
+              )
+
+              if patched != text:
+                  recipe.write_text(patched)
+                  patched_count += 1
+
+          print(
+              "[PATCH] Recipes avec -j1:",
+              patched_count,
+          )
           PY
+
+          echo "=================================================="
+          echo "PYTHON SYNTAX CHECK"
+          echo "=================================================="
 
           python -m py_compile "$T"
 
           echo "=================================================="
-          echo "PATCH VERIFICATION"
+          echo "GET_ARCHIVE_ROOTDIR"
           echo "=================================================="
 
-          grep -n -A90 \
+          grep -n -A100 \
             "def get_archive_rootdir" \
-            "$T" | head -100
+            "$T" | head -110
 
           echo "=================================================="
           echo "FREETYPE"
           echo "=================================================="
 
-          sed -n '1,80p' "$R/freetype/__init__.py"
+          sed -n '1,100p' \
+            "$R/freetype/__init__.py"
+
+          echo "=================================================="
+          echo "PATCH COMPLETE"
+          echo "=================================================="
+
+          
+          
+          
+          
+          
+          
+
 
       - name: Fix FreeType
         run: |
