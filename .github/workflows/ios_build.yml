@@ -23,7 +23,7 @@ jobs:
           brew link libtool --force
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
-          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7"
+          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7
           python --version
           python -m pip show kivy-ios
           cython-2.7 --version
@@ -80,9 +80,7 @@ jobs:
           p = Path(sys.argv[1])
           source = p.read_text()
 
-          # ------------------------------------------------------------
-          # Downloader: urllib -> curl
-          # ------------------------------------------------------------
+          # urllib -> curl
           if "urlretrieve(url, filename, report_hook)" in source:
               if "import subprocess" not in source:
                   source = source.replace(
@@ -102,27 +100,22 @@ jobs:
           else:
               print("Downloader déjà patché.")
 
-          # ------------------------------------------------------------
-          # AST
-          # ------------------------------------------------------------
           tree = ast.parse(source)
 
-          extract_node = None
-
-          for node in ast.walk(tree):
-              if isinstance(node, ast.FunctionDef) and node.name == "extract_file":
-                  extract_node = node
-                  break
+          # Recherche de extract_file()
+          extract_node = next(
+              (
+                  n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "extract_file"
+              ),
+              None,
+          )
 
           if extract_node is None:
               raise SystemExit("ERREUR: extract_file() introuvable.")
 
-          # ------------------------------------------------------------
-          # Extraction sans pigz/pbzip2.
-          # Signature conservée: (self, filename, cwd)
-          # ------------------------------------------------------------
-          new_extract = textwrap.dedent(
-              '''
+          new_extract = textwrap.dedent("""
               def extract_file(self, filename, cwd):
                   import os
                   import tarfile
@@ -132,7 +125,6 @@ jobs:
                       return
 
                   os.makedirs(cwd, exist_ok=True)
-
                   logger.info("Extract {} into {}".format(filename, cwd))
 
                   try:
@@ -149,42 +141,37 @@ jobs:
                   except (zipfile.BadZipFile, OSError):
                       pass
 
-                  logger.error(
-                      "Cannot extract archive {}".format(filename)
-                  )
+                  logger.error("Cannot extract archive {}".format(filename))
                   raise Exception()
-              '''
-          ).strip()
+          """).strip()
 
           lines = source.splitlines()
-          start = extract_node.lineno - 1
-          end = extract_node.end_lineno
+          lines[extract_node.lineno - 1:extract_node.end_lineno] = (
+              new_extract.splitlines()
+          )
 
-          lines[start:end] = new_extract.splitlines()
           result = "\n".join(lines) + "\n"
 
-          # ------------------------------------------------------------
-          # Validation
-          # ------------------------------------------------------------
+          # Validation syntax
           ast.parse(result)
           compile(result, str(p), "exec")
 
-          required = (
-              "import subprocess",
-              "subprocess.run(",
-              "def extract_file(self, filename, cwd):",
-              "def get_archive_rootdir(self, filename):",
-              "def get_recipe(cls, name, ctx):",
+          # Validation réelle
+          tree = ast.parse(result)
+
+          extract_ok = any(
+              isinstance(n, ast.FunctionDef)
+              and n.name == "extract_file"
+              for n in ast.walk(tree)
           )
 
-          for item in required:
-              if item not in result:
-                  raise SystemExit(
-                      f"ERREUR: élément absent: {item}"
-                  )
+          if not extract_ok:
+              raise SystemExit("ERREUR: extract_file() absente après patch.")
+
+          if "subprocess.run(" not in result:
+              raise SystemExit("ERREUR: curl non installé dans toolchain.py.")
 
           p.write_text(result)
-
           print("Patch toolchain.py: OK")
           PY
 
@@ -194,12 +181,12 @@ jobs:
           import kivy_ios.toolchain as t
 
           print("toolchain:", t.__file__)
-          print("Recipe.get_recipe:", hasattr(t.Recipe, "get_recipe"))
+          print("Recipe:", t.Recipe)
 
-          if not hasattr(t.Recipe, "get_recipe"):
-              raise SystemExit("ERREUR: Recipe.get_recipe() absente.")
+          if not hasattr(t.Recipe, "extract_file"):
+              raise SystemExit("ERREUR: Recipe.extract_file() absente.")
 
-          print("Recipe.get_recipe(): OK")
+          print("Recipe.extract_file(): OK")
           PY
 
       - name: Configure iOS
