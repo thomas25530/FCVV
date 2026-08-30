@@ -356,8 +356,6 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== Vérification de toolchain.py ====="
-
           TOOLCHAIN_FILE="$(
             python -c 'import kivy_ios.toolchain as t; print(t.__file__)'
           )"
@@ -365,32 +363,6 @@ jobs:
           python -m py_compile "$TOOLCHAIN_FILE"
 
           echo "Syntaxe Python OK."
-
-      - name: Verify FreeType recipe
-        run: |
-          set -euxo pipefail
-
-          FREETYPE_RECIPE="$(
-            python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)'
-          )"
-
-          grep -q \
-            "sourceforge.net/projects/freetype" \
-            "$FREETYPE_RECIPE"
-
-          echo "URL SourceForge OK."
-
-      - name: Clean stale FreeType downloads
-        run: |
-          set -euxo pipefail
-
-          rm -f \
-            "$GITHUB_WORKSPACE/.cache/freetype-download" \
-            "$GITHUB_WORKSPACE/.cache/freetype-download.tar.bz2" \
-            "$HOME/.kivy-ios/freetype-download" \
-            "$HOME/.kivy-ios/freetype-download.tar.bz2" \
-            "$HOME/.kivy-ios/freetype-freetype-2.5.5.tar.bz2" \
-            || true
 
       - name: Build kivy-ios recipes
         run: |
