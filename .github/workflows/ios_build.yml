@@ -111,11 +111,14 @@ jobs:
       # ============================================================
 
 
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
+
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           R="$(python -c 'import kivy_ios.recipes as r; print(r.__path__[0])')"
+
           echo "Toolchain: $T"
           echo "Recipes: $R"
 
@@ -127,18 +130,29 @@ jobs:
           recipes = Path(sys.argv[2])
           s = toolchain.read_text()
 
-          # DOWNLOAD
+          # --------------------------------------------------------
+          # download_file()
+          # --------------------------------------------------------
+
           if "import subprocess" not in s:
-              s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
+              s = s.replace(
+                  "import sys\n",
+                  "import sys\nimport subprocess\n",
+                  1,
+              )
 
           old = "urlretrieve(url, filename, report_hook)"
+
           new = """subprocess.run(
               [
-                  "curl", "-L", "--fail",
+                  "curl",
+                  "-L",
+                  "--fail",
                   "--retry", "5",
                   "--retry-delay", "5",
                   "--retry-all-errors",
-                  "-o", filename, url,
+                  "-o", filename,
+                  url,
               ],
               check=True,
           )"""
@@ -147,20 +161,24 @@ jobs:
               s = s.replace(old, new, 1)
               print("[PATCH] download_file() patched")
 
+          # --------------------------------------------------------
           # Désactiver pigz / pbzip2
-          replacements = (
+          # --------------------------------------------------------
+
+          for old, new in (
               ("self.use_pigz = sh.which('pigz')", "self.use_pigz = False"),
               ('self.use_pigz = sh.which("pigz")', "self.use_pigz = False"),
               ("self.use_pbzip2 = sh.which('pbzip2')", "self.use_pbzip2 = False"),
               ('self.use_pbzip2 = sh.which("pbzip2")', "self.use_pbzip2 = False"),
-          )
-
-          for old, new in replacements:
+          ):
               if old in s:
                   s = s.replace(old, new)
                   print("[PATCH]", old)
 
+          # --------------------------------------------------------
           # get_archive_rootdir()
+          # --------------------------------------------------------
+
           marker = "    def get_archive_rootdir(self, filename):"
           start = s.find(marker)
 
@@ -211,10 +229,7 @@ jobs:
               "                    member = archive.next()",
               '                    if member is None:',
               '                        raise Exception("Archive vide")',
-              '                    root = member.name.split("/")[0]',
-              "                    if not root:",
-              '                        raise Exception("Impossible de détecter le root directory")',
-              "                    return root",
+              '                    return member.name.split("/")[0]',
               "            except tarfile.ReadError as exc:",
               '                raise Exception("Fichier bzip2 invalide: " + filename) from exc',
               "",
@@ -224,10 +239,7 @@ jobs:
               "                    member = archive.next()",
               '                    if member is None:',
               '                        raise Exception("Archive vide")',
-              '                    root = member.name.split("/")[0]',
-              "                    if not root:",
-              '                        raise Exception("Impossible de détecter le root directory")',
-              "                    return root",
+              '                    return member.name.split("/")[0]',
               "            except tarfile.ReadError as exc:",
               '                raise Exception("Fichier gzip invalide: " + filename) from exc',
               "",
@@ -242,26 +254,55 @@ jobs:
               "",
           ]
 
-          new_function = "\n".join(lines)
-          s = s[:start] + new_function + s[next_def:]
+          s = s[:start] + "\n".join(lines) + s[next_def:]
 
-          # Vérification syntaxique avant écriture
+          # --------------------------------------------------------
+          # Vérification syntaxique
+          # --------------------------------------------------------
+
           compile(s, str(toolchain), "exec")
           toolchain.write_text(s)
-          print("[PATCH] toolchain.py écrit avec succès")
 
-          # Force make -j1
+          print("[PATCH] toolchain.py OK")
+
+          # --------------------------------------------------------
+          # Patch FreeType : outils hôte en macOS
+          # --------------------------------------------------------
+
+          freetype = recipes / "freetype" / "__init__.py"
+
+          if freetype.exists():
+              text = freetype.read_text()
+
+              text = text.replace(
+                  'shprint(sh.make, "-j1")',
+                  'shprint(sh.make, "-j1", "CC=clang", "CXX=clang++")',
+              )
+
+              freetype.write_text(text)
+
+              print("[PATCH] FreeType build patched")
+
+          # --------------------------------------------------------
+          # Force -j1 dans les recipes
+          # --------------------------------------------------------
+
           count = 0
 
           for f in recipes.rglob("*.py"):
               text = f.read_text()
-              patched = text.replace("self.ctx.concurrent_make", '"-j1"')
-              patched = patched.replace("self.concurrent_make", '"-j1"')
+              patched = text.replace(
+                  "self.ctx.concurrent_make",
+                  '"-j1"',
+              )
+              patched = patched.replace(
+                  "self.concurrent_make",
+                  '"-j1"',
+              )
 
               if patched != text:
                   f.write_text(patched)
                   count += 1
-                  print("[PATCH] recipe:", f)
 
           print("[PATCH] Recipes patchées:", count)
           PY
@@ -269,9 +310,17 @@ jobs:
           python -m py_compile "$T"
 
           echo "=================================================="
-          echo "VERIFICATION DU PATCH"
+          echo "VERIFICATION"
           echo "=================================================="
+
           grep -n -A80 "def get_archive_rootdir" "$T" | head -90
+
+          echo "=================================================="
+          echo "FREETYPE"
+          echo "=================================================="
+
+          sed -n '1,80p' "$R/freetype/__init__.py"
+
 
 
 
