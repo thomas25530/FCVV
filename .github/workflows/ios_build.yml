@@ -934,7 +934,7 @@ jobs:
           fi
       
           cat > "$PROJ_DIR/Podfile" <<EOF
-          platform :ios, '13.0'
+          platform :ios, '12.0'
       
           use_frameworks!
           use_modular_headers!
@@ -942,8 +942,8 @@ jobs:
           project '$PROJ_NAME'
       
           target 'fcvv' do
-            pod 'FirebaseCore', '10.29.0'
-            pod 'FirebaseMessaging', '10.29.0'
+            pod 'FirebaseCore', '9.6.0'
+            pod 'FirebaseMessaging', '9.6.0'
           end
           EOF
       
