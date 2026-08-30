@@ -7,64 +7,60 @@ on:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: macos-14
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Vérifier Xcode
         run: |
           xcodebuild -version
-          xcodebuild -showsdks | grep -E "iOS|iPhoneOS"
-      
-      - name: Vérifier les versions Xcode disponibles
-        run: |
-          echo "Xcode actuellement sélectionné :"
-          xcodebuild -version
-          echo
-          echo "Versions Xcode installées :"
-          ls -d /Applications/Xcode*.app 2>/dev/null || true
-      
+          xcodebuild -showsdks | grep -E "iOS|iPhoneOS" || true
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10.11"
+          python-version: "3.10"
 
       - name: Install system tools
         run: |
           brew install autoconf automake libtool pkg-config cmake cocoapods rsync
+
           python -m pip install --upgrade pip
-          pip install "Cython>=3.0,<3.1" "kivy-ios>=1.3.0" pillow requests urllib3 pyyaml
 
-      - name: Clean kivy-ios cache
-        run: |
-          rm -rf ~/.kivy-ios
-
-      - name: Create Kivy-iOS directory
-        run: mkdir -p "$HOME/.kivy-ios"
+          pip install \
+            "Cython>=3.0,<3.1" \
+            "kivy-ios==1.3.0" \
+            pillow \
+            requests \
+            urllib3 \
+            pyyaml
 
       - name: Cache kivy-ios
-        id: cache
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v4-python310
+          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310
           restore-keys: |
-            ${{ runner.os }}-kivy-ios-v4-
+            ${{ runner.os }}-kivy-ios-v1.3.0-
 
-      - name: Validate cache and Build
+      - name: Vérifier kivy-ios
         run: |
           set -euxo pipefail
-          echo "===== Informations kivy-ios ====="
+
           which toolchain
+          toolchain --version || true
+
+          echo "===== RECIPES ====="
           toolchain recipes
-          toolchain status || true
-          echo "===== Contenu ~/.kivy-ios ====="
-          ls -la "$HOME/.kivy-ios" || true
-          find "$HOME/.kivy-ios" -maxdepth 3 || true
-          echo "===== Compilation des recettes ====="
+
+          echo "===== CACHE ====="
+          find "$HOME/.kivy-ios" -maxdepth 3 -type f | head -100 || true
+
+      - name: Build Kivy dependencies
+        run: |
+          set -euxo pipefail
+
           toolchain build python3 kivy openssl pillow
-          toolchain pip install pyyaml requests urllib3
-          find ~/.kivy-ios -path "*site-packages*" -iname "*yaml*"
 
       - name: Inspect build output
         run: |
