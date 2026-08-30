@@ -61,56 +61,44 @@ jobs:
               raise SystemExit("ERREUR: URL FreeType introuvable.")
           PY
 
+
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
+
           T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
           cp "$T" "$T.backup"
 
           python - "$T" <<'PY'
+          import re
           import sys
           from pathlib import Path
 
           p = Path(sys.argv[1])
-          lines = p.read_text().splitlines()
+          s = p.read_text()
 
-          # Downloader
-          text = "\n".join(lines)
+          # -------------------------------------------------------
+          # Downloader: urllib -> curl
+          # -------------------------------------------------------
 
-          if "urlretrieve(url, filename, report_hook)" in text:
-              if "import subprocess" not in text:
-                  for i, line in enumerate(lines):
-                      if line == "import sys":
-                          lines.insert(i + 1, "import subprocess")
-                          break
+          if "urlretrieve(url, filename, report_hook)" in s:
+              if "import subprocess" not in s:
+                  s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
 
-              text = "\n".join(lines).replace(
+              s = s.replace(
                   "urlretrieve(url, filename, report_hook)",
                   'subprocess.run(["curl","-L","--fail","--retry","5","--retry-delay","5","--retry-all-errors",url,"-o",filename], check=True)',
                   1,
               )
-              lines = text.splitlines()
               print("Downloader curl installé.")
           else:
               print("Downloader déjà patché.")
 
-          # Archive root
-          start = next(
-              (i for i, line in enumerate(lines)
-               if line.startswith("    def get_archive_rootdir(")),
-              None,
-          )
+          # -------------------------------------------------------
+          # get_archive_rootdir()
+          # -------------------------------------------------------
 
-          if start is None:
-              raise SystemExit("ERREUR: get_archive_rootdir() introuvable.")
-
-          end = next(
-              (i for i in range(start + 1, len(lines))
-               if lines[i].startswith("    def ")),
-              len(lines),
-          )
-
-          method = """    def get_archive_rootdir(self, filename):
+          new_method = '''    def get_archive_rootdir(self, filename):
               import os
               import tarfile
               import zipfile
@@ -138,11 +126,11 @@ jobs:
                   logger.error("Unrecognized archive for {}".format(filename))
                   raise Exception()
 
-              roots = {
-                  n.lstrip("/").split("/")[0]
-                  for n in names
-                  if n.lstrip("/")
-              }
+              roots = set()
+              for name in names:
+                  name = name.lstrip("/")
+                  if name:
+                      roots.add(name.split("/")[0])
 
               if len(roots) != 1:
                   logger.error(
@@ -155,15 +143,39 @@ jobs:
               root = next(iter(roots))
               logger.info("Archive root directory: {}".format(root))
               return root
-          """.rstrip()
+          '''
 
-          lines[start:end] = method.splitlines()
-          p.write_text("\n".join(lines) + "\n")
+          # IMPORTANT:
+          # Match the complete method using indentation and replace it
+          # without modifying the indentation of the following method.
+
+          pattern = re.compile(
+              r"(?ms)^    def get_archive_rootdir\(self, filename\):\n"
+              r"(?:        .*\n|[ \t]*\n)*?"
+              r"(?=^    def |\Z)"
+          )
+
+          match = pattern.search(s)
+
+          if not match:
+              raise SystemExit(
+                  "ERREUR: get_archive_rootdir() introuvable."
+              )
+
+          s = s[:match.start()] + new_method + "\n" + s[match.end():]
+
+          p.write_text(s)
           print("get_archive_rootdir() corrigée.")
+
+          # Vérification immédiate
+          compile(s, str(p), "exec")
+          print("Compilation du patch OK.")
           PY
 
           python -m py_compile "$T"
           echo "toolchain.py syntaxe OK."
+
+
 
       - name: Verify kivy-ios
         run: |
