@@ -37,6 +37,86 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-kivy-ios-arm64-v1.3.0-
 
+
+      - name: Inspect kivy-ios
+        run: |
+          set -euxo pipefail
+
+          T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
+          F="$(python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)')"
+
+          echo "=================================================="
+          echo "TOOLCHAIN"
+          echo "$T"
+          echo "=================================================="
+
+          python - "$T" <<'PY'
+          import sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          lines = p.read_text().splitlines()
+
+          print("\n--- méthodes contenant archive/root/download ---\n")
+
+          for i, line in enumerate(lines):
+              l = line.lower()
+              if any(x in l for x in (
+                  "get_archive_rootdir",
+                  "archive_fn",
+                  "archive",
+                  "def download",
+                  "tarfile",
+                  "unpack",
+                  "extract",
+              )):
+                  a = max(0, i - 5)
+                  b = min(len(lines), i + 12)
+                  print(f"\n### lignes {a + 1}-{b}")
+                  for n in range(a, b):
+                      print(f"{n + 1:5}: {lines[n]}")
+          PY
+
+          echo "=================================================="
+          echo "FREETYPE RECIPE"
+          echo "$F"
+          echo "=================================================="
+
+          cat "$F"
+
+          echo "=================================================="
+          echo "KIVY-IOS VERSION"
+          echo "=================================================="
+
+          python -m pip show kivy-ios
+
+          echo "=================================================="
+          echo "ACTUAL TOOLCHAIN METHODS"
+          echo "=================================================="
+
+          python - <<'PY'
+          import inspect
+          import kivy_ios.toolchain as t
+
+          print("toolchain:", t.__file__)
+
+          for name in dir(t):
+              if "archive" in name.lower() or "download" in name.lower():
+                  obj = getattr(t, name)
+                  if callable(obj):
+                      print("\n###", name)
+                      try:
+                          print(inspect.getsource(obj))
+                      except Exception as e:
+                          print("SOURCE ERROR:", e)
+          PY
+      
+      
+      
+      
+      
+      
+      
       - name: Patch kivy-ios
         run: |
           set -euxo pipefail
