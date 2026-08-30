@@ -19,18 +19,38 @@ jobs:
       - name: Install tools
         run: |
           set -euxo pipefail
-          brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache
+
+          brew install \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            cmake \
+            cocoapods \
+            rsync \
+            ccache \
+            pigz \
+            pbzip2
+
           brew link libtool --force
+
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install \
             "Cython==0.29.36" \
             "kivy-ios==1.3.0" \
-            pillow requests urllib3 pyyaml
+            pillow \
+            requests \
+            urllib3 \
+            pyyaml
+
           ln -sf "$(command -v cython)" \
             "$(dirname "$(command -v cython)")/cython-2.7"
+
           python --version
           python -m pip show kivy-ios
           cython-2.7 --version
+          pigz --version
+          pbzip2 --version
 
       - name: Cache kivy-ios
         uses: actions/cache@v4
@@ -47,6 +67,7 @@ jobs:
       - name: Fix FreeType
         run: |
           set -euxo pipefail
+
           F="$(python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)')"
 
           python - "$F" <<'PY'
@@ -60,6 +81,7 @@ jobs:
               "https://download.savannah.gnu.org/releases/freetype/"
               "freetype-old/freetype-{version}.tar.bz2"
           )
+
           new = (
               "https://sourceforge.net/projects/freetype/files/"
               "freetype2/{version}/freetype-{version}.tar.bz2/download"
@@ -74,7 +96,7 @@ jobs:
               raise SystemExit("ERREUR: URL FreeType introuvable.")
           PY
 
-      - name: Inspect and patch kivy-ios
+      - name: Patch kivy-ios downloader
         run: |
           set -euxo pipefail
 
@@ -88,62 +110,8 @@ jobs:
 
           p = Path(sys.argv[1])
           source = p.read_text()
-          tree = ast.parse(source)
 
-          print("=== kivy-ios toolchain.py ===")
-          print("Fichier:", p)
-
-          print("\n=== Fonctions/classes liées à l'extraction ===")
-
-          found = False
-
-          for node in ast.walk(tree):
-              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                  name = node.name.lower()
-
-                  if any(
-                      x in name
-                      for x in ("extract", "archive", "download", "unpack")
-                  ):
-                      found = True
-                      print(
-                          "FUNCTION:",
-                          node.name,
-                          "line",
-                          node.lineno,
-                      )
-
-              elif isinstance(node, ast.ClassDef):
-                  name = node.name.lower()
-
-                  if any(
-                      x in name
-                      for x in ("recipe", "archive", "download")
-                  ):
-                      found = True
-                      print(
-                          "CLASS:",
-                          node.name,
-                          "line",
-                          node.lineno,
-                      )
-
-          print("\n=== Références pigz/pbzip2/tar/zip ===")
-
-          for i, line in enumerate(source.splitlines(), 1):
-              low = line.lower()
-
-              if any(
-                  x in low
-                  for x in ("pigz", "pbzip2", "tar ", "tar.", "zipfile")
-              ):
-                  print(f"{i}: {line}")
-
-          print("\n=== Recherche urlretrieve ===")
-
-          if "urlretrieve" in source:
-              print("urlretrieve: PRESENT")
-
+          if "urlretrieve(url, filename, report_hook)" in source:
               if "import subprocess" not in source:
                   source = source.replace(
                       "import sys\n",
@@ -163,13 +131,22 @@ jobs:
               p.write_text(source)
               print("Downloader curl: OK")
           else:
-              print("urlretrieve: ABSENT")
+              print("Downloader déjà patché ou urlretrieve absent.")
 
-          print("\nInspection terminée.")
-          print("Le workflow s'arrête volontairement ici.")
+          ast.parse(p.read_text())
+          print("toolchain.py: syntaxe OK")
           PY
 
           python -m py_compile "$T"
+
+          python - <<'PY'
+          import kivy_ios.toolchain as t
+
+          print("toolchain:", t.__file__)
+          print("pigz:", t.sh.which("pigz"))
+          print("pbzip2:", t.sh.which("pbzip2"))
+          print("toolchain.py: OK")
+          PY
 
       - name: Configure iOS
         run: |
