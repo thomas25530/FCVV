@@ -19,29 +19,16 @@ jobs:
       - name: Install tools
         run: |
           set -euxo pipefail
-
           brew install \
-            autoconf \
-            automake \
-            libtool \
-            pkg-config \
-            cmake \
-            cocoapods \
-            rsync \
-            ccache \
-            pigz \
-            pbzip2
-
+            autoconf automake libtool pkg-config cmake \
+            cocoapods rsync ccache pigz pbzip2
           brew link libtool --force
 
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install \
             "Cython==0.29.36" \
             "kivy-ios==1.3.0" \
-            pillow \
-            requests \
-            urllib3 \
-            pyyaml
+            pillow requests urllib3 pyyaml
 
           ln -sf "$(command -v cython)" \
             "$(dirname "$(command -v cython)")/cython-2.7"
@@ -67,7 +54,6 @@ jobs:
       - name: Fix FreeType
         run: |
           set -euxo pipefail
-
           F="$(python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)')"
 
           python - "$F" <<'PY'
@@ -81,7 +67,6 @@ jobs:
               "https://download.savannah.gnu.org/releases/freetype/"
               "freetype-old/freetype-{version}.tar.bz2"
           )
-
           new = (
               "https://sourceforge.net/projects/freetype/files/"
               "freetype2/{version}/freetype-{version}.tar.bz2/download"
@@ -96,7 +81,7 @@ jobs:
               raise SystemExit("ERREUR: URL FreeType introuvable.")
           PY
 
-      - name: Patch kivy-ios downloader
+      - name: Patch kivy-ios
         run: |
           set -euxo pipefail
 
@@ -111,6 +96,9 @@ jobs:
           p = Path(sys.argv[1])
           source = p.read_text()
 
+          # ----------------------------------------------------------
+          # Fix downloader: urllib -> curl
+          # ----------------------------------------------------------
           if "urlretrieve(url, filename, report_hook)" in source:
               if "import subprocess" not in source:
                   source = source.replace(
@@ -128,13 +116,54 @@ jobs:
                   1,
               )
 
-              p.write_text(source)
               print("Downloader curl: OK")
           else:
-              print("Downloader déjà patché ou urlretrieve absent.")
+              print("Downloader déjà patché.")
 
-          ast.parse(p.read_text())
-          print("toolchain.py: syntaxe OK")
+          # ----------------------------------------------------------
+          # Fix sh.which(): supprimer le retour à la ligne
+          # ----------------------------------------------------------
+          old1 = "self.use_pigz = sh.which('pigz')"
+          new1 = "self.use_pigz = sh.which('pigz').strip()"
+
+          old2 = "self.use_pbzip2 = sh.which('pbzip2')"
+          new2 = "self.use_pbzip2 = sh.which('pbzip2').strip()"
+
+          if old1 in source:
+              source = source.replace(old1, new1, 1)
+              print("Fix pigz: OK")
+          elif new1 in source:
+              print("Fix pigz déjà appliqué.")
+          else:
+              raise SystemExit(
+                  "ERREUR: ligne sh.which('pigz') introuvable."
+              )
+
+          if old2 in source:
+              source = source.replace(old2, new2, 1)
+              print("Fix pbzip2: OK")
+          elif new2 in source:
+              print("Fix pbzip2 déjà appliqué.")
+          else:
+              raise SystemExit(
+                  "ERREUR: ligne sh.which('pbzip2') introuvable."
+              )
+
+          # ----------------------------------------------------------
+          # Validation syntaxique
+          # ----------------------------------------------------------
+          ast.parse(source)
+          compile(source, str(p), "exec")
+
+          if "sh.which('pigz').strip()" not in source:
+              raise SystemExit("ERREUR: correction pigz absente.")
+
+          if "sh.which('pbzip2').strip()" not in source:
+              raise SystemExit("ERREUR: correction pbzip2 absente.")
+
+          p.write_text(source)
+
+          print("Patch toolchain.py: OK")
           PY
 
           python -m py_compile "$T"
@@ -143,9 +172,17 @@ jobs:
           import kivy_ios.toolchain as t
 
           print("toolchain:", t.__file__)
-          print("pigz:", t.sh.which("pigz"))
-          print("pbzip2:", t.sh.which("pbzip2"))
-          print("toolchain.py: OK")
+
+          print("pigz raw:", repr(t.sh.which("pigz")))
+          print("pbzip2 raw:", repr(t.sh.which("pbzip2")))
+
+          print("pigz stripped:", repr(t.sh.which("pigz").strip()))
+          print("pbzip2 stripped:", repr(t.sh.which("pbzip2").strip()))
+
+          assert t.sh.which("pigz").strip()
+          assert t.sh.which("pbzip2").strip()
+
+          print("toolchain.py: VALIDÉ")
           PY
 
       - name: Configure iOS
