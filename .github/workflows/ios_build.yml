@@ -22,7 +22,10 @@ jobs:
           brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache
           brew link libtool --force
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
+          python -m pip install \
+            "Cython==0.29.36" \
+            "kivy-ios==1.3.0" \
+            pillow requests urllib3 pyyaml
           ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7"
           python --version
           python -m pip show kivy-ios
@@ -50,14 +53,13 @@ jobs:
           python - "$T" <<'PY'
           import ast
           import sys
-          import textwrap
           from pathlib import Path
 
-          p = Path(sys.argv[1])
-          source = p.read_text()
+          path = Path(sys.argv[1])
+          source = path.read_text()
 
           # ----------------------------------------------------------
-          # Downloader: urllib -> curl
+          # urllib.urlretrieve -> curl
           # ----------------------------------------------------------
           if "urlretrieve(url, filename, report_hook)" in source:
               if "import subprocess" not in source:
@@ -69,14 +71,17 @@ jobs:
 
               source = source.replace(
                   "urlretrieve(url, filename, report_hook)",
-                  'subprocess.run(["curl", "-L", "--fail", "--retry", "5", '
-                  '"--retry-delay", "5", "--retry-all-errors", url, "-o", '
-                  'filename], check=True)',
+                  (
+                      'subprocess.run(["curl", "-L", "--fail", '
+                      '"--retry", "5", "--retry-delay", "5", '
+                      '"--retry-all-errors", url, "-o", filename], '
+                      "check=True)"
+                  ),
                   1,
               )
-              print("Downloader curl: OK")
+              print("Downloader: curl OK")
           else:
-              print("Downloader déjà patché.")
+              print("Downloader: déjà patché")
 
           # ----------------------------------------------------------
           # Désactiver pigz / pbzip2
@@ -89,135 +94,151 @@ jobs:
               "self.use_pbzip2 = sh.which('pbzip2')",
               "self.use_pbzip2 = False",
           )
-          print("pigz/pbzip2 désactivés.")
 
+          # ----------------------------------------------------------
+          # Trouver une méthode DIRECTEMENT dans Recipe
+          # ----------------------------------------------------------
           tree = ast.parse(source)
 
-          # ----------------------------------------------------------
-          # Trouver une méthode par nom
-          # ----------------------------------------------------------
-          def find_function(name):
-              for node in ast.walk(tree):
-                  if isinstance(node, ast.FunctionDef) and node.name == name:
-                      return node
-              return None
+          recipe = next(
+              (
+                  n for n in tree.body
+                  if isinstance(n, ast.ClassDef) and n.name == "Recipe"
+              ),
+              None,
+          )
 
-          root_node = find_function("get_archive_rootdir")
-          extract_node = find_function("extract_file")
+          if recipe is None:
+              raise SystemExit("ERREUR: classe Recipe introuvable.")
+
+          methods = {
+              n.name: n
+              for n in recipe.body
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+          }
+
+          root_node = methods.get("get_archive_rootdir")
+          extract_node = methods.get("extract_file")
 
           if root_node is None:
-              raise SystemExit("ERREUR: get_archive_rootdir() introuvable.")
+              raise SystemExit(
+                  "ERREUR: Recipe.get_archive_rootdir() introuvable."
+              )
 
           if extract_node is None:
-              raise SystemExit("ERREUR: extract_file() introuvable.")
+              raise SystemExit(
+                  "ERREUR: Recipe.extract_file() introuvable."
+              )
 
-          print("get_archive_rootdir() trouvée ligne:", root_node.lineno)
-          print("extract_file() trouvée ligne:", extract_node.lineno)
+          print("Recipe.get_archive_rootdir:", root_node.lineno)
+          print("Recipe.extract_file:", extract_node.lineno)
 
           # ----------------------------------------------------------
-          # Détection de racine d'archive sans extension
+          # Nouvelles méthodes
           # ----------------------------------------------------------
-          new_root = textwrap.dedent('''
-              def get_archive_rootdir(self, filename):
-                  import os
-                  import tarfile
-                  import zipfile
+          new_root = '''\
+          def get_archive_rootdir(self, filename):
+              import os
+              import tarfile
+              import zipfile
 
-                  if zipfile.is_zipfile(filename):
-                      with zipfile.ZipFile(filename) as archive:
-                          names = [n for n in archive.namelist() if n]
-                          if not names:
-                              raise Exception("Archive ZIP vide: {}".format(filename))
-                          return os.path.normpath(names[0]).split(os.sep)[0]
+              if zipfile.is_zipfile(filename):
+                  with zipfile.ZipFile(filename) as archive:
+                      names = [
+                          n for n in archive.namelist()
+                          if n and not n.endswith("/")
+                      ]
+                      if not names:
+                          raise Exception(
+                              "Archive ZIP vide: {}".format(filename)
+                          )
+                      return os.path.normpath(names[0]).split(os.sep)[0]
 
-                  try:
-                      with tarfile.open(filename, "r:*") as archive:
-                          names = [m.name for m in archive.getmembers() if m.name]
-                          if not names:
-                              raise Exception("Archive TAR vide: {}".format(filename))
-                          return os.path.normpath(names[0]).split(os.sep)[0]
-                  except (tarfile.TarError, OSError):
-                      pass
+              try:
+                  with tarfile.open(filename, "r:*") as archive:
+                      names = [
+                          m.name for m in archive.getmembers()
+                          if m.name
+                      ]
+                      if not names:
+                          raise Exception(
+                              "Archive TAR vide: {}".format(filename)
+                          )
+                      return os.path.normpath(names[0]).split(os.sep)[0]
+              except (tarfile.TarError, OSError):
+                  pass
 
-                  raise Exception(
-                      "Impossible de détecter la racine de l'archive: {}".format(filename)
+              raise Exception(
+                  "Impossible de détecter la racine de l'archive: {}".format(
+                      filename
                   )
-          ''').strip()
+              )
+          '''
+
+          new_extract = '''\
+          def extract_file(self, filename, cwd):
+              import os
+              import tarfile
+              import zipfile
+
+              if not filename:
+                  return
+
+              os.makedirs(cwd, exist_ok=True)
+              logger.info(
+                  "Extract {} into {}".format(filename, cwd)
+              )
+
+              if zipfile.is_zipfile(filename):
+                  with zipfile.ZipFile(filename) as archive:
+                      archive.extractall(cwd)
+                  return
+
+              try:
+                  with tarfile.open(filename, "r:*") as archive:
+                      archive.extractall(cwd)
+                  return
+              except (tarfile.TarError, OSError):
+                  pass
+
+              raise Exception(
+                  "Impossible d'extraire l'archive: {}".format(filename)
+              )
+          '''
 
           # ----------------------------------------------------------
-          # Extraction Python pure :
-          # ZIP / TAR / GZ / BZ2 / XZ
+          # Préserver l'indentation de la classe Recipe
           # ----------------------------------------------------------
-          new_extract = textwrap.dedent('''
-              def extract_file(self, filename, cwd):
-                  import os
-                  import tarfile
-                  import zipfile
+          lines = source.splitlines()
 
-                  if not filename:
-                      return
-
-                  os.makedirs(cwd, exist_ok=True)
-                  logger.info("Extract {} into {}".format(filename, cwd))
-
-                  if zipfile.is_zipfile(filename):
-                      with zipfile.ZipFile(filename) as archive:
-                          archive.extractall(cwd)
-                          return
-
-                  try:
-                      with tarfile.open(filename, "r:*") as archive:
-                          archive.extractall(cwd)
-                          return
-                  except (tarfile.TarError, OSError):
-                      pass
-
-                  raise Exception(
-                      "Impossible d'extraire l'archive: {}".format(filename)
-                  )
-          ''').strip()
-
-          # ----------------------------------------------------------
-          # Remplacement des deux fonctions
-          # ----------------------------------------------------------
           replacements = [
               (root_node, new_root),
               (extract_node, new_extract),
           ]
 
-          lines = source.splitlines()
-
           for node, replacement in sorted(
               replacements,
-              key=lambda x: x[0].lineno,
+              key=lambda item: item[0].lineno,
               reverse=True,
           ):
               start = node.lineno - 1
               end = node.end_lineno
-              lines[start:end] = replacement.splitlines()
 
-          source = "\n".join(lines) + "\n"
+              # Les nouvelles méthodes sont déjà indentées de 4 espaces.
+              replacement_lines = replacement.rstrip().splitlines()
+
+              lines[start:end] = replacement_lines
+
+          patched = "\n".join(lines) + "\n"
 
           # ----------------------------------------------------------
-          # Validation
+          # Validation syntaxique
           # ----------------------------------------------------------
-          ast.parse(source)
-          compile(source, str(p), "exec")
+          ast.parse(patched)
+          compile(patched, str(path), "exec")
 
-          required = (
-              "import subprocess",
-              "subprocess.run(",
-              "self.use_pigz = False",
-              "self.use_pbzip2 = False",
-              "def get_archive_rootdir(self, filename):",
-              "def extract_file(self, filename, cwd):",
-          )
+          path.write_text(patched)
 
-          for item in required:
-              if item not in source:
-                  raise SystemExit("ERREUR: élément absent: {}".format(item))
-
-          p.write_text(source)
           print("toolchain.py patché: OK")
           PY
 
@@ -234,16 +255,20 @@ jobs:
           print("use_pbzip2:", ctx.use_pbzip2)
 
           if ctx.use_pigz or ctx.use_pbzip2:
-              raise SystemExit("ERREUR: compression externe encore active.")
+              raise SystemExit(
+                  "ERREUR: compression externe encore active."
+              )
 
-          if not hasattr(t.Recipe, "get_archive_rootdir"):
-              raise SystemExit("ERREUR: Recipe.get_archive_rootdir() absente.")
+          for name in ("get_archive_rootdir", "extract_file"):
+              method = getattr(t.Recipe, name, None)
 
-          if not hasattr(t.Recipe, "extract_file"):
-              raise SystemExit("ERREUR: Recipe.extract_file() absente.")
+              if method is None:
+                  raise SystemExit(
+                      "ERREUR: Recipe.{}() absente.".format(name)
+                  )
 
-          print("Recipe.get_archive_rootdir:", t.Recipe.get_archive_rootdir)
-          print("Recipe.extract_file:", t.Recipe.extract_file)
+              print("Recipe.{}:".format(name), method)
+
           print("Patch validé.")
           PY
 
@@ -280,7 +305,6 @@ jobs:
           PY
 
           rm -f .cache/freetype-download
-          echo "Cache FreeType nettoyé."
 
       - name: Configure iOS
         run: |
@@ -289,9 +313,11 @@ jobs:
           export ARCHS=arm64
           export KIVYIOS_ARCH=arm64
           export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+
           echo "SDKROOT=$SDKROOT"
           echo "ARCHS=$ARCHS"
           echo "IPHONEOS_DEPLOYMENT_TARGET=$IPHONEOS_DEPLOYMENT_TARGET"
+
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
 
@@ -305,6 +331,7 @@ jobs:
       - name: Build iPhone arm64 recipes
         run: |
           set -euxo pipefail
+
           export MAKEFLAGS="-j1"
           export CMAKE_BUILD_PARALLEL_LEVEL=1
           export IPHONEOS_DEPLOYMENT_TARGET=12.0
