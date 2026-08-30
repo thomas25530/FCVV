@@ -65,9 +65,65 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-curl-v3
+          key: ${{ runner.os }}-kivy-ios-v1.3.0-python310-freetype-sourceforge-v4
           restore-keys: |
             ${{ runner.os }}-kivy-ios-v1.3.0-python310-
+
+      - name: Fix FreeType recipe URL
+        run: |
+          set -euxo pipefail
+
+          echo "===== Recherche de la recette FreeType ====="
+
+          FREETYPE_RECIPE="$(
+            python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)'
+          )"
+
+          echo "Recipe : $FREETYPE_RECIPE"
+
+          echo "===== URL originale ====="
+
+          grep -n "url" "$FREETYPE_RECIPE"
+
+          echo "===== Remplacement URL Savannah -> SourceForge ====="
+
+          python - "$FREETYPE_RECIPE" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+
+          old = (
+              "https://download.savannah.gnu.org/releases/freetype/"
+              "freetype-old/freetype-{version}.tar.bz2"
+          )
+
+          new = (
+              "https://sourceforge.net/projects/freetype/files/"
+              "freetype2/{version}/freetype-{version}.tar.bz2/download"
+          )
+
+          if old not in text:
+              print("URL Savannah introuvable.")
+              print("Le contenu actuel de la recette est :")
+              for line in text.splitlines():
+                  if "url" in line.lower():
+                      print(line)
+              raise SystemExit(
+                  "ERREUR : impossible de remplacer l'URL FreeType."
+              )
+
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+
+          print("URL FreeType remplacée avec succès.")
+          PY
+
+          echo "===== URL finale ====="
+
+          grep -n "url" "$FREETYPE_RECIPE"
 
       - name: Patch kivy-ios downloader
         run: |
@@ -80,10 +136,6 @@ jobs:
           )"
 
           echo "Toolchain : $TOOLCHAIN_FILE"
-
-          echo "===== Code original du downloader ====="
-
-          sed -n '449,505p' "$TOOLCHAIN_FILE"
 
           echo "===== Patch du downloader ====="
 
@@ -149,7 +201,7 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== Recipe FreeType ====="
+          echo "===== Recipe FreeType finale ====="
 
           FREETYPE_RECIPE="$(
             python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)'
@@ -199,6 +251,38 @@ jobs:
 
           ls -lah "$HOME/.kivy-ios" || true
 
+      - name: Test FreeType download
+        run: |
+          set -euxo pipefail
+
+          FREETYPE_URL="https://sourceforge.net/projects/freetype/files/freetype2/2.5.5/freetype-2.5.5.tar.bz2/download"
+
+          TEST_FILE="$RUNNER_TEMP/freetype-2.5.5.tar.bz2"
+
+          echo "===== Test téléchargement FreeType ====="
+
+          echo "URL : $FREETYPE_URL"
+          echo "Fichier : $TEST_FILE"
+
+          curl \
+            -L \
+            --fail \
+            --retry 5 \
+            --retry-delay 5 \
+            --retry-all-errors \
+            "$FREETYPE_URL" \
+            -o "$TEST_FILE"
+
+          echo "===== Vérification archive ====="
+
+          ls -lh "$TEST_FILE"
+
+          file "$TEST_FILE"
+
+          tar -tjf "$TEST_FILE" >/dev/null
+
+          echo "FreeType 2.5.5 téléchargé et vérifié."
+
       - name: Build kivy-ios recipes
         run: |
           set -euxo pipefail
@@ -224,6 +308,8 @@ jobs:
             -path "*site-packages*" \
             -iname "*yaml*" \
             -print || true
+
+
 
 
 
