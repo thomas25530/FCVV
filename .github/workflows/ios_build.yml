@@ -173,21 +173,21 @@ jobs:
           )
 
           new_download = """                subprocess.run(
-                [
-                    "curl",
-                    "-L",
-                    "--fail",
-                    "--retry",
-                    "5",
-                    "--retry-delay",
-                    "5",
-                    "--retry-all-errors",
-                    url,
-                    "-o",
-                    filename,
-                ],
-                check=True,
-            )"""
+              [
+                  "curl",
+                  "-L",
+                  "--fail",
+                  "--retry",
+                  "5",
+                  "--retry-delay",
+                  "5",
+                  "--retry-all-errors",
+                  url,
+                  "-o",
+                  filename,
+              ],
+              check=True,
+          )"""
 
           if old_download in text:
               text = text.replace(
@@ -211,15 +211,6 @@ jobs:
 
           # =========================================================
           # 3. Remplacer get_archive_rootdir()
-          #
-          # kivy-ios 1.3.0 peut utiliser :
-          #
-          #   .cache/freetype-download
-          #
-          # sans extension.
-          #
-          # On détecte donc l'archive directement avec tarfile
-          # ou zipfile au lieu de dépendre de l'extension.
           # =========================================================
 
           method_start = (
@@ -244,100 +235,99 @@ jobs:
               )
 
           new_method = """    def get_archive_rootdir(self, filename):
-          \"\"\"
-          Determine the root directory of an archive.
+              \"\"\"
+              Determine the root directory of an archive.
 
-          Supports archives without a filename extension.
-          \"\"\"
+              Supports archives without a filename extension.
+              \"\"\"
 
-          import tarfile
-          import zipfile
+              import tarfile
+              import zipfile
 
-          if not os.path.exists(filename):
-              logger.error(
-                  "Archive does not exist: {}".format(filename)
-              )
-              raise Exception()
+              if not os.path.exists(filename):
+                  logger.error(
+                      "Archive does not exist: {}".format(filename)
+                  )
+                  raise Exception()
 
-          names = []
-
-          # ---------------------------------------------------------
-          # Try TAR.
-          # ---------------------------------------------------------
-
-          try:
-              with tarfile.open(filename, "r:*") as archive:
-                  names = [
-                      member.name
-                      for member in archive.getmembers()
-                      if member.name
-                  ]
-
-          except (
-              tarfile.TarError,
-              EOFError,
-              OSError,
-          ):
               names = []
 
-          # ---------------------------------------------------------
-          # Try ZIP if TAR failed.
-          # ---------------------------------------------------------
+              # ---------------------------------------------------------
+              # Try TAR.
+              # ---------------------------------------------------------
 
-          if not names:
               try:
-                  with zipfile.ZipFile(filename) as archive:
+                  with tarfile.open(filename, "r:*") as archive:
                       names = [
-                          name
-                          for name in archive.namelist()
-                          if name
+                          member.name
+                          for member in archive.getmembers()
+                          if member.name
                       ]
 
               except (
-                  zipfile.BadZipFile,
+                  tarfile.TarError,
+                  EOFError,
                   OSError,
               ):
                   names = []
 
-          # ---------------------------------------------------------
-          # Archive not recognized.
-          # ---------------------------------------------------------
+              # ---------------------------------------------------------
+              # Try ZIP if TAR failed.
+              # ---------------------------------------------------------
 
-          if not names:
-              logger.error(
-                  "Unrecognized archive for {}".format(filename)
-              )
-              raise Exception()
+              if not names:
+                  try:
+                      with zipfile.ZipFile(filename) as archive:
+                          names = [
+                              name
+                              for name in archive.namelist()
+                              if name
+                          ]
 
-          # ---------------------------------------------------------
-          # Find the root directory.
-          # ---------------------------------------------------------
+                  except (
+                      zipfile.BadZipFile,
+                      OSError,
+                  ):
+                      names = []
 
-          roots = set()
+              # ---------------------------------------------------------
+              # Archive not recognized.
+              # ---------------------------------------------------------
 
-          for name in names:
-              parts = name.split("/")
-
-              if parts and parts[0]:
-                  roots.add(parts[0])
-
-          if len(roots) != 1:
-              logger.error(
-                  "Cannot detect root directory for {}: {}".format(
-                      filename,
-                      sorted(roots),
+              if not names:
+                  logger.error(
+                      "Unrecognized archive for {}".format(filename)
                   )
+                  raise Exception()
+
+              # ---------------------------------------------------------
+              # Find the root directory.
+              # ---------------------------------------------------------
+
+              roots = set()
+
+              for name in names:
+                  parts = name.split("/")
+
+                  if parts and parts[0]:
+                      roots.add(parts[0])
+
+              if len(roots) != 1:
+                  logger.error(
+                      "Cannot detect root directory for {}: {}".format(
+                          filename,
+                          sorted(roots),
+                      )
+                  )
+                  raise Exception()
+
+              root = next(iter(roots))
+
+              logger.info(
+                  "Archive root directory: {}".format(root)
               )
-              raise Exception()
 
-          root = next(iter(roots))
-
-          logger.info(
-              "Archive root directory: {}".format(root)
-          )
-
-          return root
-    """
+              return root"""
 
           text = (
               text[:start]
@@ -362,18 +352,6 @@ jobs:
 
           echo "Syntaxe de toolchain.py : OK"
 
-          echo "===== Vérification du downloader ====="
-
-          grep -n -A80 -B5 \
-            "def download_file" \
-            "$TOOLCHAIN_FILE"
-
-          echo "===== Vérification de get_archive_rootdir() ====="
-
-          grep -n -A100 -B5 \
-            "def get_archive_rootdir" \
-            "$TOOLCHAIN_FILE"
-
       - name: Verify patched kivy-ios
         run: |
           set -euxo pipefail
@@ -388,43 +366,13 @@ jobs:
 
           echo "Syntaxe Python OK."
 
-          echo "===== Vérification import subprocess ====="
-
-          grep -n "^import subprocess" "$TOOLCHAIN_FILE"
-
-          echo "===== Vérification curl ====="
-
-          grep -n -A30 \
-            "def download_file" \
-            "$TOOLCHAIN_FILE"
-
-          echo "===== Vérification get_archive_rootdir ====="
-
-          grep -n -A100 \
-            "def get_archive_rootdir" \
-            "$TOOLCHAIN_FILE"
-
       - name: Verify FreeType recipe
         run: |
           set -euxo pipefail
 
-          echo "===== Recipe FreeType finale ====="
-
           FREETYPE_RECIPE="$(
             python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)'
           )"
-
-          echo "Recipe : $FREETYPE_RECIPE"
-
-          echo "===== Version ====="
-
-          grep -n "version" "$FREETYPE_RECIPE"
-
-          echo "===== URL ====="
-
-          grep -n "url" "$FREETYPE_RECIPE"
-
-          echo "===== Vérification SourceForge ====="
 
           grep -q \
             "sourceforge.net/projects/freetype" \
@@ -432,47 +380,9 @@ jobs:
 
           echo "URL SourceForge OK."
 
-      - name: Test FreeType download
-        run: |
-          set -euxo pipefail
-
-          FREETYPE_URL="https://sourceforge.net/projects/freetype/files/freetype2/2.5.5/freetype-2.5.5.tar.bz2/download"
-
-          TEST_FILE="$RUNNER_TEMP/freetype-2.5.5.tar.bz2"
-
-          echo "===== Test téléchargement FreeType ====="
-
-          echo "URL : $FREETYPE_URL"
-          echo "Fichier : $TEST_FILE"
-
-          rm -f "$TEST_FILE"
-
-          curl \
-            -L \
-            --fail \
-            --retry 5 \
-            --retry-delay 5 \
-            --retry-all-errors \
-            "$FREETYPE_URL" \
-            -o "$TEST_FILE"
-
-          echo "===== Vérification du fichier ====="
-
-          ls -lh "$TEST_FILE"
-
-          file "$TEST_FILE"
-
-          echo "===== Vérification de l'archive ====="
-
-          tar -tjf "$TEST_FILE" >/dev/null
-
-          echo "FreeType 2.5.5 téléchargé et vérifié."
-
       - name: Clean stale FreeType downloads
         run: |
           set -euxo pipefail
-
-          echo "===== Nettoyage des anciens téléchargements FreeType ====="
 
           rm -f \
             "$GITHUB_WORKSPACE/.cache/freetype-download" \
@@ -482,61 +392,9 @@ jobs:
             "$HOME/.kivy-ios/freetype-freetype-2.5.5.tar.bz2" \
             || true
 
-          echo "===== Cache FreeType après nettoyage ====="
-
-          find "$GITHUB_WORKSPACE/.cache" \
-            -maxdepth 1 \
-            -type f \
-            -print 2>/dev/null || true
-
-          echo "Nettoyage terminé."
-
-      - name: Validate kivy-ios
-        run: |
-          set -euxo pipefail
-
-          echo "===== Toolchain ====="
-
-          which toolchain
-
-          echo "===== Cython ====="
-
-          which cython
-          which cython-2.7
-          cython-2.7 --version
-
-          echo "===== Outils système ====="
-
-          which ccache
-          which pigz
-          which pbzip2
-          which rsync
-          which curl
-
-          echo "===== Recipes ====="
-
-          toolchain recipes
-
-          echo "===== Status ====="
-
-          toolchain status || true
-
-          echo "===== Contenu du cache ====="
-
-          find "$GITHUB_WORKSPACE/.cache" \
-            -maxdepth 2 \
-            -type f \
-            -print 2>/dev/null || true
-
-          echo "===== Contenu ~/.kivy-ios ====="
-
-          ls -lah "$HOME/.kivy-ios" || true
-
       - name: Build kivy-ios recipes
         run: |
           set -euxo pipefail
-
-          echo "===== Compilation des recettes ====="
 
           toolchain build \
             python3 \
@@ -548,20 +406,10 @@ jobs:
         run: |
           set -euxo pipefail
 
-          echo "===== Installation des dépendances Python ====="
-
           toolchain pip install \
             pyyaml \
             requests \
             urllib3
-
-          echo "===== Vérification ====="
-
-          find "$HOME/.kivy-ios" \
-            -path "*site-packages*" \
-            -iname "*yaml*" \
-            -print || true
-
 
 
 
