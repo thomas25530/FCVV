@@ -929,16 +929,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          PROJECT_FILE=$(
-            find . \
-              -maxdepth 3 \
-              -name "*.xcodeproj" \
-              -print \
-              -quit
-          )
+          PROJECT_FILE="$PWD/fcvv-ios/fcvv.xcodeproj"
 
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : aucun .xcodeproj trouvé."
+          if [ ! -d "$PROJECT_FILE" ]; then
+            echo "ERREUR : projet Xcode introuvable : $PROJECT_FILE"
+            find "$PWD" -name "*.xcodeproj" -print
             exit 1
           fi
 
