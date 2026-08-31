@@ -9,474 +9,313 @@ jobs:
   build:
     runs-on: macos-14
 
-    steps:
-      - uses: actions/checkout@v4
+    env:
+      IOS_DEPLOYMENT_TARGET: "13.0"
+      FIREBASE_VERSION: "10.29.0"
+      APP_BUNDLE_ID: "org.fcvv.fcvv"
+      APP_VERSION: "1.1.0"
 
-      - uses: actions/setup-python@v5
+    steps:
+      # ============================================================
+      # 1. CHECKOUT
+      # ============================================================
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # 2. PYTHON
+      # ============================================================
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10.11"
 
-      - name: Install tools
+      # ============================================================
+      # 3. SYSTEM TOOLS
+      # ============================================================
+      - name: Install system tools
+        shell: bash
         run: |
-          set -euxo pipefail
-          brew install autoconf automake libtool pkg-config cmake cocoapods rsync ccache
-          brew link libtool --force
-          python -m pip install --upgrade pip wheel
-          python -m pip install "Cython==0.29.36" "kivy-ios==1.3.0" pillow requests urllib3 pyyaml
-          ln -sf "$(command -v cython)" "$(dirname "$(command -v cython)")/cython-2.7"
+          set -euo pipefail
 
+          brew install \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            cmake \
+            cocoapods \
+            rsync
+
+          python -m pip install --upgrade pip
+
+          pip install \
+            "Cython>=3.0,<3.1" \
+            "kivy-ios>=1.3.0" \
+            pillow \
+            requests \
+            urllib3 \
+            pyyaml
+
+          ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
+
+      # ============================================================
+      # 4. CACHE KIVY-IOS
+      # ============================================================
       - name: Cache kivy-ios
         uses: actions/cache@v4
         with:
           path: |
             ~/.kivy-ios
-            .cache
-            dist
-            build
-          key: ${{ runner.os }}-kivy-ios-arm64-v1.3.0-fix-v26
+          key: ${{ runner.os }}-kivy-ios-v5-python310-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.py') }}
           restore-keys: |
-            ${{ runner.os }}-kivy-ios-arm64-v1.3.0-
+            ${{ runner.os }}-kivy-ios-v5-python310-
+            ${{ runner.os }}-kivy-ios-v5-
 
-      - name: Patch kivy-ios
+      # ============================================================
+      # 5. BUILD KIVY-IOS RECIPES
+      # ============================================================
+      - name: Build kivy-ios
         shell: bash
         run: |
-          set -euxo pipefail
-          T="$(python -c 'import kivy_ios.toolchain as t; print(t.__file__)')"
-          R="$(python -c 'import kivy_ios.recipes as r; print(r.__path__[0])')"
-
-          python - "$T" "$R" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-
-          toolchain = Path(sys.argv[1])
-          recipes = Path(sys.argv[2])
-          s = toolchain.read_text()
-
-          # download_file()
-          if "import subprocess" not in s:
-              s = s.replace("import sys\n", "import sys\nimport subprocess\n", 1)
-
-          old = "urlretrieve(url, filename, report_hook)"
-          new = """subprocess.run(
-              ["curl", "-L", "--fail", "--retry", "5",
-               "--retry-delay", "5", "--retry-all-errors",
-               "-o", filename, url],
-              check=True,
-          )"""
-
-          if old in s:
-              s = s.replace(old, new, 1)
-              print("[PATCH] download_file OK")
-
-          # Désactiver pigz / pbzip2
-          for old, new in {
-              "self.use_pigz = sh.which('pigz')": "self.use_pigz = False",
-              'self.use_pigz = sh.which("pigz")': "self.use_pigz = False",
-              "self.use_pbzip2 = sh.which('pbzip2')": "self.use_pbzip2 = False",
-              'self.use_pbzip2 = sh.which("pbzip2")': "self.use_pbzip2 = False",
-          }.items():
-              if old in s:
-                  s = s.replace(old, new)
-                  print("[PATCH]", old)
-
-          # Remplacement complet et sûr de get_archive_rootdir()
-          pattern = re.compile(
-              r"(?ms)^    def get_archive_rootdir\(self, filename\):.*?(?=^    def |\Z)"
-          )
-          match = pattern.search(s)
-
-          if not match:
-              raise SystemExit("ERREUR: get_archive_rootdir() introuvable")
-
-          new_method = '''    def get_archive_rootdir(self, filename):
-              import os
-              import subprocess
-              import tarfile
-              import zipfile
-
-              filename = os.path.abspath(filename)
-              print("[PATCH] Detecting archive:", filename)
-
-              if filename.endswith((".tgz", ".tar.gz", ".tbz2", ".tar.bz2")):
-                  try:
-                      with tarfile.open(filename, "r:*") as archive:
-                          member = archive.next()
-                          if member is None:
-                              raise Exception("Archive vide")
-                          root = member.name.split("/")[0]
-                          if not root:
-                              raise Exception("Impossible de détecter le root directory")
-                          return root
-                  except tarfile.ReadError as exc:
-                      raise Exception(
-                          "Archive tar invalide ou téléchargement corrompu: " + filename
-                      ) from exc
-
-              if filename.endswith(".zip"):
-                  try:
-                      with zipfile.ZipFile(filename) as archive:
-                          names = [n for n in archive.namelist() if n]
-                          if not names:
-                              raise Exception("Archive ZIP vide")
-                          return names[0].split("/")[0]
-                  except zipfile.BadZipFile as exc:
-                      raise Exception(
-                          "Archive ZIP invalide ou téléchargement corrompu: " + filename
-                      ) from exc
-
-              info = subprocess.run(
-                  ["file", "-b", filename],
-                  capture_output=True,
-                  text=True,
-                  check=False,
-              ).stdout.lower().strip()
-
-              print("[PATCH] file:", info)
-
-              if "bzip2 compressed data" in info:
-                  try:
-                      with tarfile.open(filename, "r:bz2") as archive:
-                          member = archive.next()
-                          if member is None:
-                              raise Exception("Archive vide")
-                          return member.name.split("/")[0]
-                  except tarfile.ReadError as exc:
-                      raise Exception("Fichier bzip2 invalide: " + filename) from exc
-
-              if "gzip compressed data" in info:
-                  try:
-                      with tarfile.open(filename, "r:gz") as archive:
-                          member = archive.next()
-                          if member is None:
-                              raise Exception("Archive vide")
-                          return member.name.split("/")[0]
-                  except tarfile.ReadError as exc:
-                      raise Exception("Fichier gzip invalide: " + filename) from exc
-
-              if "zip archive data" in info:
-                  try:
-                      with zipfile.ZipFile(filename) as archive:
-                          names = [n for n in archive.namelist() if n]
-                          if not names:
-                              raise Exception("Archive ZIP vide")
-                          return names[0].split("/")[0]
-                  except zipfile.BadZipFile as exc:
-                      raise Exception("Fichier ZIP invalide: " + filename) from exc
-
-              raise Exception(
-                  "Format archive inconnu pour {}: {}".format(filename, info)
-              )
-
-          '''
-
-          s = s[:match.start()] + new_method + s[match.end():]
-
-          # Vérification AVANT écriture
-          compile(s, str(toolchain), "exec")
-
-          if len(re.findall(
-              r"^    def get_archive_rootdir\(self, filename\):",
-              s,
-              re.MULTILINE,
-          )) != 1:
-              raise SystemExit("ERREUR: get_archive_rootdir() dupliqué")
-
-          toolchain.write_text(s)
-          print("[PATCH] toolchain.py OK")
-
-          # FreeType : ne pas forcer CC/CXX
-          freetype = recipes / "freetype" / "__init__.py"
-
-          if not freetype.exists():
-              raise SystemExit("ERREUR: recipe FreeType introuvable")
-
-          text = freetype.read_text()
-
-          for bad in (
-              'shprint(sh.make, "-j1", "CC=clang", "CXX=clang++")',
-              'shprint(sh.make, "-j1", "CC=clang")',
-              'shprint(sh.make, "-j1", "CXX=clang++")',
-          ):
-              text = text.replace(bad, 'shprint(sh.make, "-j1")')
-
-          freetype.write_text(text)
-          print("[PATCH] FreeType OK")
-
-          # Force -j1
-          count = 0
-          for f in recipes.rglob("*.py"):
-              text = f.read_text()
-              patched = text.replace("self.ctx.concurrent_make", '"-j1"')
-              patched = patched.replace("self.concurrent_make", '"-j1"')
-              if patched != text:
-                  f.write_text(patched)
-                  count += 1
-
-          print("[PATCH] recipes -j1:", count)
-          PY
-
-          python -m py_compile "$T"
-
-          echo "=================================================="
-          echo "PATCH OK"
-          echo "=================================================="
-          grep -n -A8 "def get_archive_rootdir" "$T"
-          sed -n '1,80p' "$R/freetype/__init__.py"
-
-      - name: Fix FreeType
-        shell: bash
-        run: |
-          set -euxo pipefail
-          F="$(python -c 'import kivy_ios.recipes.freetype as f; print(f.__file__)')"
-
-          python - "$F" <<'PY'
-          import sys
-          from pathlib import Path
-
-          p = Path(sys.argv[1])
-          s = p.read_text()
-
-          old = [
-              "https://download.savannah.gnu.org/releases/freetype/freetype-old/freetype-{version}.tar.bz2",
-              "https://sourceforge.net/projects/freetype/files/freetype2/{version}/freetype-{version}.tar.bz2/download",
-          ]
-
-          new = (
-              "https://downloads.sourceforge.net/project/"
-              "freetype/freetype2/{version}/freetype-{version}.tar.bz2"
-          )
-
-          for url in old:
-              s = s.replace(url, new)
-
-          if new not in s:
-              raise SystemExit("ERREUR: URL FreeType introuvable")
-
-          p.write_text(s)
-          print("[PATCH] FreeType URL OK")
-          PY
-
-          rm -rf .cache/freetype* build/freetype
-          rm -rf dist/include/arm64/freetype dist/lib/arm64/libfreetype*
-          mkdir -p .cache
-
-      - name: Configure iOS
-        shell: bash
-        run: |
-          set -euxo pipefail
-          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-          CC="$(xcrun --sdk iphoneos --find clang)"
-          CXX="$(xcrun --sdk iphoneos --find clang++)"
-
-          {
-            echo "IPHONEOS_DEPLOYMENT_TARGET=12.0"
-            echo "ARCHS=arm64"
-            echo "KIVYIOS_ARCH=arm64"
-            echo "MAKEFLAGS=-j1"
-            echo "CMAKE_BUILD_PARALLEL_LEVEL=1"
-            echo "JOBS=1"
-            echo "SDKROOT=$SDKROOT"
-            echo "SDK_NAME=iphoneos"
-            echo "CC=$CC"
-            echo "CXX=$CXX"
-          } >> "$GITHUB_ENV"
-
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
-          xcrun --sdk iphoneos --find clang
-
-      - name: Build host recipes
-        shell: bash
-        run: |
-          set -euxo pipefail
-          unset SDKROOT CC CXX IPHONEOS_DEPLOYMENT_TARGET
-          export MAKEFLAGS="-j1"
-          export CMAKE_BUILD_PARALLEL_LEVEL=1
-          export JOBS=1
-          toolchain build hostpython3 hostopenssl
-
-      - name: Build iOS arm64 recipes
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export MAKEFLAGS="-j1"
-          export CMAKE_BUILD_PARALLEL_LEVEL=1
-          export JOBS=1
-          export IPHONEOS_DEPLOYMENT_TARGET=12.0
-          export ARCHS=arm64
-          export KIVYIOS_ARCH=arm64
-          export SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-          export SDK_NAME=iphoneos
-          export CC="$(xcrun --sdk iphoneos --find clang)"
-          export CXX="$(xcrun --sdk iphoneos --find clang++)"
+          set -euo pipefail
 
           toolchain build \
-            libffi openssl freetype libjpeg \
-            sdl2 sdl2_image sdl2_mixer sdl2_ttf \
-            --arch=arm64
+            python3 \
+            kivy \
+            openssl \
+            pillow
 
-          toolchain build python3 kivy pillow --arch=arm64
+          toolchain pip install \
+            pyyaml \
+            requests \
+            urllib3
 
-      - name: Install Python dependencies
+      # ============================================================
+      # 6. PREPARE IOS SOURCES
+      # ============================================================
+      - name: Prepare sources
         shell: bash
         run: |
-          set -euxo pipefail
-          toolchain pip install pyyaml requests urllib3
+          set -euo pipefail
 
-
-
-
-
-
-
-
-
-
-
-
-      
-
-
-
-
-
-
-
-
-
-            
-            
-            
-            
-            
-            
-            
-            
-
-
-
-      - name: Inspect build output
-        run: |
-          set -euxo pipefail
-          echo "===== Vérification des recettes ====="
-          toolchain status || true
-          echo "===== Répertoire courant ====="
-          pwd
-          ls -la
-          echo "===== DIST ====="
-          [ -d dist ] && du -sh dist || echo "dist absent"
-          [ -d dist ] && find dist -maxdepth 3 || true
-          echo "===== BUILD ====="
-          [ -d build ] && du -sh build || echo "build absent"
-          [ -d build ] && find build -maxdepth 3 || true
-          echo "===== Recherche Python ====="
-          find dist -iname "*python*" 2>/dev/null || true
-          find build -iname "*python*" 2>/dev/null || true
-          echo "===== Recherche site-packages ====="
-          find dist -iname "site-packages" 2>/dev/null || true
-          find build -iname "site-packages" 2>/dev/null || true
-          echo "===== Recherche yaml ====="
-          find dist -iname "*yaml*" 2>/dev/null || true
-          find build -iname "*yaml*" 2>/dev/null || true
-          echo "===== Recherche requests ====="
-          find dist -iname "*requests*" 2>/dev/null || true
-          find build -iname "*requests*" 2>/dev/null || true
-          echo "===== XCFramework ====="
-          find dist -iname "*.xcframework" 2>/dev/null || true
-          echo "===== Librairies Python ====="
-          find dist -iname "libpython*" 2>/dev/null || true
-          echo "===== PYTHON LIB SEARCH ====="
-          find "$HOME/.kivy-ios" -type d -name "site-packages" -o -name "python3"
-          find . -type d -name "site-packages"
-
-      - name: Prepare sources
-        run: |
           rm -rf ios_src
-          mkdir ios_src
-          rsync -a --exclude=".git" --exclude=".github" --exclude=".buildozer" --exclude="bin" --exclude="build" --exclude="dist" --exclude="ios_src" ./ ios_src/
-          echo "${{ secrets.FIREBASE_IOS_CONFIG }}" > ios_src/GoogleService-Info.plist
-          find ios_src -name "__pycache__" -type d -exec rm -rf {} +
+          mkdir -p ios_src
+
+          rsync -a \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude=".buildozer" \
+            --exclude="bin" \
+            --exclude="build" \
+            --exclude="dist" \
+            --exclude="ios_src" \
+            --exclude="__pycache__" \
+            --exclude="*.pyc" \
+            ./ ios_src/
+
+          if [ -z "${{ secrets.FIREBASE_IOS_CONFIG }}" ]; then
+            echo "ERREUR : FIREBASE_IOS_CONFIG est vide."
+            exit 1
+          fi
+
+          printf '%s\n' '${{ secrets.FIREBASE_IOS_CONFIG }}' \
+            > ios_src/GoogleService-Info.plist
+
+          if [ ! -s ios_src/GoogleService-Info.plist ]; then
+            echo "ERREUR : GoogleService-Info.plist vide."
+            exit 1
+          fi
+
+          plutil -lint ios_src/GoogleService-Info.plist
+
+          find ios_src -name "__pycache__" -type d -prune -exec rm -rf {} +
           find ios_src -name "*.pyc" -delete
 
+          echo "Sources iOS préparées."
+
+      # ============================================================
+      # 7. CREATE XCODE PROJECT
+      # ============================================================
       - name: Create Xcode project and setup Firebase
+        shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+
+          echo "Création du projet Xcode avec kivy-ios..."
+
           toolchain create FCVV ios_src
-          
-          # Localisation précise du projet
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
-          PROJ_DIR=$(dirname "$PROJECT_FILE")
-          PROJ_NAME=$(basename "$PROJECT_FILE")
-          
-          # 1. Copie du plist dans le dossier du projet
-          cp ios_src/GoogleService-Info.plist "$PROJ_DIR/"
-          
-          # 2. Utilisation du chemin complet pour Ruby afin d'éviter les erreurs de contexte
-          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
-          
-          ruby -e "
-          require 'xcodeproj'
-          # Ouverture avec le chemin complet
-          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
-          target = project.targets.find { |t| t.name == 'fcvv' }
-          
-          # Ajout du fichier situé dans PROJ_DIR
-          file = project.main_group.new_file('GoogleService-Info.plist')
-          target.add_resources([file])
-          project.save
-          "
-          
-      - name: Inject Firebase into files
-        run: |
-          set -euxo pipefail
 
-          echo "============================================================"
-          echo "===== INJECTION FIREBASE / FCM iOS ====="
-          echo "============================================================"
-
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : aucun fichier .xcodeproj trouvé"
+            echo "ERREUR : aucun fichier .xcodeproj trouvé après toolchain create."
+            find . -maxdepth 3 -type f | sort | head -200
+            exit 1
+          fi
+
+          PROJ_DIR=$(dirname "$PROJECT_FILE")
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
+
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+
+          if [ ! -d "$PROJ_DIR" ]; then
+            echo "ERREUR : dossier projet introuvable."
+            exit 1
+          fi
+
+          cp ios_src/GoogleService-Info.plist \
+            "$PROJ_DIR/GoogleService-Info.plist"
+
+          plutil -lint \
+            "$PROJ_DIR/GoogleService-Info.plist"
+
+          ruby -e "
+            require 'xcodeproj'
+
+            project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+
+            target = project.targets.find do |t|
+              t.name == 'fcvv'
+            end
+
+            raise 'Target fcvv introuvable' unless target
+
+            existing = project.files.find do |f|
+              File.basename(f.path.to_s) == 'GoogleService-Info.plist'
+            end
+
+            unless existing
+              file = project.main_group.new_file('GoogleService-Info.plist')
+              target.resources_build_phase.add_file_reference(file, true)
+            else
+              unless target.resources_build_phase.files_references.include?(existing)
+                target.resources_build_phase.add_file_reference(existing, true)
+              end
+            end
+
+            project.save
+          "
+
+          echo "Firebase plist ajouté au projet."
+
+      # ============================================================
+      # 8. VERIFY PROJECT / TARGET
+      # ============================================================
+      - name: Verify generated Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : .xcodeproj introuvable."
+            exit 1
+          fi
+
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
+
+          ruby -e "
+            require 'xcodeproj'
+
+            project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+
+            puts '===== TARGETS ====='
+
+            project.targets.each do |target|
+              puts \"- #{target.name}\"
+            end
+
+            target = project.targets.find { |t| t.name == 'fcvv' }
+
+            raise 'ERREUR : target fcvv introuvable' unless target
+
+            puts 'Target fcvv OK.'
+          "
+
+      # ============================================================
+      # 9. INJECT FIREBASE / APNS
+      # ============================================================
+      - name: Inject Firebase and APNs integration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun fichier .xcodeproj trouvé."
             exit 1
           fi
 
           PROJ_DIR=$(dirname "$PROJECT_FILE")
 
-          MAIN_FILE=$(find "$PROJ_DIR" -name "main.m" | head -1)
-          APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" | head -1)
-          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" | head -1)
+          MAIN_FILE=$(
+            find "$PROJ_DIR" \
+              -name "main.m" \
+              -type f \
+              -print \
+              -quit
+          )
+
+          APPDELEGATE_FILE=$(
+            find . \
+              -name "SDL_uikitappdelegate.m" \
+              -type f \
+              -print \
+              -quit
+          )
+
+          HEADER_FILE=$(
+            find . \
+              -name "SDL_uikitappdelegate.h" \
+              -type f \
+              -print \
+              -quit
+          )
 
           if [ -z "$MAIN_FILE" ]; then
-            echo "ERREUR : main.m introuvable"
+            echo "ERREUR : main.m introuvable."
             exit 1
           fi
 
           if [ -z "$APPDELEGATE_FILE" ]; then
-            echo "ERREUR : SDL_uikitappdelegate.m introuvable"
+            echo "ERREUR : SDL_uikitappdelegate.m introuvable."
             exit 1
           fi
 
           if [ -z "$HEADER_FILE" ]; then
-            echo "ERREUR : SDL_uikitappdelegate.h introuvable"
+            echo "ERREUR : SDL_uikitappdelegate.h introuvable."
             exit 1
           fi
 
-          echo "PROJECT_FILE=$PROJECT_FILE"
-          echo "PROJ_DIR=$PROJ_DIR"
           echo "MAIN_FILE=$MAIN_FILE"
           echo "APPDELEGATE_FILE=$APPDELEGATE_FILE"
           echo "HEADER_FILE=$HEADER_FILE"
 
-
-          # ============================================================
-          # 1. IMPORTS FIREBASE DANS main.m
-          # ============================================================
-
-          echo ""
-          echo "===== 1. IMPORTS FIREBASE main.m ====="
-
+          # --------------------------------------------------------
+          # main.m imports
+          # --------------------------------------------------------
           python3 - "$MAIN_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -485,65 +324,38 @@ jobs:
           content = path.read_text()
 
           imports = """@import UIKit;
+          @import UserNotifications;
           @import FirebaseCore;
           @import FirebaseMessaging;
           """
 
-          if "FirebaseCore" not in content:
+          required = [
+              "@import UIKit;",
+              "@import UserNotifications;",
+              "@import FirebaseCore;",
+              "@import FirebaseMessaging;",
+          ]
+
+          missing = [
+              item for item in required
+              if item not in content
+          ]
+
+          if missing:
               content = imports + "\n" + content
 
           path.write_text(content)
           PY
 
-
-          # ============================================================
-          # 2. CONFIGURATION FIREBASE + APNS
-          # ============================================================
-
-          echo ""
-          echo "===== 2. CONFIGURATION FIREBASE / APNS ====="
-
+          # --------------------------------------------------------
+          # Firebase initialization + notification permission
+          # --------------------------------------------------------
           python3 - "$MAIN_FILE" <<'PY'
           from pathlib import Path
           import sys
 
           path = Path(sys.argv[1])
           content = path.read_text()
-
-          code = r'''
-          if ([FIRApp defaultApp] == nil) {
-              [FIRApp configure];
-              NSLog(@"[FCM iOS] Firebase configure");
-          }
-
-          if (@available(iOS 10.0, *)) {
-              UNAuthorizationOptions options =
-                  UNAuthorizationOptionAlert |
-                  UNAuthorizationOptionSound |
-                  UNAuthorizationOptionBadge;
-
-              [[UNUserNotificationCenter currentNotificationCenter]
-                  requestAuthorizationWithOptions:options
-                  completionHandler:^(BOOL granted, NSError * _Nullable error) {
-
-                      if (error) {
-                          NSLog(@"[FCM iOS] Erreur permission notifications : %@", error);
-                          return;
-                      }
-
-                      NSLog(@"[FCM iOS] Permission notifications : %d", granted);
-
-                      dispatch_async(dispatch_get_main_queue(), ^{
-                          [[UIApplication sharedApplication]
-                              registerForRemoteNotifications];
-                      });
-                  }];
-          } else {
-              [[UIApplication sharedApplication] registerForRemoteNotifications];
-          }
-
-          NSLog(@"[FCM iOS] Demande enregistrement APNS");
-          '''
 
           marker = "int main(int argc, char *argv[]) {"
 
@@ -552,6 +364,52 @@ jobs:
                   raise RuntimeError(
                       "Impossible de trouver int main(int argc, char *argv[])"
                   )
+
+              code = r'''
+              if ([FIRApp defaultApp] == nil) {
+                  [FIRApp configure];
+                  NSLog(@"[FCM iOS] Firebase configure OK");
+              }
+
+              if (@available(iOS 10.0, *)) {
+                  UNAuthorizationOptions options =
+                      UNAuthorizationOptionAlert |
+                      UNAuthorizationOptionSound |
+                      UNAuthorizationOptionBadge;
+
+                  [[UNUserNotificationCenter currentNotificationCenter]
+                      requestAuthorizationWithOptions:options
+                      completionHandler:^(BOOL granted, NSError * _Nullable error) {
+
+                          if (error) {
+                              NSLog(
+                                  @"[FCM iOS] Erreur permission notifications : %@",
+                                  error
+                              );
+                              return;
+                          }
+
+                          NSLog(
+                              @"[FCM iOS] Permission notifications : %d",
+                              granted
+                          );
+
+                          dispatch_async(
+                              dispatch_get_main_queue(),
+                              ^{
+                                  [[UIApplication sharedApplication]
+                                      registerForRemoteNotifications];
+                              }
+                          );
+                      }
+                  ];
+              } else {
+                  [[UIApplication sharedApplication]
+                      registerForRemoteNotifications];
+              }
+
+              NSLog(@"[FCM iOS] Demande enregistrement APNs");
+              '''
 
               content = content.replace(
                   marker,
@@ -562,14 +420,9 @@ jobs:
           path.write_text(content)
           PY
 
-
-          # ============================================================
-          # 3. IMPORTS DANS SDL_uikitappdelegate.m
-          # ============================================================
-
-          echo ""
-          echo "===== 3. IMPORTS SDL DELEGATE ====="
-
+          # --------------------------------------------------------
+          # SDLUIKitDelegate imports
+          # --------------------------------------------------------
           python3 - "$APPDELEGATE_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -577,33 +430,28 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          imports = """@import FirebaseMessaging;
-          @import UserNotifications;
-          """
+          required_imports = [
+              "@import FirebaseCore;",
+              "@import FirebaseMessaging;",
+              "@import UserNotifications;",
+          ]
 
-          if "FirebaseMessaging" not in content:
-              content = imports + "\n" + content
+          prefix = "\n".join(required_imports) + "\n"
 
-          if "UserNotifications" not in content:
-              content = "@import UserNotifications;\n" + content
+          missing = [
+              item for item in required_imports
+              if item not in content
+          ]
+
+          if missing:
+              content = prefix + content
 
           path.write_text(content)
           PY
 
-
-          # ============================================================
-          # 4. INJECTION DU DELEGATE COMPLET
-          #
-          # IMPORTANT :
-          # - premier plan : willPresentNotification
-          # - clic notification : didReceiveNotificationResponse
-          # - background data : didReceiveRemoteNotification
-          # - APNS token -> FCM
-          # ============================================================
-
-          echo ""
-          echo "===== 4. INJECTION DELEGATE FCM ====="
-
+          # --------------------------------------------------------
+          # SDLUIKitDelegate FCM handlers
+          # --------------------------------------------------------
           python3 - "$APPDELEGATE_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -611,103 +459,72 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          # Evite les doubles injections
-          if "FCVV_FCM_NOTIFICATION_HANDLER" in content:
-              print("FCVV FCM delegate déjà injecté.")
+          marker = "FCVV_FCM_NOTIFICATION_HANDLER"
+
+          if marker in content:
+              print("Handlers FCM déjà présents.")
               sys.exit(0)
 
-          injection = r'''
-
-          #pragma mark - FCVV_FCM_NOTIFICATION_HANDLER
-
-          /*
-           * ============================================================
-           * FCVV - Firebase Cloud Messaging / APNS
-           * ============================================================
-           *
-           * Gestion :
-           *
-           * 1. Application au premier plan
-           *    -> willPresentNotification
-           *
-           * 2. Application en arrière-plan
-           *    -> iOS affiche la notification
-           *    -> didReceiveNotificationResponse au clic
-           *
-           * 3. Application complètement fermée
-           *    -> iOS lance l'application au clic
-           *    -> didReceiveNotificationResponse récupère les données
-           *
-           * 4. Token APNS
-           *    -> transmis à Firebase Messaging
-           *
-           * ============================================================
-           */
-
+          handlers = r'''
+          // FCVV_FCM_NOTIFICATION_HANDLER
 
           - (void)application:(UIApplication *)application
-          didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+              didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
           {
-              NSLog(@"[FCM iOS] APNS token reçu");
+              NSLog(@"[FCM iOS] APNs device token reçu");
 
               [FIRMessaging messaging].APNSToken = deviceToken;
 
-              [[FIRMessaging messaging]
-                  tokenWithCompletion:^(NSString *token, NSError *error) {
+              NSString *token =
+                  [[FIRMessaging messaging] FCMToken];
 
-                  if (error) {
-                      NSLog(@"[FCM iOS] Erreur récupération token FCM : %@",
-                            error);
-                  } else {
-                      NSLog(@"[FCM iOS] Token FCM : %@", token);
-                  }
-              }];
-
-              if (@available(iOS 10.0, *)) {
-                  [UNUserNotificationCenter currentNotificationCenter].delegate =
-                      (id<UNUserNotificationCenterDelegate>)self;
+              if (token != nil) {
+                  NSLog(
+                      @"[FCM iOS] FCM token déjà disponible: %@",
+                      token
+                  );
               }
           }
 
-
           - (void)application:(UIApplication *)application
-          didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
+              didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
           {
-              NSLog(@"[FCM iOS] ERREUR APNS : %@", error);
+              NSLog(
+                  @"[FCM iOS] Erreur enregistrement APNs: %@",
+                  error
+              );
           }
 
-
-          /*
-           * ============================================================
-           * NOTIFICATION RECUE ALORS QUE L'APPLICATION EST OUVERTE
-           * ============================================================
-           */
+          - (void)messaging:(FIRMessaging *)messaging
+              didReceiveRegistrationToken:(NSString *)fcmToken
+          {
+              NSLog(
+                  @"[FCM iOS] FCM registration token: %@",
+                  fcmToken
+              );
+          }
 
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
-               willPresentNotification:(UNNotification *)notification
-                 withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
+              willPresentNotification:(UNNotification *)notification
+              withCompletionHandler:
+                  (void (^)(UNNotificationPresentationOptions options))completionHandler
           {
               NSDictionary *userInfo =
                   notification.request.content.userInfo;
 
-              NSLog(@"[FCM iOS] ========================================");
-              NSLog(@"[FCM iOS] Notification reçue AU PREMIER PLAN");
-              NSLog(@"[FCM iOS] userInfo = %@", userInfo);
-              NSLog(@"[FCM iOS] ========================================");
-
-              [[FIRMessaging messaging] appDidReceiveMessage:userInfo];
+              NSLog(
+                  @"[FCM iOS] Notification reçue au premier plan: %@",
+                  userInfo
+              );
 
               if (@available(iOS 14.0, *)) {
-
                   completionHandler(
                       UNNotificationPresentationOptionBanner |
                       UNNotificationPresentationOptionList |
                       UNNotificationPresentationOptionSound |
                       UNNotificationPresentationOptionBadge
                   );
-
               } else {
-
                   completionHandler(
                       UNNotificationPresentationOptionAlert |
                       UNNotificationPresentationOptionSound |
@@ -716,247 +533,44 @@ jobs:
               }
           }
 
-
-          /*
-           * ============================================================
-           * CLIC SUR UNE NOTIFICATION
-           *
-           * C'est LA méthode importante pour :
-           *
-           * - application en arrière-plan
-           * - application suspendue
-           * - application complètement fermée
-           *
-           * Les données envoyées par Firebase sont dans userInfo.
-           * ============================================================
-           */
-
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
-          didReceiveNotificationResponse:(UNNotificationResponse *)response
-          withCompletionHandler:(void (^)(void))completionHandler
+              didReceiveNotificationResponse:(UNNotificationResponse *)response
+              withCompletionHandler:(void (^)(void))completionHandler
           {
               NSDictionary *userInfo =
                   response.notification.request.content.userInfo;
 
-              NSLog(@"[FCM iOS] ========================================");
-              NSLog(@"[FCM iOS] CLIC SUR NOTIFICATION");
-              NSLog(@"[FCM iOS] userInfo = %@", userInfo);
-              NSLog(@"[FCM iOS] ========================================");
-
-              [[FIRMessaging messaging] appDidReceiveMessage:userInfo];
-
-
-              /*
-               * --------------------------------------------------------
-               * Extraction des données personnalisées
-               * --------------------------------------------------------
-               */
-
-              NSString *title = @"FCVV";
-              NSString *body = @"";
-              NSString *categorie = @"";
-              NSString *matchId = @"";
-              NSString *notifType = @"";
-
-
-              /*
-               * title / body
-               *
-               * Ils peuvent se trouver :
-               *
-               * userInfo["title"]
-               * userInfo["body"]
-               *
-               * ou dans :
-               *
-               * userInfo["aps"]["alert"]["title"]
-               * userInfo["aps"]["alert"]["body"]
-               */
-
-              NSString *dataTitle = userInfo[@"title"];
-              NSString *dataBody = userInfo[@"body"];
-
-              if ([dataTitle isKindOfClass:[NSString class]] &&
-                  [dataTitle length] > 0) {
-
-                  title = dataTitle;
-              }
-
-              if ([dataBody isKindOfClass:[NSString class]] &&
-                  [dataBody length] > 0) {
-
-                  body = dataBody;
-              }
-
-
-              NSDictionary *aps = userInfo[@"aps"];
-
-              if ([aps isKindOfClass:[NSDictionary class]]) {
-
-                  NSDictionary *alert = aps[@"alert"];
-
-                  if ([alert isKindOfClass:[NSDictionary class]]) {
-
-                      NSString *apsTitle = alert[@"title"];
-                      NSString *apsBody = alert[@"body"];
-
-                      if ([title isEqualToString:@"FCVV"] &&
-                          [apsTitle isKindOfClass:[NSString class]]) {
-
-                          title = apsTitle;
-                      }
-
-                      if ([body length] == 0 &&
-                          [apsBody isKindOfClass:[NSString class]]) {
-
-                          body = apsBody;
-                      }
-                  }
-              }
-
-
-              /*
-               * --------------------------------------------------------
-               * DONNÉES FCVV
-               * --------------------------------------------------------
-               */
-
-              NSString *dataCategorie = userInfo[@"topic"];
-              NSString *dataMatchId = userInfo[@"match_id"];
-              NSString *dataNotifType = userInfo[@"notif_type"];
-
-
-              if ([dataCategorie isKindOfClass:[NSString class]]) {
-                  categorie = dataCategorie;
-              }
-
-              if ([dataMatchId isKindOfClass:[NSString class]]) {
-                  matchId = dataMatchId;
-              }
-
-              if ([dataNotifType isKindOfClass:[NSString class]]) {
-                  notifType = dataNotifType;
-              }
-
-
-              NSLog(@"[FCM iOS] ===== DONNEES NOTIFICATION =====");
-              NSLog(@"[FCM iOS] title      = %@", title);
-              NSLog(@"[FCM iOS] body       = %@", body);
-              NSLog(@"[FCM iOS] topic      = %@", categorie);
-              NSLog(@"[FCM iOS] match_id   = %@", matchId);
-              NSLog(@"[FCM iOS] notif_type = %@", notifType);
-
-
-              /*
-               * --------------------------------------------------------
-               * Sauvegarde temporaire dans NSUserDefaults
-               *
-               * Pourquoi ?
-               *
-               * Dans une application Kivy/SDL, Python peut démarrer
-               * quelques instants APRÈS le lancement du delegate iOS.
-               *
-               * On ne tente donc PAS d'appeler Python directement ici.
-               *
-               * On sauvegarde la notification.
-               *
-               * Python pourra ensuite la récupérer avec :
-               *
-               * verifier_redirection_notification_ios()
-               * --------------------------------------------------------
-               */
-
-              NSUserDefaults *defaults =
-                  [NSUserDefaults standardUserDefaults];
-
-
-              [defaults setObject:title
-                           forKey:@"FCVV_NOTIFICATION_TITLE"];
-
-              [defaults setObject:body
-                           forKey:@"FCVV_NOTIFICATION_BODY"];
-
-              [defaults setObject:categorie
-                           forKey:@"FCVV_NOTIFICATION_TOPIC"];
-
-              [defaults setObject:matchId
-                           forKey:@"FCVV_NOTIFICATION_MATCH_ID"];
-
-              [defaults setObject:notifType
-                           forKey:@"FCVV_NOTIFICATION_TYPE"];
-
-              [defaults setBool:YES
-                          forKey:@"FCVV_NOTIFICATION_PENDING"];
-
-              [defaults synchronize];
-
-
-              NSLog(@"[FCM iOS] Notification sauvegardée pour Python");
-              NSLog(@"[FCM iOS] FCVV_NOTIFICATION_PENDING = YES");
-
-
-              /*
-               * --------------------------------------------------------
-               * Fin obligatoire du callback iOS
-               * --------------------------------------------------------
-               */
+              NSLog(
+                  @"[FCM iOS] Notification ouverte: %@",
+                  userInfo
+              );
 
               completionHandler();
           }
-
-
-          /*
-           * ============================================================
-           * NOTIFICATION SILENCIEUSE / DATA EN BACKGROUND
-           *
-           * Cette méthode ne doit PAS être utilisée pour compter sur
-           * l'affichage d'une notification lorsque l'app est fermée.
-           *
-           * Elle est utile pour les silent push content-available.
-           * ============================================================
-           */
-
-          - (void)application:(UIApplication *)application
-          didReceiveRemoteNotification:(NSDictionary *)userInfo
-          fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler
-          {
-              NSLog(@"[FCM iOS] Notification distante reçue en background");
-              NSLog(@"[FCM iOS] userInfo = %@", userInfo);
-
-              [[FIRMessaging messaging] appDidReceiveMessage:userInfo];
-
-              completionHandler(UIBackgroundFetchResultNoData);
-          }
-
           '''
 
-          # Cherche le dernier @end du delegate SDL
-          pos = content.rfind("\n@end")
+          # On ajoute les handlers avant la dernière accolade du fichier.
+          last_brace = content.rfind("}")
 
-          if pos == -1:
+          if last_brace == -1:
               raise RuntimeError(
-                  "Impossible de trouver @end de SDLUIKitDelegate"
+                  "Impossible de trouver la fin de SDL_uikitappdelegate.m"
               )
 
           content = (
-              content[:pos]
-              + injection
-              + content[pos:]
+              content[:last_brace]
+              + "\n"
+              + handlers
+              + "\n"
+              + content[last_brace:]
           )
 
           path.write_text(content)
-
-          print("Injection FCM iOS terminée.")
           PY
 
-
-          # ============================================================
-          # 5. MODIFICATION DU HEADER SDL
-          # ============================================================
-
-          echo ""
-          echo "===== 5. CONFIGURATION HEADER SDL ====="
-
+          # --------------------------------------------------------
+          # Header: notification delegate
+          # --------------------------------------------------------
           python3 - "$HEADER_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -964,32 +578,19 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          # ------------------------------------------------------------
-          # Import UserNotifications
-          # ------------------------------------------------------------
-
           if "#import <UserNotifications/UserNotifications.h>" not in content:
-
               if "#import <UIKit/UIKit.h>" in content:
-
                   content = content.replace(
                       "#import <UIKit/UIKit.h>",
                       "#import <UIKit/UIKit.h>\n"
                       "#import <UserNotifications/UserNotifications.h>",
                       1
                   )
-
               else:
-
                   content = (
                       "#import <UserNotifications/UserNotifications.h>\n"
                       + content
                   )
-
-
-          # ------------------------------------------------------------
-          # Ajout du protocole UNUserNotificationCenterDelegate
-          # ------------------------------------------------------------
 
           old = (
               "@interface SDLUIKitDelegate : "
@@ -1003,319 +604,347 @@ jobs:
           )
 
           if old in content:
-
               content = content.replace(old, new, 1)
 
           elif "UNUserNotificationCenterDelegate" not in content:
-
               raise RuntimeError(
                   "Impossible de trouver l'interface SDLUIKitDelegate"
               )
 
-
           path.write_text(content)
-
-          print("Header SDL configuré.")
           PY
 
+          # --------------------------------------------------------
+          # Configure notification center delegate
+          # --------------------------------------------------------
+          python3 - "$APPDELEGATE_FILE" <<'PY'
+          from pathlib import Path
+          import sys
 
-          # ============================================================
-          # 6. VERIFICATION
-          # ============================================================
+          path = Path(sys.argv[1])
+          content = path.read_text()
 
-          echo ""
-          echo "============================================================"
-          echo "===== VERIFICATION FINALE INJECTION FCM ====="
-          echo "============================================================"
+          marker = "UNUserNotificationCenterDelegate"
 
-          echo ""
-          echo "--- main.m ---"
+          if marker not in content:
+              raise RuntimeError(
+                  "UNUserNotificationCenterDelegate absent du delegate"
+              )
 
-          grep -n \
-            -E "FirebaseCore|FirebaseMessaging|FIRApp|registerForRemoteNotifications" \
-            "$MAIN_FILE" || true
+          # On cherche un point d'initialisation existant.
+          candidates = [
+              "application:(UIApplication *)application didFinishLaunchingWithOptions:",
+              "didFinishLaunchingWithOptions"
+          ]
 
+          if (
+              "setDelegate:self" not in content
+              and "setDelegate:self];" not in content
+          ):
+              needle = "didFinishLaunchingWithOptions"
 
-          echo ""
-          echo "--- SDL delegate imports ---"
+              index = content.find(needle)
 
-          grep -n \
-            -E "FirebaseMessaging|UserNotifications" \
-            "$APPDELEGATE_FILE" | head -20 || true
+              if index != -1:
+                  start = content.rfind("{", 0, index)
 
+                  if start != -1:
+                      insertion = r'''
+              
+              if (@available(iOS 10.0, *)) {
+                  [UNUserNotificationCenter currentNotificationCenter].delegate = self;
+              }
 
-          echo ""
-          echo "--- APNS ---"
+              '''
+                      content = (
+                          content[:start + 1]
+                          + insertion
+                          + content[start + 1:]
+                      )
 
-          grep -n \
-            -E "didRegisterForRemoteNotificationsWithDeviceToken|APNS token" \
-            "$APPDELEGATE_FILE" || true
+          path.write_text(content)
+          PY
 
+          echo "Injection Firebase/APNs terminée."
 
-          echo ""
-          echo "--- Premier plan ---"
-
-          grep -n \
-            -E "willPresentNotification|PREMIER PLAN" \
-            "$APPDELEGATE_FILE" || true
-
-
-          echo ""
-          echo "--- Clic notification ---"
-
-          grep -n \
-            -E "didReceiveNotificationResponse|CLIC SUR NOTIFICATION" \
-            "$APPDELEGATE_FILE" || true
-
-
-          echo ""
-          echo "--- Données FCVV ---"
-
-          grep -n \
-            -E "FCVV_NOTIFICATION_|match_id|notif_type|topic" \
-            "$APPDELEGATE_FILE" || true
-
-
-          echo ""
-          echo "--- Background ---"
-
-          grep -n \
-            -E "didReceiveRemoteNotification|Background" \
-            "$APPDELEGATE_FILE" || true
-
-
-          echo ""
-          echo "--- Header ---"
-
-          grep -n \
-            -E "UNUserNotificationCenterDelegate|UserNotifications" \
-            "$HEADER_FILE" || true
-
-
-          echo ""
-          echo "============================================================"
-          echo "===== INJECTION FIREBASE TERMINEE ====="
-          echo "============================================================"
-          
-           
-          
-      - name: Verify Injection
-        run: |
-          APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" | head -1)
-
-          echo "--- main.m Firebase ---"
-          grep -n "Firebase\|FIRApp\|registerForRemote" ./fcvv-ios/main.m || true
-
-          echo "--- SDL Firebase imports ---"
-          head -10 "$APPDELEGATE_FILE"
-
-          echo "--- Callbacks FCM ---"
-          grep -n "APNS token recu\|didRegisterForRemoteNotificationsWithDeviceToken\|willPresentNotification\|FIRMessaging" "$APPDELEGATE_FILE" || true
-
-          echo "--- Structure fin SDLUIKitDelegate ---"
-          grep -n "@implementation SDLUIKitDelegate\|@end" "$APPDELEGATE_FILE" | tail -10
-          
-          echo -e "\n--- Vérification SDL_uikitappdelegate.h ---"
-
-          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" | head -1)
-
-          echo "HEADER_FILE=$HEADER_FILE"
-
-          grep -n "@interface SDLUIKitDelegate" "$HEADER_FILE" || true
-          grep -n "UNUserNotificationCenterDelegate" "$HEADER_FILE" || true
-          grep -n "UserNotifications" "$HEADER_FILE" || true
-
-          echo -e "\n--- Début du header ---"
-          head -30 "$HEADER_FILE"
-          
-          echo -e "\n--- Vérification SDL_uikitappdelegate.h ---"
-
-          grep -n "UserNotifications" "$HEADER_FILE" || true
-          grep -n "@interface SDLUIKitDelegate" "$HEADER_FILE" || true
-
+      # ============================================================
+      # 10. CONFIGURE ENTITLEMENTS
+      # ============================================================
       - name: Configure Xcode Entitlements for Push
+        shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
 
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : .xcodeproj introuvable."
+            exit 1
+          fi
+
           PROJ_DIR=$(dirname "$PROJECT_FILE")
-          ENTITLEMENTS_PATH="$PROJ_DIR/fcvv.entitlements"
           FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
 
+          ENTITLEMENTS_PATH="$PROJ_DIR/fcvv.entitlements"
+
           cat > "$ENTITLEMENTS_PATH" <<'EOF'
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-            <key>aps-environment</key>
-            <string>development</string>
-            </dict>
-            </plist>
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>aps-environment</key>
+              <string>development</string>
+          </dict>
+          </plist>
           EOF
 
-          echo "--- Contenu entitlements ---"
+          echo "===== ENTITLEMENTS ====="
           cat "$ENTITLEMENTS_PATH"
 
-          echo "--- Validation plist ---"
           plutil -lint "$ENTITLEMENTS_PATH"
 
           ruby -e "
-          require 'xcodeproj'
+            require 'xcodeproj'
 
-          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
-          target = project.targets.find { |t| t.name == 'fcvv' }
+            project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
 
-          raise 'Target fcvv introuvable' unless target
+            target = project.targets.find do |t|
+              t.name == 'fcvv'
+            end
 
-          file = project.main_group.find_file_by_path('fcvv.entitlements') ||
-          project.main_group.new_file('fcvv.entitlements')
+            raise 'Target fcvv introuvable' unless target
 
-          target.build_configurations.each do |config|
-          config.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'fcvv.entitlements'
-          end
+            file = project.main_group.find_file_by_path('fcvv.entitlements')
 
-          project.save
+            unless file
+              file = project.main_group.new_file('fcvv.entitlements')
+            end
+
+            target.build_configurations.each do |config|
+              config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
+                'fcvv.entitlements'
+
+              config.build_settings['CODE_SIGNING_ALLOWED'] = 'YES'
+            end
+
+            project.save
           "
 
-      - name: Verify Entitlements
-        run: |
-          echo "--- Contenu de fcvv.entitlements ---"
-          cat ./fcvv-ios/fcvv.entitlements
-          
+          echo "Entitlements configurés."
 
+      # ============================================================
+      # 11. CONFIGURE PODS + INFO.PLIST
+      # ============================================================
       - name: Configure and Install Pods
+        shell: bash
         run: |
-          set -euxo pipefail
-      
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" | head -1)
-          PROJ_DIR=$(dirname "$PROJECT_FILE")
-          PROJ_NAME=$(basename "$PROJECT_FILE")
-      
-          PLIST_FILE=$(find "$PROJ_DIR" -maxdepth 1 -name "*-Info.plist" | grep -v "GoogleService" | head -1)
-      
-          echo "Plist détecté : $PLIST_FILE"
-      
-          if [[ "$PLIST_FILE" != *"Info.plist" ]]; then
-            echo "Erreur : Impossible de localiser le Info.plist principal."
-            exit 1
-          fi
-      
-          plutil -convert xml1 "$PLIST_FILE"
-      
-          /usr/libexec/PlistBuddy -c "Delete :CFBundleShortVersionString" "$PLIST_FILE" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.1.0" "$PLIST_FILE"
-      
-          /usr/libexec/PlistBuddy -c "Delete :CFBundleVersion" "$PLIST_FILE" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${{ github.run_number }}" "$PLIST_FILE"
-      
-          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.thomas25530.fcvvapp" "$PLIST_FILE"
-      
-          /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST_FILE" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string FCVV" "$PLIST_FILE"
-      
-          if [ -d "assets/Images.xcassets" ]; then
-            echo "[iOS] Installation Images.xcassets"
-      
-            rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
-            cp -R assets/Images.xcassets "$PROJ_DIR/fcvv/"
-      
-            find "$PROJ_DIR/fcvv/Images.xcassets" -maxdepth 2
-            find "$PROJ_DIR/fcvv/Images.xcassets/AppIcon.appiconset"
-          fi
-      
-          cat > "$PROJ_DIR/Podfile" <<EOF
-          platform :ios, '12.0'
-      
-          use_frameworks!
-          use_modular_headers!
-      
-          project '$PROJ_NAME'
-      
-          target 'fcvv' do
-            pod 'FirebaseCore', '9.6.0'
-            pod 'FirebaseMessaging', '9.6.0'
-          end
-          EOF
-      
-          cd "$PROJ_DIR"
-      
-          echo "===== CocoaPods ====="
-          ruby --version
-          pod --version
-          pod repo list
-      
-          echo "===== Installation Pods ====="
-          pod deintegrate
-          pod install --verbose
-      
-          echo "===== Vérification ====="
-          ls -la
-          ls -la Pods
-          ls -la *.xcworkspace
-      
-          sed -i '' 's/OTHER_LDFLAGS = "-all_load";/OTHER_LDFLAGS = "$(inherited) -ObjC -all_load";/g' \
-            fcvv.xcodeproj/project.pbxproj
+          set -euo pipefail
 
-      - name: Configure iOS Launch Screen (Presplash)
-        run: |
-          set -euxo pipefail
-
-          echo "============================================================"
-          echo "===== CONFIGURATION DU LAUNCH SCREEN IOS ====="
-          echo "============================================================"
-
-          # ------------------------------------------------------------
-          # 0. Détection du projet Xcode
-          # ------------------------------------------------------------
-
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" -print -quit)
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : aucun fichier .xcodeproj trouvé"
+            echo "ERREUR : .xcodeproj introuvable."
+            exit 1
+          fi
+
+          PROJ_DIR=$(dirname "$PROJECT_FILE")
+          PROJ_NAME=$(basename "$PROJECT_FILE")
+
+          PLIST_FILE=$(
+            find "$PROJ_DIR" \
+              -maxdepth 1 \
+              -name "*-Info.plist" \
+              ! -name "GoogleService-Info.plist" \
+              -print \
+              -quit
+          )
+
+          if [ -z "$PLIST_FILE" ]; then
+            echo "ERREUR : Info.plist principal introuvable."
+            exit 1
+          fi
+
+          echo "Info.plist = $PLIST_FILE"
+
+          plutil -convert xml1 "$PLIST_FILE"
+
+          # --------------------------------------------------------
+          # Bundle version
+          # --------------------------------------------------------
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleShortVersionString" \
+            "$PLIST_FILE" 2>/dev/null || true
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleShortVersionString string ${APP_VERSION}" \
+            "$PLIST_FILE"
+
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleVersion" \
+            "$PLIST_FILE" 2>/dev/null || true
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleVersion string ${{ github.run_number }}" \
+            "$PLIST_FILE"
+
+          # --------------------------------------------------------
+          # Bundle identifier
+          # --------------------------------------------------------
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleIdentifier" \
+            "$PLIST_FILE" 2>/dev/null || true
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleIdentifier string ${APP_BUNDLE_ID}" \
+            "$PLIST_FILE"
+
+          # --------------------------------------------------------
+          # Display name
+          # --------------------------------------------------------
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleDisplayName" \
+            "$PLIST_FILE" 2>/dev/null || true
+
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleDisplayName string FCVV" \
+            "$PLIST_FILE"
+
+          # --------------------------------------------------------
+          # Deployment target
+          # --------------------------------------------------------
+          ruby -e "
+            require 'xcodeproj'
+
+            project = Xcodeproj::Project.open('$PWD/$PROJECT_FILE')
+
+            target = project.targets.find { |t| t.name == 'fcvv' }
+
+            raise 'Target fcvv introuvable' unless target
+
+            target.build_configurations.each do |config|
+              config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] =
+                '${IOS_DEPLOYMENT_TARGET}'
+
+              config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+              config.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
+
+              config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] =
+                '${APP_BUNDLE_ID}'
+
+              config.build_settings['CODE_SIGNING_ALLOWED'] = 'YES'
+              config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+            end
+
+            project.save
+          "
+
+          # --------------------------------------------------------
+          # Assets
+          # --------------------------------------------------------
+          if [ -d "assets/Images.xcassets" ]; then
+            rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
+            cp -R assets/Images.xcassets "$PROJ_DIR/fcvv/"
+          fi
+
+          # --------------------------------------------------------
+          # Podfile
+          # --------------------------------------------------------
+          cat > "$PROJ_DIR/Podfile" <<EOF
+          platform :ios, '${IOS_DEPLOYMENT_TARGET}'
+
+          use_frameworks!
+          use_modular_headers!
+
+          project '${PROJ_NAME}'
+
+          target 'fcvv' do
+            pod 'FirebaseCore', '${FIREBASE_VERSION}'
+            pod 'FirebaseMessaging', '${FIREBASE_VERSION}'
+          end
+          EOF
+
+          echo "===== PODFILE ====="
+          cat "$PROJ_DIR/Podfile"
+
+          cd "$PROJ_DIR"
+
+          pod deintegrate
+          pod install --repo-update
+
+          # --------------------------------------------------------
+          # Vérifications CocoaPods
+          # --------------------------------------------------------
+          if [ ! -d "$PROJ_DIR/Pods" ]; then
+            echo "ERREUR : dossier Pods absent."
+            exit 1
+          fi
+
+          if [ ! -f "$PROJ_DIR/Podfile.lock" ]; then
+            echo "ERREUR : Podfile.lock absent."
+            exit 1
+          fi
+
+          echo "===== PODS ====="
+          cat "$PROJ_DIR/Podfile.lock"
+
+          # --------------------------------------------------------
+          # Validation plist
+          # --------------------------------------------------------
+          plutil -lint "$PLIST_FILE"
+
+          echo "Pods installés avec succès."
+
+      # ============================================================
+      # 12. CONFIGURE LAUNCH SCREEN
+      # ============================================================
+      - name: Configure iOS Launch Screen
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun .xcodeproj trouvé."
             exit 1
           fi
 
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
 
-          echo "PROJECT_FILE=$PROJECT_FILE"
-          echo "PROJ_DIR=$PROJ_DIR"
-          echo "FULL_PROJECT_PATH=$FULL_PROJECT_PATH"
-
-          # ------------------------------------------------------------
-          # 1. Définition des chemins
-          # ------------------------------------------------------------
-
-          PRESPLASH_SOURCE="$PWD/assets/logo_apk_fcvv.png"
-
           APP_DIR="$PROJ_DIR/fcvv"
           ASSETS_DIR="$APP_DIR/Images.xcassets"
+
           IMAGESET_DIR="$ASSETS_DIR/fcvv_launch_logo.imageset"
           IMAGE_DEST="$IMAGESET_DIR/fcvv_launch_logo.png"
 
-          # IMPORTANT :
-          # LaunchScreen.storyboard est à la racine de fcvv-ios.
+          PRESPLASH_SOURCE="$PWD/assets/logo_apk_fcvv.png"
+
           LAUNCH_STORYBOARD="$PROJ_DIR/LaunchScreen.storyboard"
 
-          echo "PRESPLASH_SOURCE=$PRESPLASH_SOURCE"
-          echo "APP_DIR=$APP_DIR"
-          echo "ASSETS_DIR=$ASSETS_DIR"
-          echo "IMAGESET_DIR=$IMAGESET_DIR"
-          echo "IMAGE_DEST=$IMAGE_DEST"
-          echo "LAUNCH_STORYBOARD=$LAUNCH_STORYBOARD"
-
-          # ------------------------------------------------------------
-          # 2. Vérification image source
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 2. VERIFICATION IMAGE SOURCE ====="
-          echo "============================================================"
-
+          # --------------------------------------------------------
+          # Vérification image
+          # --------------------------------------------------------
           if [ ! -f "$PRESPLASH_SOURCE" ]; then
-            echo "ERREUR : image source introuvable :"
-            echo "$PRESPLASH_SOURCE"
+            echo "ERREUR : image introuvable : $PRESPLASH_SOURCE"
             exit 1
           fi
 
@@ -1323,58 +952,37 @@ jobs:
           from PIL import Image
           import sys
 
-          path = sys.argv[1]
-
-          image = Image.open(path)
-
-          print(f"Image source : {path}")
-          print(f"Dimensions   : {image.size}")
-          print(f"Mode         : {image.mode}")
+          image = Image.open(sys.argv[1])
 
           if image.size != (512, 512):
               raise SystemExit(
                   f"ERREUR : dimensions attendues 512x512, "
-                  f"mais trouvées {image.size}"
+                  f"trouvées {image.size}"
               )
           PY
 
-          # ------------------------------------------------------------
-          # 3. Nettoyage physique des anciennes ressources
-          # ------------------------------------------------------------
+          # --------------------------------------------------------
+          # Nettoyage anciennes ressources
+          # --------------------------------------------------------
+          rm -f \
+            "$APP_DIR/logo_apk_fcvv.png" \
+            "$APP_DIR/fcvv_launch_logo.png" \
+            "$PROJ_DIR/logo_apk_fcvv.png" \
+            "$PROJ_DIR/fcvv_launch_logo.png" \
+            "$APP_DIR/LaunchScreen.storyboard" \
+            "$PROJ_DIR/LaunchScreen.storyboard" \
+            "$PROJ_DIR/Storyboards/Launch Screen.storyboard"
 
-          echo ""
-          echo "============================================================"
-          echo "===== 3. NETTOYAGE ANCIENNES RESSOURCES ====="
-          echo "============================================================"
-
-          rm -f "$APP_DIR/logo_apk_fcvv.png"
-          rm -f "$APP_DIR/fcvv_launch_logo.png"
-
-          rm -f "$PROJ_DIR/logo_apk_fcvv.png"
-          rm -f "$PROJ_DIR/fcvv_launch_logo.png"
-
-          rm -rf "$ASSETS_DIR/logo_apk_fcvv.imageset"
-          rm -rf "$ASSETS_DIR/fcvv_launch_logo.imageset"
-
-          rm -f "$APP_DIR/LaunchScreen.storyboard"
-          rm -f "$PROJ_DIR/LaunchScreen.storyboard"
-
-          rm -f "$PROJ_DIR/Storyboards/Launch Screen.storyboard"
-
-          echo "Anciennes ressources physiques supprimées."
-
-          # ------------------------------------------------------------
-          # 4. Création Images.xcassets
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 4. CREATION IMAGESET ====="
-          echo "============================================================"
+          rm -rf \
+            "$ASSETS_DIR/logo_apk_fcvv.imageset" \
+            "$ASSETS_DIR/fcvv_launch_logo.imageset"
 
           mkdir -p "$ASSETS_DIR"
           mkdir -p "$IMAGESET_DIR"
 
+          # --------------------------------------------------------
+          # Assets catalog
+          # --------------------------------------------------------
           if [ ! -f "$ASSETS_DIR/Contents.json" ]; then
             cat > "$ASSETS_DIR/Contents.json" <<'EOF'
           {
@@ -1386,7 +994,7 @@ jobs:
           EOF
           fi
 
-          cp -f "$PRESPLASH_SOURCE" "$IMAGE_DEST"
+          cp "$PRESPLASH_SOURCE" "$IMAGE_DEST"
 
           cat > "$IMAGESET_DIR/Contents.json" <<'EOF'
           {
@@ -1404,24 +1012,9 @@ jobs:
           }
           EOF
 
-          echo "Imageset créé :"
-          echo "$IMAGESET_DIR"
-
-          # ------------------------------------------------------------
-          # 5. Création LaunchScreen.storyboard
-          #
-          # IMPORTANT :
-          # - exactement 1 viewController
-          # - initialViewController explicitement défini
-          # - image référencée par son nom d'asset
-          # - aucune scène inutilisable
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 5. CREATION LAUNCHSCREEN.STORYBOARD ====="
-          echo "============================================================"
-
+          # --------------------------------------------------------
+          # LaunchScreen.storyboard
+          # --------------------------------------------------------
           cat > "$LAUNCH_STORYBOARD" <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <document
@@ -1452,10 +1045,7 @@ jobs:
               </dependencies>
 
               <scenes>
-
-                  <!-- Launch Screen -->
                   <scene sceneID="LaunchScreenScene">
-
                       <objects>
 
                           <viewController
@@ -1558,179 +1148,110 @@ jobs:
                           y="100"/>
 
                   </scene>
-
               </scenes>
 
               <resources>
-
                   <image
                       name="fcvv_launch_logo"
                       width="512"
                       height="512"/>
-
               </resources>
 
           </document>
           EOF
 
-          echo "LaunchScreen.storyboard créé :"
-          echo "$LAUNCH_STORYBOARD"
-
-          # ------------------------------------------------------------
-          # 6. Vérification immédiate du XML
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 6. VERIFICATION STRUCTURE STORYBOARD ====="
-          echo "============================================================"
-
-          echo "--- initialViewController ---"
-          grep -n "initialViewController=" "$LAUNCH_STORYBOARD"
-
-          echo "--- viewController ---"
-          grep -n "<viewController" "$LAUNCH_STORYBOARD"
-
-          echo "--- image ---"
-          grep -n 'image="fcvv_launch_logo"' "$LAUNCH_STORYBOARD"
-
-          VC_COUNT=$(grep -c '<viewController' "$LAUNCH_STORYBOARD" || true)
-
-          echo "Nombre de viewController : $VC_COUNT"
+          # --------------------------------------------------------
+          # Validation storyboard
+          # --------------------------------------------------------
+          VC_COUNT=$(
+            grep -c '<viewController' "$LAUNCH_STORYBOARD" || true
+          )
 
           if [ "$VC_COUNT" -ne 1 ]; then
-            echo "ERREUR : le LaunchScreen doit contenir exactement 1 viewController"
+            echo "ERREUR : LaunchScreen doit avoir 1 viewController."
             exit 1
           fi
 
-          if ! grep -q 'initialViewController="LaunchScreenViewController"' "$LAUNCH_STORYBOARD"; then
-            echo "ERREUR : initialViewController absent ou incorrect"
-            exit 1
-          fi
+          grep -q \
+            'initialViewController="LaunchScreenViewController"' \
+            "$LAUNCH_STORYBOARD"
 
-          # ------------------------------------------------------------
-          # 7. Nettoyage et configuration projet Xcode
-          # ------------------------------------------------------------
+          grep -q \
+            'image="fcvv_launch_logo"' \
+            "$LAUNCH_STORYBOARD"
 
-          echo ""
-          echo "============================================================"
-          echo "===== 7. CONFIGURATION PROJET XCODE ====="
-          echo "============================================================"
-
+          # --------------------------------------------------------
+          # Xcode project
+          # --------------------------------------------------------
           ruby -e "
-          require 'xcodeproj'
+            require 'xcodeproj'
 
-          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+            project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
 
-          target = project.targets.find { |t| t.name == 'fcvv' }
+            target = project.targets.find { |t| t.name == 'fcvv' }
 
-          raise 'Target fcvv introuvable' unless target
+            raise 'Target fcvv introuvable' unless target
 
-          puts 'Target trouvé : ' + target.name
+            # Supprimer anciennes références.
+            project.files.to_a.each do |file|
 
-          # ----------------------------------------------------------
-          # Supprimer toutes les anciennes références de LaunchScreen
-          # et des anciennes images
-          # ----------------------------------------------------------
+              basename = File.basename(file.path.to_s)
 
-          project.files.to_a.each do |file|
+              next unless [
+                'logo_apk_fcvv.png',
+                'fcvv_launch_logo.png',
+                'LaunchScreen.storyboard',
+                'Launch Screen.storyboard'
+              ].include?(basename)
 
-            path = file.path.to_s
-            basename = File.basename(path)
-
-            remove = [
-              'logo_apk_fcvv.png',
-              'fcvv_launch_logo.png',
-              'LaunchScreen.storyboard',
-              'Launch Screen.storyboard'
-            ].include?(basename)
-
-            next unless remove
-
-            puts 'Suppression référence : ' + path
-
-            target.resources_build_phase.files.to_a.each do |build_file|
-              if build_file.file_ref == file
-                target.resources_build_phase.remove_build_file(build_file)
+              target.resources_build_phase.files.to_a.each do |build_file|
+                if build_file.file_ref == file
+                  target.resources_build_phase.remove_build_file(build_file)
+                end
               end
+
+              file.remove_from_project
             end
 
-            file.remove_from_project
-          end
+            # Ajouter une seule référence LaunchScreen.
+            storyboard_file =
+              project.main_group.new_file('LaunchScreen.storyboard')
 
-          # ----------------------------------------------------------
-          # Ajouter LaunchScreen.storyboard à la racine du projet
-          # ----------------------------------------------------------
-
-          storyboard_file = project.main_group.new_file(
-            'LaunchScreen.storyboard'
-          )
-
-          target.resources_build_phase.add_file_reference(
-            storyboard_file,
-            true
-          )
-
-          puts 'LaunchScreen.storyboard ajouté au target.'
-
-          # ----------------------------------------------------------
-          # Build settings
-          # ----------------------------------------------------------
-
-          target.build_configurations.each do |config|
-
-            config.build_settings['UILAUNCHSTORYBOARDNAME'] = 'LaunchScreen'
-
-            # On ne définit volontairement PAS :
-            # UIMAINSTORYBOARDFILE
-            #
-            # Le LaunchScreen est uniquement un launch storyboard.
-
-            config.build_settings.delete('UIMAINSTORYBOARDFILE')
-
-            puts(
-              config.name +
-              ' : UILAUNCHSTORYBOARDNAME = ' +
-              config.build_settings['UILAUNCHSTORYBOARDNAME'].to_s
+            target.resources_build_phase.add_file_reference(
+              storyboard_file,
+              true
             )
 
-          end
+            target.build_configurations.each do |config|
 
-          project.save
+              config.build_settings['UILAUNCHSTORYBOARDNAME'] =
+                'LaunchScreen'
 
-          puts 'Projet Xcode sauvegardé.'
+              config.build_settings.delete(
+                'UIMAINSTORYBOARDFILE'
+              )
+
+            end
+
+            project.save
           "
 
-          # ------------------------------------------------------------
-          # 8. Recherche Info.plist
-          # ------------------------------------------------------------
+          # --------------------------------------------------------
+          # Info.plist
+          # --------------------------------------------------------
+          PLIST_FILE=$(
+            find "$PROJ_DIR" \
+              -maxdepth 1 \
+              -name "*-Info.plist" \
+              ! -name "GoogleService-Info.plist" \
+              -print \
+              -quit
+          )
 
-          echo ""
-          echo "============================================================"
-          echo "===== 8. RECHERCHE INFO.PLIST ====="
-          echo "============================================================"
-
-          PLIST_FILE=$(find "$PROJ_DIR" \
-            -maxdepth 1 \
-            -name "*-Info.plist" \
-            ! -name "GoogleService-Info.plist" \
-            -print -quit)
-
-          if [ -z "$PLIST_FILE" ] || [ ! -f "$PLIST_FILE" ]; then
-            echo "ERREUR : Info.plist introuvable"
+          if [ -z "$PLIST_FILE" ]; then
+            echo "ERREUR : Info.plist introuvable."
             exit 1
           fi
-
-          echo "Info.plist utilisé : $PLIST_FILE"
-
-          # ------------------------------------------------------------
-          # 9. Configuration Info.plist
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 9. CONFIGURATION INFO.PLIST ====="
-          echo "============================================================"
 
           /usr/libexec/PlistBuddy \
             -c "Delete :UILaunchStoryboardName" \
@@ -1744,1073 +1265,385 @@ jobs:
             -c "Delete :UILaunchScreen" \
             "$PLIST_FILE" 2>/dev/null || true
 
-          echo "--- UILaunchStoryboardName ---"
-
-          /usr/libexec/PlistBuddy \
-            -c "Print :UILaunchStoryboardName" \
-            "$PLIST_FILE"
-
-          echo "--- Validation plist ---"
-
           plutil -lint "$PLIST_FILE"
 
-          # ------------------------------------------------------------
-          # 10. Vérification physique imageset
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 10. VERIFICATION IMAGESET ====="
-          echo "============================================================"
-
-          if [ ! -d "$IMAGESET_DIR" ]; then
-            echo "ERREUR : imageset absent"
-            exit 1
-          fi
-
-          if [ ! -f "$IMAGE_DEST" ]; then
-            echo "ERREUR : PNG absent : $IMAGE_DEST"
-            exit 1
-          fi
-
-          if [ ! -f "$IMAGESET_DIR/Contents.json" ]; then
-            echo "ERREUR : Contents.json absent"
-            exit 1
-          fi
-
-          echo "--- Contents.json ---"
-          cat "$IMAGESET_DIR/Contents.json"
-
-          echo "--- PNG ---"
-          ls -lh "$IMAGE_DEST"
-          file "$IMAGE_DEST"
-
-          sips \
-            -g pixelWidth \
-            -g pixelHeight \
-            -g format \
-            -g hasAlpha \
-            "$IMAGE_DEST"
-
-          python3 - "$IMAGE_DEST" <<'PY'
-          from PIL import Image
-          import sys
-
-          path = sys.argv[1]
-
-          image = Image.open(path)
-
-          print(f"Image finale : {path}")
-          print(f"Dimensions   : {image.size}")
-          print(f"Mode         : {image.mode}")
-
-          if image.size != (512, 512):
-              raise SystemExit(
-                  "ERREUR : image finale non 512x512"
-              )
-          PY
-
-          # ------------------------------------------------------------
-          # 11. Validation ibtool
-          #
-          # IMPORTANT :
-          # --warnings --errors --notices doit être sans warning.
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 11. VALIDATION IBTOOL ====="
-          echo "============================================================"
-
-          xcrun ibtool --version
-
-          echo "--- ibtool warnings/errors/notices ---"
-
-          if ! xcrun ibtool \
-              --warnings \
-              --errors \
-              --notices \
-              "$LAUNCH_STORYBOARD"; then
-
-            echo ""
-            echo "ERREUR : ibtool signale un problème dans LaunchScreen.storyboard"
-            exit 1
-          fi
-
-          echo ""
-          echo "ibtool : aucune erreur bloquante."
-
-          # ------------------------------------------------------------
-          # 12. Compilation isolée du storyboard
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 12. COMPILATION STORYBOARD ====="
-          echo "============================================================"
-
-          TEST_STORYBOARD_DIR="/tmp/LaunchScreen.storyboardc"
-
-          rm -rf "$TEST_STORYBOARD_DIR"
-
-          if ! xcrun ibtool \
-              --compile "$TEST_STORYBOARD_DIR" \
-              "$LAUNCH_STORYBOARD"; then
-
-            echo "ERREUR : compilation LaunchScreen.storyboard impossible"
-            exit 1
-          fi
-
-          echo "Storyboard compilé avec succès."
-
-          if [ ! -d "$TEST_STORYBOARD_DIR" ]; then
-            echo "ERREUR : storyboardc absent après compilation"
-            exit 1
-          fi
-
-          find "$TEST_STORYBOARD_DIR" \
-            -maxdepth 3 \
-            -print | sort
-
-          # ------------------------------------------------------------
-          # 13. Vérification Info.plist storyboard compilé
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 13. STORYBOARD COMPILE ====="
-          echo "============================================================"
-
-          STORYBOARD_PLIST="$TEST_STORYBOARD_DIR/Info.plist"
-
-          if [ ! -f "$STORYBOARD_PLIST" ]; then
-            echo "ERREUR : Info.plist du storyboard compilé absent"
-            exit 1
-          fi
-
-          file "$STORYBOARD_PLIST"
-
-          plutil -p "$STORYBOARD_PLIST"
-
-          plutil -lint "$STORYBOARD_PLIST"
-
-          # ------------------------------------------------------------
-          # 14. Vérification Xcode finale
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 14. VERIFICATION XCODE FINALE ====="
-          echo "============================================================"
-
-          ruby -e "
-          require 'xcodeproj'
-
-          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
-
-          target = project.targets.find { |t| t.name == 'fcvv' }
-
-          raise 'Target fcvv introuvable' unless target
-
-          puts '===== Build Settings ====='
-
-          target.build_configurations.each do |config|
-
-            puts(
-              config.name +
-              ' : UILAUNCHSTORYBOARDNAME = ' +
-              config.build_settings['UILAUNCHSTORYBOARDNAME'].to_s
-            )
-
-            if config.build_settings['UIMAINSTORYBOARDFILE']
-              puts(
-                config.name +
-                ' : ATTENTION UIMAINSTORYBOARDFILE = ' +
-                config.build_settings['UIMAINSTORYBOARDFILE'].to_s
-              )
-            end
-
-          end
-
-          puts ''
-          puts '===== Ressources target ====='
-
-          launch_count = 0
-
-          target.resources_build_phase.files_references.each do |file|
-
-            path = file.real_path.to_s
-
-            puts path
-
-            if File.basename(path) == 'LaunchScreen.storyboard'
-              launch_count += 1
-            end
-
-          end
-
-          puts ''
-          puts 'Nombre de LaunchScreen.storyboard dans Resources : ' + launch_count.to_s
-
-          if launch_count != 1
-            raise(
-              'ERREUR : attendu exactement 1 LaunchScreen.storyboard dans Resources, trouvé ' +
-              launch_count.to_s
-            )
-          end
-
-          puts 'LaunchScreen.storyboard correctement présent dans le target.'
-
-          puts ''
-          puts '===== Vérification anciennes références ====='
-
-          old_found = false
-
-          project.files.to_a.each do |file|
-
-            path = file.path.to_s
-            basename = File.basename(path)
-
-            if basename == 'logo_apk_fcvv.png'
-              puts 'ERREUR : ancienne référence logo_apk_fcvv.png : ' + path
-              old_found = true
-            end
-
-            if basename == 'Launch Screen.storyboard'
-              puts 'ERREUR : ancienne référence Launch Screen.storyboard : ' + path
-              old_found = true
-            end
-
-          end
-
-          raise 'Anciennes références détectées' if old_found
-
-          puts 'Aucune ancienne référence détectée.'
-          "
-
-          # ------------------------------------------------------------
-          # 15. Vérification finale des fichiers
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== 15. VERIFICATION FINALE DES FICHIERS ====="
-          echo "============================================================"
-
-          echo "--- LaunchScreen.storyboard ---"
-          ls -lh "$LAUNCH_STORYBOARD"
-
-          echo ""
-          echo "--- Imageset ---"
-          find "$IMAGESET_DIR" \
-            -maxdepth 1 \
-            -type f \
-            -print | sort
-
-          echo ""
-          echo "--- Recherche anciennes ressources ---"
-
-          OLD_FILES=$(find "$PROJ_DIR" \
-            \( -name "logo_apk_fcvv.png" \
-            -o -name "Launch Screen.storyboard" \) \
-            -print)
-
-          if [ -n "$OLD_FILES" ]; then
-            echo "ERREUR : anciennes ressources encore présentes :"
-            echo "$OLD_FILES"
-            exit 1
-          fi
-
-          echo "Aucune ancienne ressource trouvée."
-
-          # ------------------------------------------------------------
-          # 16. Résumé final
-          # ------------------------------------------------------------
-
-          echo ""
-          echo "============================================================"
-          echo "===== RESUME LAUNCH SCREEN ====="
-          echo "============================================================"
-
-          echo "Storyboard : $LAUNCH_STORYBOARD"
-          echo "Image      : $IMAGE_DEST"
-          echo "Info.plist : $PLIST_FILE"
-          echo ""
-          echo "initialViewController : OK"
-          echo "viewController unique  : OK"
-          echo "Image 512x512          : OK"
-          echo "Imageset               : OK"
-          echo "Info.plist             : OK"
-          echo "ibtool                 : OK"
-          echo "Compilation storyboard : OK"
-          echo "Référence Xcode        : OK"
-          echo ""
-          echo "============================================================"
-          echo "===== CONFIGURATION LAUNCH SCREEN TERMINEE ====="
-          echo "============================================================"
-
-      
-      - name: Debug Project State
-        run: |
-          set -euxo pipefail
-
-          echo "============================================================"
-          echo "===== DEBUG ÉTAT DU PROJET iOS AVANT BUILD ====="
-          echo "============================================================"
-
-          # ============================================================
-          # 0. Détection projet
-          # ============================================================
-
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" -print -quit)
-
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : aucun .xcodeproj trouvé"
-            exit 1
-          fi
-
-          PROJ_DIR=$(dirname "$PROJECT_FILE")
-          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
-
-          echo "PROJECT_FILE=$PROJECT_FILE"
-          echo "PROJ_DIR=$PROJ_DIR"
-          echo "FULL_PROJECT_PATH=$FULL_PROJECT_PATH"
-
-          # ============================================================
-          # 1. Arborescence projet
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 1. ARBORESCENCE PROJET ====="
-          echo "============================================================"
-
-          find "$PROJ_DIR" -maxdepth 4 -print | sort
-
-          # ============================================================
-          # 2. Launch Screen - fichiers
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 2. LAUNCH SCREEN ====="
-          echo "============================================================"
-
-          LAUNCH_STORYBOARD="$PROJ_DIR/LaunchScreen.storyboard"
-
-          echo "--- Recherche des LaunchScreen.storyboard ---"
-
-          find "$PROJ_DIR" \
-            \( -name "LaunchScreen.storyboard" \
-            -o -name "Launch Screen.storyboard" \) \
-            -print
-
-          if [ -f "$LAUNCH_STORYBOARD" ]; then
-
-            echo ""
-            echo "LaunchScreen.storyboard TROUVÉ :"
-            echo "$LAUNCH_STORYBOARD"
-
-            echo ""
-            echo "--- Taille du storyboard ---"
-            wc -c "$LAUNCH_STORYBOARD"
-
-            echo ""
-            echo "--- Type du fichier ---"
-            file "$LAUNCH_STORYBOARD"
-
-          else
-
-            echo ""
-            echo "ERREUR : LaunchScreen.storyboard ABSENT"
-            exit 1
-
-          fi
-
-          # ============================================================
-          # 3. Contenu XML COMPLET du LaunchScreen
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 3. XML LAUNCHSCREEN.STORYBOARD ====="
-          echo "============================================================"
-
-          cat "$LAUNCH_STORYBOARD"
-
-          # ============================================================
-          # 4. Analyse structure storyboard
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 4. STRUCTURE DU STORYBOARD ====="
-          echo "============================================================"
-
-          echo "--- document ---"
-
-          grep -n \
-            -E "<document|initialViewController=" \
-            "$LAUNCH_STORYBOARD" || true
-
-          echo ""
-          echo "--- viewController ---"
-
-          grep -n \
-            -E "<viewController|sceneMemberID=\"viewController\"" \
-            "$LAUNCH_STORYBOARD" || true
-
-          echo ""
-          echo "--- scenes ---"
-
-          grep -n \
-            -E "<scene|</scene>" \
-            "$LAUNCH_STORYBOARD" || true
-
-          echo ""
-          echo "--- IDs ---"
-
-          grep -n \
-            -E 'id="[A-Za-z0-9]+"' \
-            "$LAUNCH_STORYBOARD" || true
-
-          echo ""
-          echo "--- Références initialViewController ---"
-
-          grep -n \
-            -E "initialViewController" \
-            "$LAUNCH_STORYBOARD" || true
-
-          # ============================================================
-          # 5. Vérification image dans storyboard
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 5. IMAGE DU LAUNCH SCREEN ====="
-          echo "============================================================"
-
-          grep -n \
-            -E "fcvv_launch_logo|logo_apk_fcvv|image=" \
-            "$LAUNCH_STORYBOARD" || true
-
-          # ============================================================
-          # 6. Validation storyboard avec ibtool
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 6. VALIDATION IBTOOL ====="
-          echo "============================================================"
-
-          echo "--- ibtool version ---"
-
-          xcrun ibtool --version || true
-
-          echo ""
-          echo "--- ibtool warnings/errors/notices ---"
-
+          # --------------------------------------------------------
+          # Resource validation
+          # --------------------------------------------------------
+          test -f "$IMAGE_DEST"
+          test -f "$IMAGESET_DIR/Contents.json"
+          test -f "$LAUNCH_STORYBOARD"
+
+          # --------------------------------------------------------
+          # ibtool validation
+          # --------------------------------------------------------
           xcrun ibtool \
             --warnings \
             --errors \
             --notices \
-            "$LAUNCH_STORYBOARD" || true
+            "$LAUNCH_STORYBOARD"
 
-          # ============================================================
-          # 7. Compilation isolée du storyboard
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 7. COMPILATION TEST DU STORYBOARD ====="
-          echo "============================================================"
-
-          TEST_STORYBOARD_DIR="/tmp/LaunchScreen.storyboardc"
+          TEST_STORYBOARD_DIR="/tmp/FCVV-LaunchScreen.storyboardc"
 
           rm -rf "$TEST_STORYBOARD_DIR"
 
-          echo "Compilation vers : $TEST_STORYBOARD_DIR"
-
-          if xcrun ibtool \
+          xcrun ibtool \
             --compile "$TEST_STORYBOARD_DIR" \
             "$LAUNCH_STORYBOARD"
-          then
-            echo ""
-            echo "Storyboard compilé avec succès."
-          else
-            echo ""
-            echo "ERREUR : ibtool n'a pas réussi à compiler LaunchScreen.storyboard"
-            exit 1
-          fi
-
-          echo ""
-          echo "--- Contenu storyboardc compilé ---"
-
-          find "$TEST_STORYBOARD_DIR" \
-            -maxdepth 3 \
-            -print | sort
-
-          echo ""
-          echo "--- Taille storyboardc ---"
-
-          du -ah "$TEST_STORYBOARD_DIR" || true
-
-          # ============================================================
-          # 8. Info.plist du storyboard compilé
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 8. INFO.PLIST DU STORYBOARD COMPILE ====="
-          echo "============================================================"
 
           STORYBOARD_PLIST="$TEST_STORYBOARD_DIR/Info.plist"
 
-          if [ -f "$STORYBOARD_PLIST" ]; then
-
-            echo "Info.plist storyboard trouvé :"
-            echo "$STORYBOARD_PLIST"
-
-            echo ""
-            echo "--- Type ---"
-            file "$STORYBOARD_PLIST"
-
-            echo ""
-            echo "--- plutil ---"
-            plutil -p "$STORYBOARD_PLIST"
-
-            echo ""
-            echo "--- Validation ---"
-            plutil -lint "$STORYBOARD_PLIST"
-
-          else
-
-            echo "ATTENTION : aucun Info.plist dans storyboardc"
-
+          if [ ! -f "$STORYBOARD_PLIST" ]; then
+            echo "ERREUR : storyboard compilé invalide."
+            exit 1
           fi
 
-          # ============================================================
-          # 9. Assets / Images.xcassets
-          # ============================================================
+          plutil -lint "$STORYBOARD_PLIST"
 
-          echo ""
-          echo "============================================================"
-          echo "===== 9. ASSETS ====="
-          echo "============================================================"
-
-          ASSETS_DIR="$PROJ_DIR/fcvv/Images.xcassets"
-          IMAGESET="$ASSETS_DIR/fcvv_launch_logo.imageset"
-          LAUNCH_IMAGE="$IMAGESET/fcvv_launch_logo.png"
-
-          echo "--- Images.xcassets ---"
-
-          if [ -d "$ASSETS_DIR" ]; then
-
-            find "$ASSETS_DIR" \
-              -maxdepth 3 \
-              -print | sort
-
-          else
-
-            echo "ERREUR : Images.xcassets absent"
-
-          fi
-
-          echo ""
-          echo "--- Imageset ---"
-
-          if [ -d "$IMAGESET" ]; then
-
-            echo "Imageset trouvé : $IMAGESET"
-
-            ls -lah "$IMAGESET"
-
-            echo ""
-            echo "--- Contents.json ---"
-
-            cat "$IMAGESET/Contents.json"
-
-          else
-
-            echo "ERREUR : imageset absent : $IMAGESET"
-
-          fi
-
-          echo ""
-          echo "--- PNG ---"
-
-          if [ -f "$LAUNCH_IMAGE" ]; then
-
-            echo "PNG trouvé : $LAUNCH_IMAGE"
-
-            ls -lah "$LAUNCH_IMAGE"
-
-            echo ""
-            echo "--- file ---"
-
-            file "$LAUNCH_IMAGE"
-
-            echo ""
-            echo "--- sips ---"
-
-            sips \
-              -g pixelWidth \
-              -g pixelHeight \
-              -g format \
-              -g hasAlpha \
-              "$LAUNCH_IMAGE" || true
-
-          else
-
-            echo "ERREUR : PNG absent : $LAUNCH_IMAGE"
-
-          fi
-
-          # ============================================================
-          # 10. Info.plist source
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 10. INFO.PLIST SOURCE ====="
-          echo "============================================================"
-
-          PLIST_FILE=$(find "$PROJ_DIR" \
-            -maxdepth 1 \
-            -name "*-Info.plist" \
-            ! -name "GoogleService-Info.plist" \
-            -print -quit)
-
-          if [ -n "$PLIST_FILE" ] && [ -f "$PLIST_FILE" ]; then
-
-            echo "Info.plist trouvé : $PLIST_FILE"
-
-            echo ""
-            echo "--- Contenu ---"
-
-            /usr/libexec/PlistBuddy \
-              -c "Print" \
-              "$PLIST_FILE" || true
-
-            echo ""
-            echo "--- UILaunchStoryboardName ---"
-
-            /usr/libexec/PlistBuddy \
-              -c "Print :UILaunchStoryboardName" \
-              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
-
-            echo ""
-            echo "--- UIMainStoryboardFile ---"
-
-            /usr/libexec/PlistBuddy \
-              -c "Print :UIMainStoryboardFile" \
-              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
-
-            echo ""
-            echo "--- NSMainStoryboardFile ---"
-
-            /usr/libexec/PlistBuddy \
-              -c "Print :NSMainStoryboardFile" \
-              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
-
-            echo ""
-            echo "--- UIApplicationSceneManifest ---"
-
-            /usr/libexec/PlistBuddy \
-              -c "Print :UIApplicationSceneManifest" \
-              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
-
-            echo ""
-            echo "--- UISceneConfigurations ---"
-
-            /usr/libexec/PlistBuddy \
-              -c "Print :UIApplicationSceneManifest:UISceneConfigurations" \
-              "$PLIST_FILE" 2>/dev/null || echo "(absent)"
-
-            echo ""
-            echo "--- Validation ---"
-
-            plutil -lint "$PLIST_FILE"
-
-          else
-
-            echo "ATTENTION : aucun Info.plist source trouvé"
-
-          fi
-
-          # ============================================================
-          # 11. project.pbxproj - LaunchScreen
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 11. PROJECT.PBXPROJ ====="
-          echo "============================================================"
-
-          echo "--- Références LaunchScreen ---"
-
-          grep -n -E \
-            "LaunchScreen|Launch Screen" \
-            "$PROJECT_FILE/project.pbxproj" || true
-
-          echo ""
-          echo "--- Build settings storyboard ---"
-
-          grep -n -E \
-            "UILAUNCHSTORYBOARDNAME|UIMAINSTORYBOARDFILE|INFOPLIST_FILE" \
-            "$PROJECT_FILE/project.pbxproj" || true
-
-          echo ""
-          echo "--- OTHER_LDFLAGS ---"
-
-          grep -n \
-            "OTHER_LDFLAGS" \
-            "$PROJECT_FILE/project.pbxproj" || true
-
-          # ============================================================
-          # 12. Build Settings Xcode
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 12. BUILD SETTINGS XCODE ====="
-          echo "============================================================"
-
+          # --------------------------------------------------------
+          # Final Xcode verification
+          # --------------------------------------------------------
           ruby -e "
-          require 'xcodeproj'
+            require 'xcodeproj'
 
-          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+            project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
 
-          target = project.targets.find { |t| t.name == 'fcvv' }
+            target = project.targets.find { |t| t.name == 'fcvv' }
 
-          raise 'Target fcvv introuvable' unless target
+            raise 'Target fcvv introuvable' unless target
 
-          puts 'Target : ' + target.name
-          puts ''
+            launch_count =
+              target.resources_build_phase.files_references.count do |file|
 
-          target.build_configurations.each do |config|
+                File.basename(
+                  file.real_path.to_s
+                ) == 'LaunchScreen.storyboard'
 
-            puts '===== Configuration ' + config.name + ' ====='
+              end
 
-            keys = [
-              'PRODUCT_NAME',
-              'PRODUCT_BUNDLE_IDENTIFIER',
-              'INFOPLIST_FILE',
-              'UILAUNCHSTORYBOARDNAME',
-              'UIMAINSTORYBOARDFILE',
-              'SWIFT_VERSION',
-              'IPHONEOS_DEPLOYMENT_TARGET',
-              'TARGETED_DEVICE_FAMILY',
-              'SDKROOT',
-              'OTHER_LDFLAGS',
-              'OTHER_SWIFT_FLAGS',
-              'GCC_PREPROCESSOR_DEFINITIONS'
-            ]
-
-            keys.each do |key|
-
-              value = config.build_settings[key]
-
-              puts key + ' = ' + value.to_s
-
+            unless launch_count == 1
+              raise(
+                'LaunchScreen.storyboard attendu une seule fois, trouvé ' +
+                launch_count.to_s
+              )
             end
 
-            puts ''
+            project.files.to_a.each do |file|
 
-          end
+              basename = File.basename(file.path.to_s)
+
+              if [
+                'logo_apk_fcvv.png',
+                'Launch Screen.storyboard'
+              ].include?(basename)
+
+                raise(
+                  'Ancienne référence détectée : ' +
+                  file.path.to_s
+                )
+
+              end
+
+            end
           "
 
-          # ============================================================
-          # 13. Ressources target
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 13. RESSOURCES TARGET FCVV ====="
-          echo "============================================================"
-
-          ruby -e "
-          require 'xcodeproj'
-
-          project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
-
-          target = project.targets.find { |t| t.name == 'fcvv' }
-
-          raise 'Target fcvv introuvable' unless target
-
-          target.resources_build_phase.files_references.each do |file|
-
-            puts file.real_path.to_s
-
-          end
-          "
-
-          # ============================================================
-          # 14. Recherche SDL
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 14. SDL ====="
-          echo "============================================================"
-
-          grep -Rni \
-            -E "SDL_UIKitRunApp|SDLMain|SDL_main|SDL_SetMainReady|SDLAppDelegate" \
-            "$PROJ_DIR" \
-            --include="*.m" \
-            --include="*.mm" \
-            --include="*.h" \
-            --include="*.swift" \
-            --include="*.plist" \
-            --exclude-dir=Pods \
-            --exclude-dir=DerivedData \
-            --exclude-dir=build \
-            2>/dev/null || true
-
-          # ============================================================
-          # 15. UIApplication / UIScene
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 15. UIAPPLICATION / UISCENE ====="
-          echo "============================================================"
-
-          grep -Rni \
-            -E "UIApplicationMain|UIApplicationDelegate|UISceneDelegate|UISceneConfiguration|configurationForConnectingSceneSession" \
-            "$PROJ_DIR" \
-            --include="*.m" \
-            --include="*.mm" \
-            --include="*.h" \
-            --include="*.swift" \
-            --include="*.plist" \
-            --exclude-dir=Pods \
-            --exclude-dir=DerivedData \
-            --exclude-dir=build \
-            2>/dev/null || true
-
-          # ============================================================
-          # 16. Sources iOS
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 16. FICHIERS SOURCE IOS ====="
-          echo "============================================================"
-
-          find "$PROJ_DIR" \
-            \( -name "*.swift" \
-            -o -name "*.m" \
-            -o -name "*.mm" \
-            -o -name "*.h" \) \
-            -not -path "*/Pods/*" \
-            -not -path "*/DerivedData/*" \
-            -print | sort
-
-          # ============================================================
-          # 17. main.m
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 17. MAIN.M ====="
-          echo "============================================================"
-
-          if [ -f "$PROJ_DIR/main.m" ]; then
-
-            cat "$PROJ_DIR/main.m"
-
-          else
-
-            echo "main.m absent"
-
-          fi
-
-          # ============================================================
-          # 18. bridge.m / bridge.h
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 18. BRIDGE ====="
-          echo "============================================================"
-
-          if [ -f "$PROJ_DIR/bridge.m" ]; then
-            echo "--- bridge.m ---"
-            cat "$PROJ_DIR/bridge.m"
-          fi
-
-          if [ -f "$PROJ_DIR/bridge.h" ]; then
-            echo ""
-            echo "--- bridge.h ---"
-            cat "$PROJ_DIR/bridge.h"
-          fi
-
-          # ============================================================
-          # 19. Firebase
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 19. FIREBASE ====="
-          echo "============================================================"
-
-          if [ -d "$PROJ_DIR/Pods" ]; then
-
-            find "$PROJ_DIR/Pods" \
-              -iname "*Firebase*" \
-              -print 2>/dev/null || true
-
-          else
-
-            echo "Dossier Pods absent"
-
-          fi
-
-          # ============================================================
-          # 20. Podfile.lock
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 20. PODFILE.LOCK ====="
-          echo "============================================================"
-
-          if [ -f "$PROJ_DIR/Podfile.lock" ]; then
-
-            cat "$PROJ_DIR/Podfile.lock"
-
-          else
-
-            echo "Podfile.lock absent"
-
-          fi
-
-          # ============================================================
-          # 21. Workspaces
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 21. WORKSPACES ====="
-          echo "============================================================"
-
-          find . -name "*.xcworkspace" -print
-
-          # ============================================================
-          # 22. Résumé diagnostic
-          # ============================================================
-
-          echo ""
-          echo "============================================================"
-          echo "===== 22. RESUME DIAGNOSTIC ====="
-          echo "============================================================"
-
-          echo ""
-          echo "--- LaunchScreen.storyboard ---"
-
-          if [ -f "$LAUNCH_STORYBOARD" ]; then
-            echo "OK : présent"
-          else
-            echo "ERREUR : absent"
-          fi
-
-          echo ""
-          echo "--- initialViewController ---"
-
-          if grep -q "initialViewController=" "$LAUNCH_STORYBOARD"; then
-            echo "OK : initialViewController trouvé"
-            grep -n "initialViewController=" "$LAUNCH_STORYBOARD"
-          else
-            echo "ATTENTION : aucun initialViewController trouvé"
-          fi
-
-          echo ""
-          echo "--- viewController ---"
-
-          VC_COUNT=$(grep -c "<viewController" "$LAUNCH_STORYBOARD" || true)
-
-          echo "Nombre de <viewController> : $VC_COUNT"
-
-          if [ "$VC_COUNT" -eq 0 ]; then
-            echo "ERREUR : aucun UIViewController dans LaunchScreen.storyboard"
-          fi
-
-          echo ""
-          echo "--- image ---"
-
-          if [ -f "$LAUNCH_IMAGE" ]; then
-            echo "OK : fcvv_launch_logo.png présent"
-          else
-            echo "ATTENTION : image absente"
-          fi
-
-          echo ""
-          echo "--- storyboard compilation ---"
-
-          if [ -d "$TEST_STORYBOARD_DIR" ]; then
-            echo "OK : storyboard compilable"
-          else
-            echo "ERREUR : storyboardc absent après compilation test"
-          fi
-
-          echo ""
-          echo "============================================================"
-          echo "===== FIN DEBUG ÉTAT DU PROJET AVANT BUILD ====="
-          echo "============================================================"
-
-      
-      
-
-      - name: Build for Real Device
-        run: |
-          set -euxo pipefail
-
-          WS="$(find "$PWD/fcvv-ios" -maxdepth 2 -name "*.xcworkspace" -print -quit)"
-          [ -n "$WS" ] || { echo "ERREUR: xcworkspace introuvable"; exit 1; }
-
-          xcodebuild clean build \
-            -workspace "$WS" \
-            -scheme fcvv \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination "generic/platform=iOS" \
-            ARCHS=arm64 \
-            ONLY_ACTIVE_ARCH=NO \
-            IPHONEOS_DEPLOYMENT_TARGET=12.0 \
-            CLANG_ENABLE_MODULES=YES \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
-
-      - name: Package .ipa
-        run: |
-          set -euxo pipefail
-
-          APP="$(find ~/Library/Developer/Xcode/DerivedData \
-            -type d \
-            -path "*/Build/Products/Release-iphoneos/fcvv.app" \
-            -print -quit)"
-
-          [ -d "$APP" ] || {
-            echo "ERREUR: fcvv.app introuvable."
-            find ~/Library/Developer/Xcode/DerivedData \
-              -type d -path "*/Build/Products/*-iphoneos/*.app" -print
+          OLD_FILES=$(
+            find "$PROJ_DIR" \
+              \( \
+                -name "logo_apk_fcvv.png" \
+                -o \
+                -name "Launch Screen.storyboard" \
+              \) \
+              -print
+          )
+
+          if [ -n "$OLD_FILES" ]; then
+            echo "ERREUR : anciennes ressources présentes :"
+            echo "$OLD_FILES"
             exit 1
-          }
+          fi
 
-          rm -rf Payload fcvv.ipa
-          mkdir Payload
-          cp -R "$APP" Payload/fcvv.app
-          (cd Payload && zip -qry ../fcvv.ipa fcvv.app)
-          rm -rf Payload
+          echo "Launch Screen configuré avec succès."
 
-          unzip -l fcvv.ipa
+      # ============================================================
+      # 13. VERIFY WORKSPACE / SCHEME
+      # ============================================================
+      - name: Verify Xcode workspace
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Upload unsigned IPA
+          WORKSPACE_PATH=$(
+            find "$PWD/fcvv-ios" \
+              -name "*.xcworkspace" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : aucun .xcworkspace trouvé dans fcvv-ios."
+            find . -maxdepth 4 -name "*.xcworkspace" -print
+            exit 1
+          fi
+
+          echo "Workspace = $WORKSPACE_PATH"
+
+          xcodebuild \
+            -list \
+            -workspace "$WORKSPACE_PATH"
+
+          xcodebuild \
+            -showBuildSettings \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            > /tmp/fcvv-build-settings.txt
+
+          echo "===== SIGNATURE ====="
+
+          grep \
+            -E \
+            'CODE_SIGN|CODE_SIGN_ENTITLEMENTS|PRODUCT_BUNDLE_IDENTIFIER' \
+            /tmp/fcvv-build-settings.txt \
+            || true
+
+          echo "===== FIREBASE ====="
+
+          grep \
+            -E \
+            'Firebase|GoogleService' \
+            /tmp/fcvv-build-settings.txt \
+            || true
+
+      # ============================================================
+      # 14. BUILD SIMULATOR
+      # ============================================================
+      - name: Build simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          WORKSPACE_PATH=$(
+            find "$PWD/fcvv-ios" \
+              -name "*.xcworkspace" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : workspace introuvable."
+            exit 1
+          fi
+
+          # --------------------------------------------------------
+          # Vérifier le simulateur
+          # --------------------------------------------------------
+          DEVICE_ID=$(
+            xcrun simctl list devices available \
+              | grep -m 1 'iPhone 15 (' \
+              | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/'
+          )
+
+          if [ -z "$DEVICE_ID" ]; then
+            echo "ERREUR : iPhone 15 indisponible."
+
+            echo "===== DEVICES DISPONIBLES ====="
+            xcrun simctl list devices available
+
+            exit 1
+          fi
+
+          echo "iPhone 15 = $DEVICE_ID"
+
+          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+
+          xcrun simctl erase "$DEVICE_ID"
+
+          # --------------------------------------------------------
+          # Build
+          # --------------------------------------------------------
+          xcodebuild clean build \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            CLANG_ENABLE_MODULES=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+          # --------------------------------------------------------
+          # Locate app
+          # --------------------------------------------------------
+          APP_PATH=$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" \
+              -path "*/Build/Products/Debug-iphonesimulator/fcvv.app" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : fcvv.app introuvable après compilation."
+
+            echo "===== DERIVED DATA ====="
+
+            find \
+              "$HOME/Library/Developer/Xcode/DerivedData" \
+              -path "*Debug-iphonesimulator*" \
+              -maxdepth 8 \
+              -print \
+              | head -200
+
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH"
+
+          # --------------------------------------------------------
+          # Vérification bundle
+          # --------------------------------------------------------
+          INFO_PLIST="$APP_PATH/Info.plist"
+
+          if [ ! -f "$INFO_PLIST" ]; then
+            echo "ERREUR : Info.plist de l'app absent."
+            exit 1
+          fi
+
+          plutil -lint "$INFO_PLIST"
+
+          echo "===== APP INFO ====="
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$INFO_PLIST"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleShortVersionString" \
+            "$INFO_PLIST"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleVersion" \
+            "$INFO_PLIST"
+
+          # --------------------------------------------------------
+          # Vérifier Firebase plist embarqué
+          # --------------------------------------------------------
+          if [ ! -f "$APP_PATH/GoogleService-Info.plist" ]; then
+            echo "ERREUR : GoogleService-Info.plist absent de l'app."
+            exit 1
+          fi
+
+          plutil -lint \
+            "$APP_PATH/GoogleService-Info.plist"
+
+          # --------------------------------------------------------
+          # Vérifier LaunchScreen
+          # --------------------------------------------------------
+          if ! /usr/libexec/PlistBuddy \
+            -c "Print :UILaunchStoryboardName" \
+            "$INFO_PLIST" \
+            | grep -q "LaunchScreen"; then
+
+            echo "ERREUR : UILaunchStoryboardName != LaunchScreen"
+            exit 1
+          fi
+
+          echo "Build simulator réussi."
+
+      # ============================================================
+      # 15. INSTALL / LAUNCH SMOKE TEST
+      # ============================================================
+      - name: Simulator smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEVICE_ID=$(
+            xcrun simctl list devices available \
+              | grep -m 1 'iPhone 15 (' \
+              | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/'
+          )
+
+          if [ -z "$DEVICE_ID" ]; then
+            echo "ERREUR : iPhone 15 introuvable."
+            exit 1
+          fi
+
+          APP_PATH=$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" \
+              -path "*/Build/Products/Debug-iphonesimulator/fcvv.app" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : fcvv.app introuvable."
+            exit 1
+          fi
+
+          xcrun simctl install \
+            "$DEVICE_ID" \
+            "$APP_PATH"
+
+          xcrun simctl launch \
+            "$DEVICE_ID" \
+            "${APP_BUNDLE_ID}"
+
+          sleep 5
+
+          echo "Application FCVV lancée avec succès sur le simulateur."
+
+      # ============================================================
+      # 16. PACKAGE APP
+      # ============================================================
+      - name: Package app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH=$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" \
+              -path "*/Build/Products/Debug-iphonesimulator/fcvv.app" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : fcvv.app introuvable."
+            exit 1
+          fi
+
+          rm -f "$GITHUB_WORKSPACE/fcvv.zip"
+
+          cd "$(dirname "$APP_PATH")"
+
+          zip -qr \
+            "$GITHUB_WORKSPACE/fcvv.zip" \
+            "fcvv.app"
+
+          if [ ! -s "$GITHUB_WORKSPACE/fcvv.zip" ]; then
+            echo "ERREUR : archive fcvv.zip vide ou absente."
+            exit 1
+          fi
+
+          echo "===== PACKAGE ====="
+          ls -lh "$GITHUB_WORKSPACE/fcvv.zip"
+
+      # ============================================================
+      # 17. UPLOAD ARTIFACT
+      # ============================================================
+      - name: Upload FCVV simulator artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fcvv-ipa-unsigned-arm64
-          path: fcvv.ipa
+          name: fcvv-app
+          path: fcvv.zip
           if-no-files-found: error
-
+          retention-days: 14

@@ -56,19 +56,36 @@ class MessageBubble(BoxLayout):
         is_me,
         show_author=True,
         est_admin=False,
+        can_delete=False,
+        on_delete=None,
         font_size=15,
         **kwargs,
     ):
         super().__init__(
             orientation="vertical",
             size_hint_y=None,
-            padding=[0, dp(2)],
+            padding=[
+                dp(10) if is_me else dp(60),
+                0,
+                dp(60) if is_me else dp(10),
+                0,
+            ],
             **kwargs,
         )
+        self.msg_data = msg_data
+        self.can_delete = can_delete
         self.bind(minimum_height=self.setter("height"))
-        self.padding = (
-            [dp(10), 0, dp(60), 0] if is_me else [dp(60), 0, dp(10), 0]
-        )
+
+        # Couleurs selon le rôle
+        if est_admin:
+            bg = (0.8, 0.5, 0, 1)
+            name_c = (1, 1, 1, 1)
+        elif is_me:
+            bg = (0.1, 0.55, 1, 1)
+            name_c = (0.85, 0.93, 1, 1)
+        else:
+            bg = (0.22, 0.22, 0.22, 1)
+            name_c = (1, 0.85, 0.4, 1)
 
         self.bubble = BoxLayout(
             orientation="vertical",
@@ -77,28 +94,20 @@ class MessageBubble(BoxLayout):
             size_hint=(None, None),
         )
 
-        if est_admin:
-            bg, name_c = ((0.8, 0.5, 0, 1), (1, 1, 1, 1))
-        elif is_me:
-            bg, name_c = ((0.1, 0.55, 1, 1), (0.85, 0.93, 1, 1))
-        else:
-            bg, name_c = ((0.22, 0.22, 0.22, 1), (1, 0.85, 0.4, 1))
-
+        # Fond arrondi
         with self.bubble.canvas.before:
             Color(*bg)
             self.bubble.rect = RoundedRectangle(
                 pos=self.bubble.pos, size=self.bubble.size, radius=[dp(16)]
             )
         self.bubble.bind(
-            pos=lambda i, v: setattr(self.bubble.rect, "pos", v),
-            size=lambda i, v: setattr(self.bubble.rect, "size", v),
+            pos=lambda _, v: setattr(self.bubble.rect, "pos", v),
+            size=lambda _, v: setattr(self.bubble.rect, "size", v),
         )
 
+        # Auteur & Contenu
         if show_author:
-            auth_text = f"[b]{escape_markup(msg_data.get('auteur', ''))}[/b]"
-            if est_admin:
-                auth_text = f"[b][!] {auth_text.replace('[b]', '').replace('[/b]', '')}[/b]"
-
+            auth_text = f"[b]{'[!] ' if est_admin else ''}{escape_markup(msg_data.get('auteur', ''))}[/b]"
             self.author = Label(
                 text=auth_text,
                 markup=True,
@@ -119,46 +128,93 @@ class MessageBubble(BoxLayout):
         )
         self.bubble.add_widget(self.content)
 
-        ts_raw = msg_data.get("timestamp", "")
+        # Datetime parsing
         ts_str = ""
-
-        if ts_raw:
+        if ts_raw := msg_data.get("timestamp"):
             try:
-                dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
-                dt_local = dt.astimezone()
-                ts_str = dt_local.strftime("%H:%M")
+                ts_str = (
+                    datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                    .astimezone()
+                    .strftime("%H:%M")
+                )
             except Exception as e:
                 print(f"Erreur de parsing date: {e}")
+
+        # Ligne basse (Timestamp & Suppression)
+        bottom_row = BoxLayout(
+            orientation="horizontal",
+            size_hint=(1, None),
+            height=dp(24),
+            spacing=dp(8),
+        )
 
         self.timestamp = Label(
             text=(
                 f"[color={'FFFFFF' if is_me or est_admin else 'AAAAAA'}]{ts_str}[/color]"
             ),
             markup=True,
-            size_hint=(None, None),
-            height=dp(15),
+            size_hint_x=1,
             halign="right",
+            valign="middle",
         )
-        self.bubble.add_widget(self.timestamp)
+        self.timestamp.bind(size=lambda inst, v: setattr(inst, "text_size", v))
+        bottom_row.add_widget(self.timestamp)
 
+        if can_delete:
+            del_btn = Button(
+                text="×",
+                size_hint=(None, None),
+                size=(dp(24), dp(24)),
+                font_size=f"{max(12, font_size - 2)}sp",
+                background_normal="",
+                background_color=(0, 0, 0, 0),
+            )
+
+            with del_btn.canvas.before:
+                Color(0, 0, 0, 0.3)
+                del_btn.circle = Ellipse(pos=del_btn.pos, size=del_btn.size)
+
+            del_btn.bind(
+                pos=lambda inst, v: setattr(inst.circle, "pos", v),
+                size=lambda inst, v: setattr(inst.circle, "size", v),
+            )
+
+            msg_id = msg_data.get("id") or msg_data.get("_id")
+            if on_delete and msg_id:
+                del_btn.bind(on_release=lambda *_: on_delete(msg_id))
+            bottom_row.add_widget(del_btn)
+
+        self.bubble.add_widget(bottom_row)
         Clock.schedule_once(self.finalize_layout, 0)
         self.add_widget(self.bubble)
 
+    # =============================================================
+    # DIMENSIONS
+    # =============================================================
     def finalize_layout(self, *args):
         self.content.text_size = (self.content.text_size[0], None)
         self.content.size = self.content.texture_size
-        if hasattr(self, "author"):
-            self.author.size = self.author.texture_size
         self.timestamp.size = self.timestamp.texture_size
 
-        max_content_w = max(self.content.width, self.timestamp.width)
-        if hasattr(self, "author"):
-            max_content_w = max(max_content_w, self.author.width)
+        has_author = hasattr(self, "author")
+        if has_author:
+            self.author.size = self.author.texture_size
 
-        self.bubble.width = max_content_w + dp(30)
-        h_auth = self.author.height if hasattr(self, "author") else 0
-        self.bubble.height = (
-            self.content.height + self.timestamp.height + h_auth + dp(25)
+        h_auth = self.author.height if has_author else 0
+
+        min_bottom_w = self.timestamp.width + (
+            dp(32) if self.can_delete else 0
+        )
+        max_w = max(
+            self.content.width,
+            min_bottom_w,
+            self.author.width if has_author else 0,
+        )
+
+        bottom_row_height = dp(24)
+        self.bubble.size = (
+            max_w + dp(40),
+            self.content.height + h_auth + bottom_row_height + dp(25),
         )
         
 class EchangeBubble(BoxLayout):
@@ -278,7 +334,7 @@ class ChatView(BoxLayout):
         super().__init__(orientation="vertical", spacing=dp(5), **kwargs)
         self.categorie, self.cached_messages, self.limit = categorie, [], 25
         self.last_hash = None
-        
+
         self.opacity = 0
 
         cat_data = {}
@@ -373,18 +429,18 @@ class ChatView(BoxLayout):
 
         # 1. Chargement immédiat du cache local (silencieux et instantané)
         self.load_cache()
-        
-        # 2. Appel Firebase en arrière-plan sans perturber l'affichage initial
+
+        # 2. Appel Firebase / API en arrière-plan
         self.fetch_messages()
         self.refresh_event = Clock.schedule_interval(self.fetch_messages, 5)
 
     def scroll_smart_position(self, *args):
         self.msg_container.canvas.ask_update()
-        
+
         def _adjust_scroll(dt):
             content_height = self.msg_container.height
             viewport_height = self.scroll.height
-            
+
             if content_height <= viewport_height:
                 self.scroll.scroll_y = 1
             else:
@@ -450,15 +506,19 @@ class ChatView(BoxLayout):
                 self.msg_container.add_widget(sep)
                 last_date = current_date
 
-            auteur = msg.get("auteur")
+            auteur = msg.get("auteur", "")
+            est_moi = auteur.strip().lower() == mon_nom.strip().lower()
             est_admin = msg.get("role") == "ADMIN"
+            can_delete = est_moi
 
             self.msg_container.add_widget(
                 MessageBubble(
-                    msg,
-                    auteur == mon_nom,
-                    auteur != last_author,
+                    msg_data=msg,
+                    is_me=est_moi,
+                    show_author=(auteur != last_author),
                     est_admin=est_admin,
+                    can_delete=can_delete,
+                    on_delete=self.delete_message,
                     font_size=fs,
                 )
             )
@@ -469,7 +529,6 @@ class ChatView(BoxLayout):
         if scroll_trigger:
             self.scroll_smart_position()
 
-        # Révélation unique et fluide de la vue après le premier rendu complet
         if self.opacity == 0:
             Clock.schedule_once(lambda dt: setattr(self, "opacity", 1), 0.1)
 
@@ -490,26 +549,29 @@ class ChatView(BoxLayout):
         try:
             mon_nom = self._get_user()
             headers = {"nom_parent": mon_nom}
-            
-            is_windows = (platform == 'win')
-            r = requests.get(f"https://fcvv-api.onrender.com/chat/{self.categorie}",headers=headers,timeout=10,verify=not is_windows)
+
+            is_windows = platform == "win"
+            r = requests.get(
+                f"https://fcvv-api.onrender.com/chat/{self.categorie}",
+                headers=headers,
+                timeout=10,
+                verify=not is_windows,
+            )
 
             if r.status_code == 200:
                 data = r.json()
                 new_hash = hashlib.md5(str(data).encode()).hexdigest()
-                
-                # On ne met à jour et re-rend l'interface QUE si le contenu a changé par rapport au cache
+
                 if new_hash != self.last_hash:
                     self.last_hash = new_hash
                     self.cached_messages = data
                     self.save_cache()
-                    
-                    # Si l'utilisateur est en train de lire du contenu ancien (scroll plus haut), 
-                    # on évite de le téléporter de force en bas, d'où scroll_trigger=False si on veut préserver, 
-                    # ou true si on est tout en bas. Ici on met un rafraîchissement doux.
+
                     is_at_bottom = self.scroll.scroll_y <= 0.05
                     Clock.schedule_once(
-                        lambda dt: self.render_messages(scroll_trigger=is_at_bottom)
+                        lambda dt: self.render_messages(
+                            scroll_trigger=is_at_bottom
+                        )
                     )
         except Exception as e:
             print(f"Erreur fetch: {e}")
@@ -527,7 +589,9 @@ class ChatView(BoxLayout):
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     self.cached_messages = json.load(f)
-                    self.last_hash = hashlib.md5(str(self.cached_messages).encode()).hexdigest()
+                    self.last_hash = hashlib.md5(
+                        str(self.cached_messages).encode()
+                    ).hexdigest()
                     self.render_messages(scroll_trigger=True)
             except Exception as e:
                 print(f"Erreur lecture cache: {e}")
@@ -556,11 +620,44 @@ class ChatView(BoxLayout):
     def _send_message_thread(self, mon_nom, text, user_role):
         try:
             headers = {"nom_parent": mon_nom}
-            is_windows = (platform == 'win')
-            requests.post(f"https://fcvv-api.onrender.com/chat/{self.categorie}",headers=headers,json={"auteur": mon_nom, "contenu": text, "role": user_role},timeout=10,verify=not is_windows)
+            is_windows = platform == "win"
+            requests.post(
+                f"https://fcvv-api.onrender.com/chat/{self.categorie}",
+                headers=headers,
+                json={"auteur": mon_nom, "contenu": text, "role": user_role},
+                timeout=10,
+                verify=not is_windows,
+            )
             Clock.schedule_once(lambda dt: self.fetch_messages())
         except Exception as e:
             print(f"Erreur envoi message: {e}")
+
+    # =============================================================
+    # SUPPRESSION
+    # =============================================================
+    def delete_message(self, message_id):
+        if message_id:
+            threading.Thread(
+                target=self._delete_message_thread,
+                args=(self._get_user(), message_id),
+                daemon=True,
+            ).start()
+
+    def _delete_message_thread(self, mon_nom, message_id):
+        try:
+            is_windows = platform == "win"
+            r = requests.delete(
+                f"https://fcvv-api.onrender.com/chat/{self.categorie}/{message_id}",
+                headers={"nom_parent": mon_nom},
+                timeout=10,
+                verify=not is_windows,
+            )
+            if r.status_code == 200:
+                Clock.schedule_once(lambda dt: self.fetch_messages())
+            else:
+                print(f"Erreur suppression chat HTTP {r.status_code}: {r.text}")
+        except Exception as e:
+            print(f"Erreur suppression message chat: {e}")
 
     def get_cache_path(self):
         app = App.get_running_app()
