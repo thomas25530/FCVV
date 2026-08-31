@@ -619,53 +619,62 @@ jobs:
       # 11. CONFIGURE PODS + INFO.PLIST
       # ============================================================
       - name: Configure and Install Pods
-        shell: bash
         run: |
           set -euo pipefail
 
-          PROJECT_FILE=$(
-            find . \
-              -maxdepth 3 \
-              -name "*.xcodeproj" \
-              -print \
-              -quit
-          )
+          echo "===== Recherche du projet Xcode ====="
+
+          PROJECT_FILE=$(find . -maxdepth 3 -name "*.xcodeproj" -print -quit)
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : .xcodeproj introuvable."
+            echo "ERREUR : aucun fichier .xcodeproj trouvé."
             exit 1
           fi
 
           PROJ_DIR=$(dirname "$PROJECT_FILE")
           PROJ_NAME=$(basename "$PROJECT_FILE")
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
 
-          PLIST_FILE=$(
-            find "$PROJ_DIR" \
-              -maxdepth 1 \
-              -name "*-Info.plist" \
-              ! -name "GoogleService-Info.plist" \
-              -print \
-              -quit
-          )
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+          echo "PROJ_NAME=$PROJ_NAME"
 
-          if [ -z "$PLIST_FILE" ]; then
+          if [ ! -d "$PROJ_DIR" ]; then
+            echo "ERREUR : dossier projet introuvable : $PROJ_DIR"
+            exit 1
+          fi
+
+          cd "$PROJ_DIR"
+
+          # ============================================================
+          # 1. Recherche du Info.plist principal
+          # ============================================================
+
+          PLIST_FILE=$(find . \
+            -maxdepth 1 \
+            -name "*-Info.plist" \
+            ! -name "GoogleService-Info.plist" \
+            -print -quit)
+
+          if [ -z "$PLIST_FILE" ] || [ ! -f "$PLIST_FILE" ]; then
             echo "ERREUR : Info.plist principal introuvable."
             exit 1
           fi
 
-          echo "Info.plist = $PLIST_FILE"
+          echo "Info.plist = $PROJ_DIR/$PLIST_FILE"
 
           plutil -convert xml1 "$PLIST_FILE"
 
-          # --------------------------------------------------------
-          # Bundle version
-          # --------------------------------------------------------
+          # ============================================================
+          # 2. Version et Bundle ID
+          # ============================================================
+
           /usr/libexec/PlistBuddy \
             -c "Delete :CFBundleShortVersionString" \
             "$PLIST_FILE" 2>/dev/null || true
 
           /usr/libexec/PlistBuddy \
-            -c "Add :CFBundleShortVersionString string ${APP_VERSION}" \
+            -c "Add :CFBundleShortVersionString string 1.1.0" \
             "$PLIST_FILE"
 
           /usr/libexec/PlistBuddy \
@@ -673,23 +682,17 @@ jobs:
             "$PLIST_FILE" 2>/dev/null || true
 
           /usr/libexec/PlistBuddy \
-            -c "Add :CFBundleVersion string ${{ github.run_number }}" \
+            -c "Add :CFBundleVersion string $GITHUB_RUN_NUMBER" \
             "$PLIST_FILE"
 
-          # --------------------------------------------------------
-          # Bundle identifier
-          # --------------------------------------------------------
           /usr/libexec/PlistBuddy \
             -c "Delete :CFBundleIdentifier" \
             "$PLIST_FILE" 2>/dev/null || true
 
           /usr/libexec/PlistBuddy \
-            -c "Add :CFBundleIdentifier string ${APP_BUNDLE_ID}" \
+            -c "Add :CFBundleIdentifier string org.fcvv.fcvv" \
             "$PLIST_FILE"
 
-          # --------------------------------------------------------
-          # Display name
-          # --------------------------------------------------------
           /usr/libexec/PlistBuddy \
             -c "Delete :CFBundleDisplayName" \
             "$PLIST_FILE" 2>/dev/null || true
@@ -698,90 +701,225 @@ jobs:
             -c "Add :CFBundleDisplayName string FCVV" \
             "$PLIST_FILE"
 
-          # --------------------------------------------------------
-          # Deployment target
-          # --------------------------------------------------------
-          ruby -e "
-            require 'xcodeproj'
+          plutil -lint "$PLIST_FILE"
 
-            project = Xcodeproj::Project.open('$PWD/$PROJECT_FILE')
+          # ============================================================
+          # 3. Images.xcassets
+          # ============================================================
 
-            target = project.targets.find { |t| t.name == 'fcvv' }
+          if [ -d "$GITHUB_WORKSPACE/assets/Images.xcassets" ]; then
+            echo "===== Installation Images.xcassets ====="
 
-            raise 'Target fcvv introuvable' unless target
+            rm -rf "./fcvv/Images.xcassets"
 
-            target.build_configurations.each do |config|
-              config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] =
-                '${IOS_DEPLOYMENT_TARGET}'
+            mkdir -p "./fcvv"
 
-              config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
-              config.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
-
-              config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] =
-                '${APP_BUNDLE_ID}'
-
-              config.build_settings['CODE_SIGNING_ALLOWED'] = 'YES'
-              config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-            end
-
-            project.save
-          "
-
-          # --------------------------------------------------------
-          # Assets
-          # --------------------------------------------------------
-          if [ -d "assets/Images.xcassets" ]; then
-            rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
-            cp -R assets/Images.xcassets "$PROJ_DIR/fcvv/"
+            cp -R \
+              "$GITHUB_WORKSPACE/assets/Images.xcassets" \
+              "./fcvv/Images.xcassets"
           fi
 
-          # --------------------------------------------------------
-          # Podfile
-          # --------------------------------------------------------
-          cat > "$PROJ_DIR/Podfile" <<EOF
-          platform :ios, '${IOS_DEPLOYMENT_TARGET}'
+          # ============================================================
+          # 4. Podfile
+          # ============================================================
+
+          echo "===== Création du Podfile ====="
+
+          cat > Podfile <<EOF
+          platform :ios, '13.0'
 
           use_frameworks!
           use_modular_headers!
 
-          project '${PROJ_NAME}'
+          project '$PROJ_NAME'
 
           target 'fcvv' do
-            pod 'FirebaseCore', '${FIREBASE_VERSION}'
-            pod 'FirebaseMessaging', '${FIREBASE_VERSION}'
+            pod 'FirebaseCore', '10.29.0'
+            pod 'FirebaseMessaging', '10.29.0'
           end
           EOF
 
           echo "===== PODFILE ====="
-          cat "$PROJ_DIR/Podfile"
+          cat Podfile
 
-          cd "$PROJ_DIR"
+          # ============================================================
+          # 5. Nettoyage CocoaPods
+          # ============================================================
 
-          pod deintegrate
+          echo "===== Nettoyage CocoaPods ====="
+
+          pod deintegrate || true
+
+          rm -rf Pods
+          rm -f Podfile.lock
+
+          # ============================================================
+          # 6. Installation CocoaPods
+          # ============================================================
+
+          echo "===== pod install ====="
+
           pod install --repo-update
 
-          # --------------------------------------------------------
-          # Vérifications CocoaPods
-          # --------------------------------------------------------
-          if [ ! -d "$PROJ_DIR/Pods" ]; then
-            echo "ERREUR : dossier Pods absent."
+          # ============================================================
+          # 7. Vérification réelle de l'installation
+          # ============================================================
+
+          echo "===== Vérification CocoaPods ====="
+
+          if [ ! -d "Pods" ]; then
+            echo "ERREUR : dossier Pods absent après pod install."
+            echo "Contenu de $PWD :"
+            ls -la
             exit 1
           fi
 
-          if [ ! -f "$PROJ_DIR/Podfile.lock" ]; then
+          if [ ! -d "Pods/Target Support Files/Pods-fcvv" ]; then
+            echo "ERREUR : support files Pods-fcvv absents."
+            find Pods -maxdepth 3 -type d -print || true
+            exit 1
+          fi
+
+          if [ ! -f "Podfile.lock" ]; then
             echo "ERREUR : Podfile.lock absent."
             exit 1
           fi
 
-          echo "===== PODS ====="
-          cat "$PROJ_DIR/Podfile.lock"
+          # ============================================================
+          # 8. Vérification Firebase
+          # ============================================================
 
-          # --------------------------------------------------------
-          # Validation plist
-          # --------------------------------------------------------
-          plutil -lint "$PLIST_FILE"
+          echo "===== Firebase installé ====="
 
-          echo "Pods installés avec succès."
+          if [ ! -d "Pods/FirebaseCore" ]; then
+            echo "ERREUR : FirebaseCore absent."
+            exit 1
+          fi
+
+          if [ ! -d "Pods/FirebaseMessaging" ]; then
+            echo "ERREUR : FirebaseMessaging absent."
+            exit 1
+          fi
+
+          echo "FirebaseCore OK"
+          echo "FirebaseMessaging OK"
+
+          # ============================================================
+          # 9. Vérification du workspace
+          # ============================================================
+
+          WORKSPACE_PATH="$PWD/fcvv.xcworkspace"
+
+          if [ ! -d "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : fcvv.xcworkspace introuvable."
+            echo "Workspaces présents :"
+            find "$PROJ_DIR" -maxdepth 1 -name "*.xcworkspace" -print || true
+            exit 1
+          fi
+
+          echo "Workspace = $WORKSPACE_PATH"
+
+          # ============================================================
+          # 10. Vérification du projet après intégration CocoaPods
+          # ============================================================
+
+          echo "===== Vérification Xcode ====="
+
+          xcodebuild \
+            -list \
+            -workspace "$WORKSPACE_PATH"
+
+          # ============================================================
+          # 11. Vérification des configurations CocoaPods
+          # ============================================================
+
+          echo "===== xcconfig CocoaPods ====="
+
+          DEBUG_XCCONFIG="Pods/Target Support Files/Pods-fcvv/Pods-fcvv.debug.xcconfig"
+          RELEASE_XCCONFIG="Pods/Target Support Files/Pods-fcvv/Pods-fcvv.release.xcconfig"
+
+          if [ ! -f "$DEBUG_XCCONFIG" ]; then
+            echo "ERREUR : xcconfig Debug absent."
+            exit 1
+          fi
+
+          if [ ! -f "$RELEASE_XCCONFIG" ]; then
+            echo "ERREUR : xcconfig Release absent."
+            exit 1
+          fi
+
+          echo "--- DEBUG ---"
+          cat "$DEBUG_XCCONFIG"
+
+          echo "--- RELEASE ---"
+          cat "$RELEASE_XCCONFIG"
+
+          # ============================================================
+          # 12. Vérification des flags hérités
+          # ============================================================
+
+          echo "===== Vérification build settings ====="
+
+          ruby - "$FULL_PROJECT_PATH" <<'RUBY'
+          require 'xcodeproj'
+
+          project_path = ARGV[0]
+          project = Xcodeproj::Project.open(project_path)
+
+          target = project.targets.find { |t| t.name == 'fcvv' }
+
+          raise 'Target fcvv introuvable' unless target
+
+          target.build_configurations.each do |config|
+            settings = config.build_settings
+
+            puts "Configuration: #{config.name}"
+
+            # CocoaPods doit pouvoir injecter ses valeurs.
+            %w[
+              GCC_PREPROCESSOR_DEFINITIONS
+              HEADER_SEARCH_PATHS
+              OTHER_LDFLAGS
+            ].each do |key|
+
+              value = settings[key]
+
+              next if value.nil?
+
+              values =
+                if value.is_a?(Array)
+                  value
+                else
+                  [value.to_s]
+                end
+
+              unless values.any? { |v| v.to_s.include?('$(inherited)') }
+                values.unshift('$(inherited)')
+                settings[key] = values
+                puts "Ajout $(inherited) à #{key} pour #{config.name}"
+              end
+            end
+          end
+
+          project.save
+          RUBY
+
+          # ============================================================
+          # 13. Vérification finale des réglages
+          # ============================================================
+
+          echo "===== Build settings finaux ====="
+
+          xcodebuild \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            -configuration Debug \
+            -showBuildSettings \
+            | grep -E \
+              'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_ENTITLEMENTS|OTHER_LDFLAGS|HEADER_SEARCH_PATHS|GCC_PREPROCESSOR_DEFINITIONS' \
+              || true
+
+          echo "===== CocoaPods configuré avec succès ====="
 
       # ============================================================
       # 12. CONFIGURE LAUNCH SCREEN
