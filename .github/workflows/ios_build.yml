@@ -1839,3 +1839,360 @@ jobs:
           path: fcvv.zip
           if-no-files-found: error
           retention-days: 14
+      
+      
+      # ============================================================
+      # 18. BUILD LEGACY iOS 12 / ARM64 DEVICE
+      # ============================================================
+      - name: Build legacy iOS 12 device archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "============================================================"
+          echo "          FCVV LEGACY iOS 12 / ARM64 BUILD"
+          echo "============================================================"
+
+          # --------------------------------------------------------
+          # Configuration
+          # --------------------------------------------------------
+
+          LEGACY_IOS_TARGET="12.0"
+          LEGACY_CONFIGURATION="Release"
+          SCHEME="fcvv"
+
+          WORKSPACE_PATH=$(
+            find "$GITHUB_WORKSPACE/fcvv-ios" \
+              -name "*.xcworkspace" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : aucun .xcworkspace trouvé."
+            find "$GITHUB_WORKSPACE/fcvv-ios" \
+              -maxdepth 3 \
+              -name "*.xcworkspace" \
+              -print || true
+            exit 1
+          fi
+
+          echo "Workspace      = $WORKSPACE_PATH"
+          echo "Scheme         = $SCHEME"
+          echo "Configuration  = $LEGACY_CONFIGURATION"
+          echo "iOS target     = $LEGACY_IOS_TARGET"
+
+          # --------------------------------------------------------
+          # Vérification Xcode
+          # --------------------------------------------------------
+
+          echo "===== XCODE ====="
+
+          xcodebuild -version
+
+          echo "===== SDK ====="
+
+          xcrun --sdk iphoneos --show-sdk-version
+
+          echo "===== SDK PATH ====="
+
+          xcrun --sdk iphoneos --show-sdk-path
+
+          # --------------------------------------------------------
+          # Vérification du scheme
+          # --------------------------------------------------------
+
+          echo "===== SCHEME ====="
+
+          xcodebuild \
+            -list \
+            -workspace "$WORKSPACE_PATH"
+
+          # --------------------------------------------------------
+          # Vérification deployment target AVANT compilation
+          # --------------------------------------------------------
+
+          echo "===== BUILD SETTINGS AVANT BUILD ====="
+
+          xcodebuild \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$LEGACY_CONFIGURATION" \
+            -showBuildSettings \
+            IPHONEOS_DEPLOYMENT_TARGET="$LEGACY_IOS_TARGET" \
+            > /tmp/fcvv-legacy-build-settings.txt
+
+          grep \
+            -E \
+            'IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_BUNDLE_IDENTIFIER|ARCHS|VALID_ARCHS|SDKROOT' \
+            /tmp/fcvv-legacy-build-settings.txt \
+            || true
+
+          # --------------------------------------------------------
+          # Nettoyage
+          # --------------------------------------------------------
+
+          echo "===== CLEAN ====="
+
+          xcodebuild clean \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$LEGACY_CONFIGURATION" \
+            -sdk iphoneos \
+            IPHONEOS_DEPLOYMENT_TARGET="$LEGACY_IOS_TARGET" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+          # --------------------------------------------------------
+          # Archive
+          # --------------------------------------------------------
+
+          ARCHIVE_DIR="$GITHUB_WORKSPACE/build/legacy"
+          ARCHIVE_PATH="$ARCHIVE_DIR/fcvv-ios12.xcarchive"
+
+          rm -rf "$ARCHIVE_DIR"
+
+          mkdir -p "$ARCHIVE_DIR"
+
+          echo "===== ARCHIVE ====="
+
+          xcodebuild archive \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme "$SCHEME" \
+            -configuration "$LEGACY_CONFIGURATION" \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            IPHONEOS_DEPLOYMENT_TARGET="$LEGACY_IOS_TARGET" \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO
+
+          # --------------------------------------------------------
+          # Vérification archive
+          # --------------------------------------------------------
+
+          echo "===== VERIFICATION ARCHIVE ====="
+
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERREUR : archive absente :"
+            echo "$ARCHIVE_PATH"
+            exit 1
+          fi
+
+          if [ ! -d "$ARCHIVE_PATH/Products/Applications/fcvv.app" ]; then
+            echo "ERREUR : fcvv.app absent de l'archive."
+
+            echo "===== CONTENU ARCHIVE ====="
+            find "$ARCHIVE_PATH" -maxdepth 5 -print | head -300
+
+            exit 1
+          fi
+
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
+
+          echo "Archive = $ARCHIVE_PATH"
+          echo "App     = $APP_PATH"
+
+          # --------------------------------------------------------
+          # Info.plist
+          # --------------------------------------------------------
+
+          INFO_PLIST="$APP_PATH/Info.plist"
+
+          if [ ! -f "$INFO_PLIST" ]; then
+            echo "ERREUR : Info.plist absent."
+            exit 1
+          fi
+
+          plutil -lint "$INFO_PLIST"
+
+          echo "===== APP INFO ====="
+
+          echo "Bundle ID:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$INFO_PLIST"
+
+          echo "Version:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleShortVersionString" \
+            "$INFO_PLIST"
+
+          echo "Build:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleVersion" \
+            "$INFO_PLIST"
+
+          # --------------------------------------------------------
+          # Vérification architecture ARM64
+          # --------------------------------------------------------
+
+          echo "===== ARCHITECTURE ====="
+
+          APP_BINARY="$APP_PATH/fcvv"
+
+          if [ ! -f "$APP_BINARY" ]; then
+            echo "ERREUR : binaire principal introuvable : $APP_BINARY"
+            exit 1
+          fi
+
+          file "$APP_BINARY"
+
+          LIPO_INFO=$(lipo -info "$APP_BINARY")
+
+          echo "$LIPO_INFO"
+
+          if ! echo "$LIPO_INFO" | grep -q "arm64"; then
+            echo "ERREUR : le binaire ne contient pas arm64."
+            exit 1
+          fi
+
+          if echo "$LIPO_INFO" | grep -q "x86_64"; then
+            echo "ERREUR : architecture x86_64 détectée."
+            exit 1
+          fi
+
+          echo "ARM64 OK"
+
+          # --------------------------------------------------------
+          # Vérification deployment target du binaire
+          # --------------------------------------------------------
+
+          echo "===== DEPLOYMENT TARGET ====="
+
+          otool -l "$APP_BINARY" \
+            | grep -A4 \
+              -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS' \
+            || true
+
+          # --------------------------------------------------------
+          # Vérification Firebase
+          # --------------------------------------------------------
+
+          echo "===== FIREBASE ====="
+
+          if [ ! -f "$APP_PATH/GoogleService-Info.plist" ]; then
+            echo "ATTENTION : GoogleService-Info.plist absent."
+          else
+            echo "GoogleService-Info.plist présent."
+            plutil -lint \
+              "$APP_PATH/GoogleService-Info.plist"
+          fi
+
+          # --------------------------------------------------------
+          # Vérification LaunchScreen
+          # --------------------------------------------------------
+
+          echo "===== LAUNCH SCREEN ====="
+
+          if ! /usr/libexec/PlistBuddy \
+            -c "Print :UILaunchStoryboardName" \
+            "$INFO_PLIST" \
+            | grep -q "LaunchScreen"; then
+
+            echo "ERREUR : LaunchScreen absent ou incorrect."
+            exit 1
+          fi
+
+          echo "LaunchScreen OK"
+
+          # --------------------------------------------------------
+          # Vérification entitlements
+          # --------------------------------------------------------
+
+          echo "===== ENTITLEMENTS ====="
+
+          codesign \
+            -d \
+            --entitlements :- \
+            "$APP_PATH" \
+            2>/dev/null \
+            || true
+
+          # --------------------------------------------------------
+          # Vérification signature
+          # --------------------------------------------------------
+
+          echo "===== CODE SIGNING ====="
+
+          codesign \
+            -dvv \
+            "$APP_PATH" \
+            2>&1 \
+            || true
+
+          echo
+          echo "NOTE : cette archive est volontairement NON SIGNEE."
+          echo "La signature sera effectuée sur le MacBook avec Xcode 10.3."
+          echo
+
+          # --------------------------------------------------------
+          # Export du .app vers un dossier simple
+          # --------------------------------------------------------
+
+          LEGACY_APP_DIR="$GITHUB_WORKSPACE/build/fcvv-ios12-app"
+
+          rm -rf "$LEGACY_APP_DIR"
+
+          mkdir -p "$LEGACY_APP_DIR"
+
+          cp -R \
+            "$APP_PATH" \
+            "$LEGACY_APP_DIR/fcvv.app"
+
+          echo "===== APP EXTRAITE ====="
+
+          ls -lah "$LEGACY_APP_DIR"
+
+          # --------------------------------------------------------
+          # Archive de transport
+          # --------------------------------------------------------
+
+          LEGACY_ZIP="$GITHUB_WORKSPACE/fcvv-ios12-arm64-unsigned.zip"
+
+          rm -f "$LEGACY_ZIP"
+
+          cd "$LEGACY_APP_DIR"
+
+          zip -qr \
+            "$LEGACY_ZIP" \
+            "fcvv.app"
+
+          if [ ! -s "$LEGACY_ZIP" ]; then
+            echo "ERREUR : archive legacy absente ou vide."
+            exit 1
+          fi
+
+          echo "===== LEGACY PACKAGE ====="
+
+          ls -lh "$LEGACY_ZIP"
+
+          echo
+          echo "============================================================"
+          echo "          LEGACY BUILD TERMINÉ"
+          echo "============================================================"
+          echo "Archive : $ARCHIVE_PATH"
+          echo "App     : $LEGACY_APP_DIR/fcvv.app"
+          echo "ZIP     : $LEGACY_ZIP"
+          echo "Target  : iOS $LEGACY_IOS_TARGET"
+          echo "Arch    : arm64"
+          echo "Signing : NON SIGNÉ"
+          echo "============================================================"
+
+
+      # ============================================================
+      # 19. UPLOAD LEGACY ARTIFACT
+      # ============================================================
+      - name: Upload FCVV iOS 12 legacy artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcvv-ios12-arm64-unsigned
+          path: |
+            fcvv-ios12-arm64-unsigned.zip
+            build/legacy/fcvv-ios12.xcarchive
+          if-no-files-found: error
+          retention-days: 14
