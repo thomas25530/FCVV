@@ -1497,19 +1497,35 @@ jobs:
         run: |
           set -euo pipefail
 
-          PROJ_DIR="$GITHUB_WORKSPACE/fcvv-ios"
+          echo "============================================================"
+          echo "             BUILD SIMULATOR FCVV"
+          echo "============================================================"
 
-          WORKSPACE_PATH="$PROJ_DIR/fcvv.xcworkspace"
+          # --------------------------------------------------------
+          # 1. Recherche du workspace
+          # --------------------------------------------------------
+          WORKSPACE_PATH=$(
+            find "$PWD/fcvv-ios" \
+              -name "*.xcworkspace" \
+              -type d \
+              -print \
+              -quit
+          )
 
-          if [ ! -d "$WORKSPACE_PATH" ]; then
-            echo "ERREUR : workspace introuvable."
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : aucun .xcworkspace trouvé dans fcvv-ios."
+            find "$PWD" \
+              -maxdepth 5 \
+              -name "*.xcworkspace" \
+              -print
             exit 1
           fi
 
-          # --------------------------------------------------------
-          # Détection iPhone 15
-          # --------------------------------------------------------
+          echo "Workspace = $WORKSPACE_PATH"
 
+          # --------------------------------------------------------
+          # 2. Recherche de l'iPhone 15
+          # --------------------------------------------------------
           DEVICE_ID=$(
             xcrun simctl list devices available \
               | grep -m 1 'iPhone 15 (' \
@@ -1517,28 +1533,107 @@ jobs:
           )
 
           if [ -z "$DEVICE_ID" ]; then
-
             echo "ERREUR : iPhone 15 indisponible."
 
+            echo "===== DEVICES DISPONIBLES ====="
             xcrun simctl list devices available
 
             exit 1
-
           fi
 
           echo "iPhone 15 = $DEVICE_ID"
 
-          xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+          # --------------------------------------------------------
+          # 3. Vérification état actuel du simulateur
+          # --------------------------------------------------------
+          DEVICE_STATE=$(
+            xcrun simctl list devices \
+              | grep "$DEVICE_ID" \
+              | sed -E 's/.*\(([A-F0-9-]+)\) \(([^)]+)\).*/\2/' \
+              | head -1
+          )
 
-          xcrun simctl bootstatus \
-            "$DEVICE_ID" \
-            -b
+          echo "État actuel = ${DEVICE_STATE:-UNKNOWN}"
+
+          # --------------------------------------------------------
+          # 4. ARRÊT OBLIGATOIRE avant erase
+          #
+          # simctl erase échoue si le device est Booted.
+          # --------------------------------------------------------
+          if [ "$DEVICE_STATE" = "Booted" ]; then
+            echo "Simulateur actuellement démarré."
+            echo "Arrêt du simulateur avant nettoyage..."
+
+            xcrun simctl shutdown "$DEVICE_ID" || true
+
+            # Attendre réellement l'arrêt.
+            for i in {1..30}; do
+
+              CURRENT_STATE=$(
+                xcrun simctl list devices \
+                  | grep "$DEVICE_ID" \
+                  | sed -E 's/.*\(([A-F0-9-]+)\) \(([^)]+)\).*/\2/' \
+                  | head -1
+              )
+
+              if [ "$CURRENT_STATE" != "Booted" ]; then
+                echo "Simulateur arrêté."
+                break
+              fi
+
+              echo "Attente arrêt simulateur... ($i/30)"
+              sleep 1
+            done
+          fi
+
+          # --------------------------------------------------------
+          # 5. Nettoyage du simulateur
+          # --------------------------------------------------------
+          echo "Effacement du simulateur..."
 
           xcrun simctl erase "$DEVICE_ID"
 
+          echo "Simulateur effacé avec succès."
+
           # --------------------------------------------------------
-          # Build
+          # 6. Démarrage propre
           # --------------------------------------------------------
+          echo "Démarrage du simulateur..."
+
+          xcrun simctl boot "$DEVICE_ID"
+
+          # --------------------------------------------------------
+          # 7. Attente complète du démarrage
+          # --------------------------------------------------------
+          echo "Attente du démarrage complet..."
+
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+
+          echo "Simulateur complètement démarré."
+
+          # --------------------------------------------------------
+          # 8. Vérification finale de l'état
+          # --------------------------------------------------------
+          FINAL_STATE=$(
+            xcrun simctl list devices \
+              | grep "$DEVICE_ID" \
+              | sed -E 's/.*\(([A-F0-9-]+)\) \(([^)]+)\).*/\2/' \
+              | head -1
+          )
+
+          echo "État final = $FINAL_STATE"
+
+          if [ "$FINAL_STATE" != "Booted" ]; then
+            echo "ERREUR : le simulateur n'est pas Booted."
+            exit 1
+          fi
+
+          # --------------------------------------------------------
+          # 9. Build Xcode
+          # --------------------------------------------------------
+          echo "============================================================"
+          echo "                    XCODE BUILD"
+          echo "============================================================"
 
           xcodebuild clean build \
             -workspace "$WORKSPACE_PATH" \
@@ -1553,9 +1648,8 @@ jobs:
             CODE_SIGNING_REQUIRED=NO
 
           # --------------------------------------------------------
-          # Localisation app
+          # 10. Recherche de l'application
           # --------------------------------------------------------
-
           APP_PATH=$(
             find "$HOME/Library/Developer/Xcode/DerivedData" \
               -path "*/Build/Products/Debug-iphonesimulator/fcvv.app" \
@@ -1565,47 +1659,55 @@ jobs:
           )
 
           if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : fcvv.app introuvable après compilation."
 
-            echo "ERREUR : fcvv.app introuvable."
+            echo "===== DERIVED DATA ====="
 
             find \
               "$HOME/Library/Developer/Xcode/DerivedData" \
               -path "*Debug-iphonesimulator*" \
+              -maxdepth 8 \
               -print \
               | head -200
 
             exit 1
-
           fi
 
           echo "APP_PATH=$APP_PATH"
 
+          # --------------------------------------------------------
+          # 11. Vérification Info.plist
+          # --------------------------------------------------------
           INFO_PLIST="$APP_PATH/Info.plist"
 
-          test -f "$INFO_PLIST" || {
-            echo "ERREUR : Info.plist absent."
+          if [ ! -f "$INFO_PLIST" ]; then
+            echo "ERREUR : Info.plist de l'application absent."
             exit 1
-          }
+          fi
 
           plutil -lint "$INFO_PLIST"
 
           echo "===== APP INFO ====="
 
+          echo "Bundle ID:"
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleIdentifier" \
             "$INFO_PLIST"
 
+          echo "Version:"
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleShortVersionString" \
             "$INFO_PLIST"
 
+          echo "Build:"
           /usr/libexec/PlistBuddy \
             -c "Print :CFBundleVersion" \
             "$INFO_PLIST"
 
           # --------------------------------------------------------
-          # Firebase
+          # 12. Vérification Firebase
           # --------------------------------------------------------
+          echo "===== FIREBASE ====="
 
           if [ ! -f "$APP_PATH/GoogleService-Info.plist" ]; then
             echo "ERREUR : GoogleService-Info.plist absent de l'app."
@@ -1615,21 +1717,36 @@ jobs:
           plutil -lint \
             "$APP_PATH/GoogleService-Info.plist"
 
-          # --------------------------------------------------------
-          # Launch Screen
-          # --------------------------------------------------------
+          echo "GoogleService-Info.plist OK."
 
-          if ! /usr/libexec/PlistBuddy \
-            -c "Print :UILaunchStoryboardName" \
-            "$INFO_PLIST" \
-            | grep -q "LaunchScreen"; then
+          # --------------------------------------------------------
+          # 13. Vérification LaunchScreen
+          # --------------------------------------------------------
+          echo "===== LAUNCH SCREEN ====="
 
-            echo "ERREUR : UILaunchStoryboardName incorrect."
+          LAUNCH_VALUE=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :UILaunchStoryboardName" \
+              "$INFO_PLIST" \
+              2>/dev/null || true
+          )
+
+          echo "UILaunchStoryboardName = $LAUNCH_VALUE"
+
+          if [ "$LAUNCH_VALUE" != "LaunchScreen" ]; then
+            echo "ERREUR : UILaunchStoryboardName != LaunchScreen"
             exit 1
-
           fi
 
-          echo "Build simulator réussi."
+          # --------------------------------------------------------
+          # 14. Résultat
+          # --------------------------------------------------------
+          echo "============================================================"
+          echo "       BUILD SIMULATOR FCVV RÉUSSI"
+          echo "============================================================"
+
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
 
       # ============================================================
       # 15. INSTALL / LAUNCH SMOKE TEST
@@ -1639,41 +1756,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          DEVICE_ID=$(
-            xcrun simctl list devices available \
-              | grep -m 1 'iPhone 15 (' \
-              | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/'
-          )
-
-          if [ -z "$DEVICE_ID" ]; then
-            echo "ERREUR : iPhone 15 introuvable."
+          if [ -z "${DEVICE_ID:-}" ]; then
+            echo "ERREUR : DEVICE_ID non défini."
             exit 1
           fi
 
-          APP_PATH=$(
-            find "$HOME/Library/Developer/Xcode/DerivedData" \
-              -path "*/Build/Products/Debug-iphonesimulator/fcvv.app" \
-              -type d \
-              -print \
-              -quit
-          )
-
-          if [ -z "$APP_PATH" ]; then
-            echo "ERREUR : fcvv.app introuvable."
+          if [ -z "${APP_PATH:-}" ]; then
+            echo "ERREUR : APP_PATH non défini."
             exit 1
           fi
 
+          echo "DEVICE_ID=$DEVICE_ID"
+          echo "APP_PATH=$APP_PATH"
+
+          # Vérifier que le simulateur est bien démarré.
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+
+          # Installer l'application.
           xcrun simctl install \
             "$DEVICE_ID" \
             "$APP_PATH"
 
+          echo "Application installée."
+
+          # Lancer l'application.
           xcrun simctl launch \
             "$DEVICE_ID" \
             "${APP_BUNDLE_ID}"
 
+          echo "Application lancée."
+
           sleep 5
 
-          echo "Application FCVV lancée avec succès."
+          echo "Application FCVV lancée avec succès sur le simulateur."
 
       # ============================================================
       # 16. PACKAGE APP
