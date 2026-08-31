@@ -250,62 +250,35 @@ jobs:
       # ============================================================
       # 9. INJECT FIREBASE / APNS
       # ============================================================
-      - name: Inject Firebase and APNs integration
-        shell: bash
+      - name: Inject Firebase into files
         run: |
           set -euo pipefail
 
-          PROJECT_FILE=$(
-            find . \
-              -maxdepth 3 \
-              -name "*.xcodeproj" \
-              -print \
-              -quit
-          )
+          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" -print -quit)
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : aucun fichier .xcodeproj trouvé."
+            echo "ERREUR : aucun fichier .xcodeproj trouvé"
             exit 1
           fi
 
           PROJ_DIR=$(dirname "$PROJECT_FILE")
 
-          MAIN_FILE=$(
-            find "$PROJ_DIR" \
-              -name "main.m" \
-              -type f \
-              -print \
-              -quit
-          )
-
-          APPDELEGATE_FILE=$(
-            find . \
-              -name "SDL_uikitappdelegate.m" \
-              -type f \
-              -print \
-              -quit
-          )
-
-          HEADER_FILE=$(
-            find . \
-              -name "SDL_uikitappdelegate.h" \
-              -type f \
-              -print \
-              -quit
-          )
+          MAIN_FILE=$(find "$PROJ_DIR" -name "main.m" -print -quit)
+          APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" -print -quit)
+          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" -print -quit)
 
           if [ -z "$MAIN_FILE" ]; then
-            echo "ERREUR : main.m introuvable."
+            echo "ERREUR : main.m introuvable"
             exit 1
           fi
 
           if [ -z "$APPDELEGATE_FILE" ]; then
-            echo "ERREUR : SDL_uikitappdelegate.m introuvable."
+            echo "ERREUR : SDL_uikitappdelegate.m introuvable"
             exit 1
           fi
 
           if [ -z "$HEADER_FILE" ]; then
-            echo "ERREUR : SDL_uikitappdelegate.h introuvable."
+            echo "ERREUR : SDL_uikitappdelegate.h introuvable"
             exit 1
           fi
 
@@ -313,9 +286,10 @@ jobs:
           echo "APPDELEGATE_FILE=$APPDELEGATE_FILE"
           echo "HEADER_FILE=$HEADER_FILE"
 
-          # --------------------------------------------------------
-          # main.m imports
-          # --------------------------------------------------------
+          # ============================================================
+          # 1. Firebase imports dans main.m
+          # ============================================================
+
           python3 - "$MAIN_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -324,32 +298,27 @@ jobs:
           content = path.read_text()
 
           imports = """@import UIKit;
-          @import UserNotifications;
           @import FirebaseCore;
           @import FirebaseMessaging;
+          @import UserNotifications;
           """
 
-          required = [
-              "@import UIKit;",
-              "@import UserNotifications;",
-              "@import FirebaseCore;",
-              "@import FirebaseMessaging;",
-          ]
-
-          missing = [
-              item for item in required
-              if item not in content
-          ]
-
-          if missing:
+          if "FirebaseCore" not in content:
               content = imports + "\n" + content
+          else:
+              if "FirebaseMessaging" not in content:
+                  content = "@import FirebaseMessaging;\n" + content
+
+              if "UserNotifications" not in content:
+                  content = "@import UserNotifications;\n" + content
 
           path.write_text(content)
           PY
 
-          # --------------------------------------------------------
-          # Firebase initialization + notification permission
-          # --------------------------------------------------------
+          # ============================================================
+          # 2. Initialisation Firebase + demande permission APNs
+          # ============================================================
+
           python3 - "$MAIN_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -359,16 +328,14 @@ jobs:
 
           marker = "int main(int argc, char *argv[]) {"
 
-          if "[FIRApp configure]" not in content:
-              if marker not in content:
-                  raise RuntimeError(
-                      "Impossible de trouver int main(int argc, char *argv[])"
-                  )
+          code = r'''
+              // ========================================================
+              // FCVV Firebase / APNs initialization
+              // ========================================================
 
-              code = r'''
               if ([FIRApp defaultApp] == nil) {
                   [FIRApp configure];
-                  NSLog(@"[FCM iOS] Firebase configure OK");
+                  NSLog(@"[FCM iOS] Firebase configure");
               }
 
               if (@available(iOS 10.0, *)) {
@@ -394,22 +361,26 @@ jobs:
                               granted
                           );
 
-                          dispatch_async(
-                              dispatch_get_main_queue(),
-                              ^{
-                                  [[UIApplication sharedApplication]
-                                      registerForRemoteNotifications];
-                              }
-                          );
-                      }
-                  ];
+                          dispatch_async(dispatch_get_main_queue(), ^{
+                              [[UIApplication sharedApplication]
+                                  registerForRemoteNotifications];
+                          });
+                      }];
               } else {
                   [[UIApplication sharedApplication]
                       registerForRemoteNotifications];
               }
 
-              NSLog(@"[FCM iOS] Demande enregistrement APNs");
-              '''
+              NSLog(@"[FCM iOS] Demande enregistrement APNS");
+          '''
+
+          marker_already_present = "[FIRApp configure]"
+
+          if marker_already_present not in content:
+              if marker not in content:
+                  raise RuntimeError(
+                      "Impossible de trouver int main(int argc, char *argv[])"
+                  )
 
               content = content.replace(
                   marker,
@@ -420,9 +391,10 @@ jobs:
           path.write_text(content)
           PY
 
-          # --------------------------------------------------------
-          # SDLUIKitDelegate imports
-          # --------------------------------------------------------
+          # ============================================================
+          # 3. Imports Firebase dans SDL_uikitappdelegate.m
+          # ============================================================
+
           python3 - "$APPDELEGATE_FILE" <<'PY'
           from pathlib import Path
           import sys
@@ -430,153 +402,37 @@ jobs:
           path = Path(sys.argv[1])
           content = path.read_text()
 
-          required_imports = [
-              "@import FirebaseCore;",
-              "@import FirebaseMessaging;",
-              "@import UserNotifications;",
-          ]
+          imports = """@import UIKit;
+          @import FirebaseCore;
+          @import FirebaseMessaging;
+          @import UserNotifications;
+          """
 
-          prefix = "\n".join(required_imports) + "\n"
-
-          missing = [
-              item for item in required_imports
-              if item not in content
-          ]
-
-          if missing:
-              content = prefix + content
+          if "FirebaseMessaging" not in content:
+              content = imports + "\n" + content
+          else:
+              if "UserNotifications" not in content:
+                  content = "@import UserNotifications;\n" + content
 
           path.write_text(content)
           PY
 
-          # --------------------------------------------------------
-          # SDLUIKitDelegate FCM handlers
-          # --------------------------------------------------------
-          python3 - "$APPDELEGATE_FILE" <<'PY'
-          from pathlib import Path
-          import sys
+          # ============================================================
+          # 4. Ajouter UNUserNotificationCenterDelegate au HEADER
+          #    et PAS au .m
+          # ============================================================
 
-          path = Path(sys.argv[1])
-          content = path.read_text()
-
-          marker = "FCVV_FCM_NOTIFICATION_HANDLER"
-
-          if marker in content:
-              print("Handlers FCM déjà présents.")
-              sys.exit(0)
-
-          handlers = r'''
-          // FCVV_FCM_NOTIFICATION_HANDLER
-
-          - (void)application:(UIApplication *)application
-              didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
-          {
-              NSLog(@"[FCM iOS] APNs device token reçu");
-
-              [FIRMessaging messaging].APNSToken = deviceToken;
-
-              NSString *token =
-                  [[FIRMessaging messaging] FCMToken];
-
-              if (token != nil) {
-                  NSLog(
-                      @"[FCM iOS] FCM token déjà disponible: %@",
-                      token
-                  );
-              }
-          }
-
-          - (void)application:(UIApplication *)application
-              didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
-          {
-              NSLog(
-                  @"[FCM iOS] Erreur enregistrement APNs: %@",
-                  error
-              );
-          }
-
-          - (void)messaging:(FIRMessaging *)messaging
-              didReceiveRegistrationToken:(NSString *)fcmToken
-          {
-              NSLog(
-                  @"[FCM iOS] FCM registration token: %@",
-                  fcmToken
-              );
-          }
-
-          - (void)userNotificationCenter:(UNUserNotificationCenter *)center
-              willPresentNotification:(UNNotification *)notification
-              withCompletionHandler:
-                  (void (^)(UNNotificationPresentationOptions options))completionHandler
-          {
-              NSDictionary *userInfo =
-                  notification.request.content.userInfo;
-
-              NSLog(
-                  @"[FCM iOS] Notification reçue au premier plan: %@",
-                  userInfo
-              );
-
-              if (@available(iOS 14.0, *)) {
-                  completionHandler(
-                      UNNotificationPresentationOptionBanner |
-                      UNNotificationPresentationOptionList |
-                      UNNotificationPresentationOptionSound |
-                      UNNotificationPresentationOptionBadge
-                  );
-              } else {
-                  completionHandler(
-                      UNNotificationPresentationOptionAlert |
-                      UNNotificationPresentationOptionSound |
-                      UNNotificationPresentationOptionBadge
-                  );
-              }
-          }
-
-          - (void)userNotificationCenter:(UNUserNotificationCenter *)center
-              didReceiveNotificationResponse:(UNNotificationResponse *)response
-              withCompletionHandler:(void (^)(void))completionHandler
-          {
-              NSDictionary *userInfo =
-                  response.notification.request.content.userInfo;
-
-              NSLog(
-                  @"[FCM iOS] Notification ouverte: %@",
-                  userInfo
-              );
-
-              completionHandler();
-          }
-          '''
-
-          # On ajoute les handlers avant la dernière accolade du fichier.
-          last_brace = content.rfind("}")
-
-          if last_brace == -1:
-              raise RuntimeError(
-                  "Impossible de trouver la fin de SDL_uikitappdelegate.m"
-              )
-
-          content = (
-              content[:last_brace]
-              + "\n"
-              + handlers
-              + "\n"
-              + content[last_brace:]
-          )
-
-          path.write_text(content)
-          PY
-
-          # --------------------------------------------------------
-          # Header: notification delegate
-          # --------------------------------------------------------
           python3 - "$HEADER_FILE" <<'PY'
           from pathlib import Path
           import sys
+          import re
 
           path = Path(sys.argv[1])
           content = path.read_text()
+
+          # ------------------------------------------------------------
+          # Import UserNotifications
+          # ------------------------------------------------------------
 
           if "#import <UserNotifications/UserNotifications.h>" not in content:
               if "#import <UIKit/UIKit.h>" in content:
@@ -592,80 +448,101 @@ jobs:
                       + content
                   )
 
-          old = (
-              "@interface SDLUIKitDelegate : "
-              "NSObject<UIApplicationDelegate>"
+          # ------------------------------------------------------------
+          # Recherche de la déclaration réelle de SDLUIKitDelegate
+          # ------------------------------------------------------------
+
+          pattern = re.compile(
+              r'@interface\s+SDLUIKitDelegate\s*:\s*NSObject\s*'
+              r'<([^>]*)>',
+              re.MULTILINE
           )
 
-          new = (
-              "@interface SDLUIKitDelegate : "
-              "NSObject<UIApplicationDelegate, "
-              "UNUserNotificationCenterDelegate>"
-          )
+          match = pattern.search(content)
 
-          if old in content:
-              content = content.replace(old, new, 1)
+          if match:
+              protocols = match.group(1)
 
-          elif "UNUserNotificationCenterDelegate" not in content:
+              if "UNUserNotificationCenterDelegate" not in protocols:
+                  new_protocols = protocols.strip()
+
+                  if new_protocols:
+                      new_protocols += ", "
+
+                  new_protocols += "UNUserNotificationCenterDelegate"
+
+                  replacement = (
+                      "@interface SDLUIKitDelegate : NSObject<"
+                      + new_protocols
+                      + ">"
+                  )
+
+                  content = (
+                      content[:match.start()]
+                      + replacement
+                      + content[match.end():]
+                  )
+
+          else:
+              # Cas où SDL utilise une déclaration légèrement différente.
+              simple = "@interface SDLUIKitDelegate : NSObject"
+
+              if simple in content:
+                  replacement = (
+                      "@interface SDLUIKitDelegate : NSObject"
+                      "<UNUserNotificationCenterDelegate>"
+                  )
+
+                  content = content.replace(
+                      simple,
+                      replacement,
+                      1
+                  )
+              elif "UNUserNotificationCenterDelegate" not in content:
+                  raise RuntimeError(
+                      "Impossible de trouver la déclaration de "
+                      "SDLUIKitDelegate dans le header"
+                  )
+
+          # ------------------------------------------------------------
+          # Vérification finale
+          # ------------------------------------------------------------
+
+          if "UNUserNotificationCenterDelegate" not in content:
               raise RuntimeError(
-                  "Impossible de trouver l'interface SDLUIKitDelegate"
+                  "UNUserNotificationCenterDelegate absent du header "
+                  "SDL_uikitappdelegate.h"
               )
 
           path.write_text(content)
           PY
 
-          # --------------------------------------------------------
-          # Configure notification center delegate
-          # --------------------------------------------------------
-          python3 - "$APPDELEGATE_FILE" <<'PY'
-          from pathlib import Path
-          import sys
+          # ============================================================
+          # 5. Vérifications finales
+          # ============================================================
 
-          path = Path(sys.argv[1])
-          content = path.read_text()
+          echo "===== Vérification Firebase ====="
 
-          marker = "UNUserNotificationCenterDelegate"
+          grep -q "FirebaseCore" "$MAIN_FILE" || {
+              echo "ERREUR : FirebaseCore absent de main.m"
+              exit 1
+          }
 
-          if marker not in content:
-              raise RuntimeError(
-                  "UNUserNotificationCenterDelegate absent du delegate"
-              )
+          grep -q "FirebaseMessaging" "$APPDELEGATE_FILE" || {
+              echo "ERREUR : FirebaseMessaging absent du delegate"
+              exit 1
+          }
 
-          # On cherche un point d'initialisation existant.
-          candidates = [
-              "application:(UIApplication *)application didFinishLaunchingWithOptions:",
-              "didFinishLaunchingWithOptions"
-          ]
+          grep -q "UNUserNotificationCenterDelegate" "$HEADER_FILE" || {
+              echo "ERREUR : UNUserNotificationCenterDelegate absent du header"
+              exit 1
+          }
 
-          if (
-              "setDelegate:self" not in content
-              and "setDelegate:self];" not in content
-          ):
-              needle = "didFinishLaunchingWithOptions"
+          echo "===== SDLUIKitDelegate ====="
+          grep -n "SDLUIKitDelegate" "$HEADER_FILE" || true
+          grep -n "UNUserNotificationCenterDelegate" "$HEADER_FILE" || true
 
-              index = content.find(needle)
-
-              if index != -1:
-                  start = content.rfind("{", 0, index)
-
-                  if start != -1:
-                      insertion = r'''
-              
-              if (@available(iOS 10.0, *)) {
-                  [UNUserNotificationCenter currentNotificationCenter].delegate = self;
-              }
-
-              '''
-                      content = (
-                          content[:start + 1]
-                          + insertion
-                          + content[start + 1:]
-                      )
-
-          path.write_text(content)
-          PY
-
-          echo "Injection Firebase/APNs terminée."
+          echo "===== Firebase / APNs injection OK ====="
 
       # ============================================================
       # 10. CONFIGURE ENTITLEMENTS
