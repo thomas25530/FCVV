@@ -1842,7 +1842,7 @@ jobs:
       
       
       # ============================================================
-      # 18. BUILD LEGACY iOS 12 / ARM64 DEVICE
+      # 18. BUILD LEGACY iOS 12 / ARM64 + XCARCHIVE + APP
       # ============================================================
       - name: Build legacy iOS 12 device archive
         shell: bash
@@ -1861,8 +1861,11 @@ jobs:
           LEGACY_CONFIGURATION="Release"
           SCHEME="fcvv"
 
+          PROJECT_DIR="$GITHUB_WORKSPACE/fcvv-ios"
+
           WORKSPACE_PATH=$(
-            find "$GITHUB_WORKSPACE/fcvv-ios" \
+            find "$PROJECT_DIR" \
+              -maxdepth 2 \
               -name "*.xcworkspace" \
               -type d \
               -print \
@@ -1870,11 +1873,13 @@ jobs:
           )
 
           if [ -z "$WORKSPACE_PATH" ]; then
-            echo "ERREUR : aucun .xcworkspace trouvé."
-            find "$GITHUB_WORKSPACE/fcvv-ios" \
+            echo "ERREUR : aucun .xcworkspace trouvé dans $PROJECT_DIR"
+
+            find "$PROJECT_DIR" \
               -maxdepth 3 \
               -name "*.xcworkspace" \
               -print || true
+
             exit 1
           fi
 
@@ -1887,33 +1892,142 @@ jobs:
           # Vérification Xcode
           # --------------------------------------------------------
 
+          echo
           echo "===== XCODE ====="
 
           xcodebuild -version
 
+          echo
           echo "===== SDK ====="
 
           xcrun --sdk iphoneos --show-sdk-version
 
+          echo
           echo "===== SDK PATH ====="
 
           xcrun --sdk iphoneos --show-sdk-path
 
           # --------------------------------------------------------
-          # Vérification du scheme
+          # Vérification du workspace / scheme
           # --------------------------------------------------------
 
-          echo "===== SCHEME ====="
+          echo
+          echo "===== WORKSPACE / SCHEME ====="
 
           xcodebuild \
             -list \
             -workspace "$WORKSPACE_PATH"
 
+          # ========================================================
+          # IMPORTANT :
+          # Activation explicite des modules Objective-C.
+          #
+          # Ton main.m utilise :
+          #
+          #   @import UIKit;
+          #   @import FirebaseCore;
+          #   @import FirebaseMessaging;
+          #   @import UserNotifications;
+          #
+          # Sans CLANG_ENABLE_MODULES=YES, clang refuse @import.
+          # ========================================================
+
+          echo
+          echo "===== CONFIGURATION OBJECTIVE-C MODULES ====="
+
+          PROJECT_FILE="$PROJECT_DIR/fcvv.xcodeproj"
+
+          if [ ! -d "$PROJECT_FILE" ]; then
+            echo "ERREUR : projet Xcode introuvable : $PROJECT_FILE"
+            exit 1
+          fi
+
+          ruby - "$PROJECT_FILE" <<'RUBY'
+          require 'xcodeproj'
+
+          project_path = ARGV[0]
+
+          project = Xcodeproj::Project.open(project_path)
+
+          target = project.targets.find do |t|
+            t.name == 'fcvv'
+          end
+
+          raise 'Target fcvv introuvable' unless target
+
+          puts "Target trouvé : #{target.name}"
+
+          target.build_configurations.each do |config|
+
+            puts "Configuration : #{config.name}"
+
+            # ------------------------------------------------------
+            # Objective-C modules
+            # ------------------------------------------------------
+
+            config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+
+            # ------------------------------------------------------
+            # CocoaPods inheritance
+            # ------------------------------------------------------
+
+            %w[
+              GCC_PREPROCESSOR_DEFINITIONS
+              HEADER_SEARCH_PATHS
+              OTHER_LDFLAGS
+            ].each do |key|
+
+              value = config.build_settings[key]
+
+              next if value.nil?
+
+              values =
+                if value.is_a?(Array)
+                  value
+                else
+                  [value.to_s]
+                end
+
+              unless values.any? do |v|
+                v.to_s.include?('$(inherited)')
+              end
+
+                values.unshift('$(inherited)')
+                config.build_settings[key] = values
+
+                puts "Ajout $(inherited) à #{key}"
+              end
+            end
+          end
+
+          project.save
+
+          puts "Configuration Xcode enregistrée."
+          RUBY
+
           # --------------------------------------------------------
-          # Vérification deployment target AVANT compilation
+          # Vérification réelle des modules
           # --------------------------------------------------------
 
-          echo "===== BUILD SETTINGS AVANT BUILD ====="
+          echo
+          echo "===== VERIFICATION CLANG_ENABLE_MODULES ====="
+
+          xcodebuild \
+            -project "$PROJECT_FILE" \
+            -target "$SCHEME" \
+            -configuration "$LEGACY_CONFIGURATION" \
+            -showBuildSettings \
+            CLANG_ENABLE_MODULES=YES \
+            | grep -E \
+              'CLANG_ENABLE_MODULES|IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_BUNDLE_IDENTIFIER|ARCHS|SDKROOT' \
+            || true
+
+          # --------------------------------------------------------
+          # Build settings complets
+          # --------------------------------------------------------
+
+          echo
+          echo "===== BUILD SETTINGS AVANT ARCHIVE ====="
 
           xcodebuild \
             -workspace "$WORKSPACE_PATH" \
@@ -1921,11 +2035,16 @@ jobs:
             -configuration "$LEGACY_CONFIGURATION" \
             -showBuildSettings \
             IPHONEOS_DEPLOYMENT_TARGET="$LEGACY_IOS_TARGET" \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CLANG_ENABLE_MODULES=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             > /tmp/fcvv-legacy-build-settings.txt
 
           grep \
             -E \
-            'IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_BUNDLE_IDENTIFIER|ARCHS|VALID_ARCHS|SDKROOT' \
+            'CLANG_ENABLE_MODULES|IPHONEOS_DEPLOYMENT_TARGET|PRODUCT_BUNDLE_IDENTIFIER|ARCHS|VALID_ARCHS|SDKROOT|CODE_SIGN_ENTITLEMENTS' \
             /tmp/fcvv-legacy-build-settings.txt \
             || true
 
@@ -1933,6 +2052,7 @@ jobs:
           # Nettoyage
           # --------------------------------------------------------
 
+          echo
           echo "===== CLEAN ====="
 
           xcodebuild clean \
@@ -1941,11 +2061,14 @@ jobs:
             -configuration "$LEGACY_CONFIGURATION" \
             -sdk iphoneos \
             IPHONEOS_DEPLOYMENT_TARGET="$LEGACY_IOS_TARGET" \
+            ARCHS="arm64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CLANG_ENABLE_MODULES=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
 
           # --------------------------------------------------------
-          # Archive
+          # Préparation archive
           # --------------------------------------------------------
 
           ARCHIVE_DIR="$GITHUB_WORKSPACE/build/legacy"
@@ -1955,7 +2078,14 @@ jobs:
 
           mkdir -p "$ARCHIVE_DIR"
 
+          echo
           echo "===== ARCHIVE ====="
+
+          echo "Archive path : $ARCHIVE_PATH"
+
+          # --------------------------------------------------------
+          # ARCHIVE DEVICE ARM64
+          # --------------------------------------------------------
 
           xcodebuild archive \
             -workspace "$WORKSPACE_PATH" \
@@ -1967,6 +2097,7 @@ jobs:
             IPHONEOS_DEPLOYMENT_TARGET="$LEGACY_IOS_TARGET" \
             ARCHS="arm64" \
             ONLY_ACTIVE_ARCH=NO \
+            CLANG_ENABLE_MODULES=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             COMPILER_INDEX_STORE_ENABLE=NO
@@ -1975,24 +2106,29 @@ jobs:
           # Vérification archive
           # --------------------------------------------------------
 
+          echo
           echo "===== VERIFICATION ARCHIVE ====="
 
           if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERREUR : archive absente :"
-            echo "$ARCHIVE_PATH"
-            exit 1
-          fi
-
-          if [ ! -d "$ARCHIVE_PATH/Products/Applications/fcvv.app" ]; then
-            echo "ERREUR : fcvv.app absent de l'archive."
-
-            echo "===== CONTENU ARCHIVE ====="
-            find "$ARCHIVE_PATH" -maxdepth 5 -print | head -300
-
+            echo "ERREUR : archive absente : $ARCHIVE_PATH"
             exit 1
           fi
 
           APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERREUR : fcvv.app absent de l'archive."
+
+            echo
+            echo "===== CONTENU ARCHIVE ====="
+
+            find "$ARCHIVE_PATH" \
+              -maxdepth 6 \
+              -print \
+              | head -300
+
+            exit 1
+          fi
 
           echo "Archive = $ARCHIVE_PATH"
           echo "App     = $APP_PATH"
@@ -2010,6 +2146,7 @@ jobs:
 
           plutil -lint "$INFO_PLIST"
 
+          echo
           echo "===== APP INFO ====="
 
           echo "Bundle ID:"
@@ -2027,30 +2164,45 @@ jobs:
             -c "Print :CFBundleVersion" \
             "$INFO_PLIST"
 
+          echo "Launch Screen:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :UILaunchStoryboardName" \
+            "$INFO_PLIST" \
+            || true
+
           # --------------------------------------------------------
           # Vérification architecture ARM64
           # --------------------------------------------------------
 
+          echo
           echo "===== ARCHITECTURE ====="
 
           APP_BINARY="$APP_PATH/fcvv"
 
           if [ ! -f "$APP_BINARY" ]; then
-            echo "ERREUR : binaire principal introuvable : $APP_BINARY"
+            echo "ERREUR : binaire principal introuvable :"
+            echo "$APP_BINARY"
             exit 1
           fi
 
+          echo "--- file ---"
+
           file "$APP_BINARY"
+
+          echo
+          echo "--- lipo ---"
 
           LIPO_INFO=$(lipo -info "$APP_BINARY")
 
           echo "$LIPO_INFO"
 
+          # ARM64 obligatoire.
           if ! echo "$LIPO_INFO" | grep -q "arm64"; then
             echo "ERREUR : le binaire ne contient pas arm64."
             exit 1
           fi
 
+          # Aucun x86_64.
           if echo "$LIPO_INFO" | grep -q "x86_64"; then
             echo "ERREUR : architecture x86_64 détectée."
             exit 1
@@ -2059,10 +2211,36 @@ jobs:
           echo "ARM64 OK"
 
           # --------------------------------------------------------
+          # Vérification architecture exacte
+          # --------------------------------------------------------
+
+          echo
+          echo "===== ARCHITECTURE DETAIL ====="
+
+          lipo -archs "$APP_BINARY"
+
+          ARCH_COUNT=$(lipo -archs "$APP_BINARY" | wc -w | tr -d ' ')
+
+          if [ "$ARCH_COUNT" != "1" ]; then
+            echo "ERREUR : le binaire devrait contenir exactement une architecture."
+            echo "Architectures détectées :"
+            lipo -archs "$APP_BINARY"
+            exit 1
+          fi
+
+          if [ "$(lipo -archs "$APP_BINARY")" != "arm64" ]; then
+            echo "ERREUR : architecture différente de arm64 détectée."
+            exit 1
+          fi
+
+          echo "Binaire = arm64 uniquement"
+
+          # --------------------------------------------------------
           # Vérification deployment target du binaire
           # --------------------------------------------------------
 
-          echo "===== DEPLOYMENT TARGET ====="
+          echo
+          echo "===== DEPLOYMENT TARGET DU BINAIRE ====="
 
           otool -l "$APP_BINARY" \
             | grep -A4 \
@@ -2070,15 +2248,29 @@ jobs:
             || true
 
           # --------------------------------------------------------
+          # Vérification minimum OS dans Info.plist
+          # --------------------------------------------------------
+
+          echo
+          echo "===== MINIMUM OS ====="
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :MinimumOSVersion" \
+            "$INFO_PLIST" \
+            || true
+
+          # --------------------------------------------------------
           # Vérification Firebase
           # --------------------------------------------------------
 
+          echo
           echo "===== FIREBASE ====="
 
           if [ ! -f "$APP_PATH/GoogleService-Info.plist" ]; then
             echo "ATTENTION : GoogleService-Info.plist absent."
           else
             echo "GoogleService-Info.plist présent."
+
             plutil -lint \
               "$APP_PATH/GoogleService-Info.plist"
           fi
@@ -2087,6 +2279,7 @@ jobs:
           # Vérification LaunchScreen
           # --------------------------------------------------------
 
+          echo
           echo "===== LAUNCH SCREEN ====="
 
           if ! /usr/libexec/PlistBuddy \
@@ -2101,9 +2294,28 @@ jobs:
           echo "LaunchScreen OK"
 
           # --------------------------------------------------------
+          # Vérification présence du storyboard
+          # --------------------------------------------------------
+
+          echo
+          echo "===== LAUNCH SCREEN BUNDLE ====="
+
+          if [ ! -d "$APP_PATH/Base.lproj/LaunchScreen.storyboardc" ]; then
+            echo "ATTENTION : LaunchScreen.storyboardc absent de Base.lproj."
+
+            find "$APP_PATH" \
+              -name "*LaunchScreen*" \
+              -print \
+              || true
+          else
+            echo "LaunchScreen.storyboardc OK"
+          fi
+
+          # --------------------------------------------------------
           # Vérification entitlements
           # --------------------------------------------------------
 
+          echo
           echo "===== ENTITLEMENTS ====="
 
           codesign \
@@ -2117,6 +2329,7 @@ jobs:
           # Vérification signature
           # --------------------------------------------------------
 
+          echo
           echo "===== CODE SIGNING ====="
 
           codesign \
@@ -2127,11 +2340,11 @@ jobs:
 
           echo
           echo "NOTE : cette archive est volontairement NON SIGNEE."
-          echo "La signature sera effectuée sur le MacBook avec Xcode 10.3."
+          echo "La signature finale sera effectuée sur le MacBook avec Xcode 10.3."
           echo
 
           # --------------------------------------------------------
-          # Export du .app vers un dossier simple
+          # Export du .app vers dossier simple
           # --------------------------------------------------------
 
           LEGACY_APP_DIR="$GITHUB_WORKSPACE/build/fcvv-ios12-app"
@@ -2144,9 +2357,30 @@ jobs:
             "$APP_PATH" \
             "$LEGACY_APP_DIR/fcvv.app"
 
+          echo
           echo "===== APP EXTRAITE ====="
 
           ls -lah "$LEGACY_APP_DIR"
+
+          # --------------------------------------------------------
+          # Vérification APP extraite
+          # --------------------------------------------------------
+
+          EXTRACTED_BINARY="$LEGACY_APP_DIR/fcvv.app/fcvv"
+
+          if [ ! -f "$EXTRACTED_BINARY" ]; then
+            echo "ERREUR : binaire absent de l'app extraite."
+            exit 1
+          fi
+
+          echo "Architecture app extraite :"
+
+          lipo -archs "$EXTRACTED_BINARY"
+
+          if [ "$(lipo -archs "$EXTRACTED_BINARY")" != "arm64" ]; then
+            echo "ERREUR : l'app extraite n'est pas arm64 uniquement."
+            exit 1
+          fi
 
           # --------------------------------------------------------
           # Archive de transport
@@ -2167,20 +2401,29 @@ jobs:
             exit 1
           fi
 
+          # --------------------------------------------------------
+          # Vérification ZIP
+          # --------------------------------------------------------
+
+          echo
           echo "===== LEGACY PACKAGE ====="
 
           ls -lh "$LEGACY_ZIP"
 
+          unzip -l "$LEGACY_ZIP" \
+            | head -50
+
           echo
           echo "============================================================"
-          echo "          LEGACY BUILD TERMINÉ"
+          echo "          LEGACY BUILD TERMINE"
           echo "============================================================"
           echo "Archive : $ARCHIVE_PATH"
           echo "App     : $LEGACY_APP_DIR/fcvv.app"
           echo "ZIP     : $LEGACY_ZIP"
           echo "Target  : iOS $LEGACY_IOS_TARGET"
-          echo "Arch    : arm64"
-          echo "Signing : NON SIGNÉ"
+          echo "Arch    : arm64 uniquement"
+          echo "Modules : CLANG_ENABLE_MODULES=YES"
+          echo "Signing : NON SIGNE"
           echo "============================================================"
 
 
@@ -2194,5 +2437,6 @@ jobs:
           path: |
             fcvv-ios12-arm64-unsigned.zip
             build/legacy/fcvv-ios12.xcarchive
+            build/fcvv-ios12-app/fcvv.app
           if-no-files-found: error
           retention-days: 14
