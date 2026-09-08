@@ -63,7 +63,6 @@ class PartenairesScreen(Screen):
 
     def download_and_set_image(self, url, img_widget):
         app = App.get_running_app()
-        # Création du dossier cache_images
         cache_dir = os.path.join(app.user_data_dir, "cache_images")
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
@@ -71,10 +70,13 @@ class PartenairesScreen(Screen):
         url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
         local_path = os.path.join(cache_dir, f"part_{url_hash}.png")
 
+        # 1. Si l'image est déjà en cache : affichage immédiat sans animation (supprime le flash)
         if os.path.exists(local_path):
-            Clock.schedule_once(lambda dt: self._apply_img(img_widget, local_path), 0)
+            img_widget.source = local_path
+            img_widget.opacity = 1
             return
 
+        # 2. Si téléchargement requis : fade-in progressif
         def fetch():
             try:
                 r = requests.get(url, timeout=10, verify=False)
@@ -86,6 +88,11 @@ class PartenairesScreen(Screen):
                 print(f"Erreur telechargement: {e}")
 
         threading.Thread(target=fetch, daemon=True).start()
+
+    def _apply_img(self, widget, path):
+        widget.source = path
+        widget.reload()
+        Animation(opacity=1, duration=0.3).start(widget)
 
     def _apply_img(self, widget, path):
         widget.source = path

@@ -78,28 +78,38 @@ class ProductCard(BoxLayout):
         self.bg_rect.pos = instance.pos
         self.bg_rect.size = instance.size
 
-    def download_and_set_image(self, url, img_widget):
-        app = App.get_running_app()
-        cache_dir = os.path.join(app.user_data_dir, "cache_images")
-        if not os.path.exists(cache_dir): os.makedirs(cache_dir)
-        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
-        local_path = os.path.join(cache_dir, f"prod_{url_hash}.png")
-        if os.path.exists(local_path):
-            Clock.schedule_once(lambda dt: self._apply_img(img_widget, local_path), 0)
-            return
-        def fetch():
-            try:
-                r = requests.get(url, timeout=10, verify=False)
-                if r.status_code == 200:
-                    with open(local_path, "wb") as f: f.write(r.content)
-                    Clock.schedule_once(lambda dt: self._apply_img(img_widget, local_path), 0)
-            except Exception as e: print(f"Erreur image: {e}")
-        threading.Thread(target=fetch, daemon=True).start()
-
     def _apply_img(self, widget, path):
         widget.source = path
         widget.reload()
         Animation(opacity=1, duration=0.3).start(widget)
+    
+    def download_and_set_image(self, url, img_widget):
+        app = App.get_running_app()
+        cache_dir = os.path.join(app.user_data_dir, "cache_images")
+        if not os.path.exists(cache_dir): 
+            os.makedirs(cache_dir)
+            
+        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+        local_path = os.path.join(cache_dir, f"prod_{url_hash}.png")
+        
+        # Fix : Si l'image est en cache local, on la charge immédiatement avec opacity = 1
+        if os.path.exists(local_path):
+            img_widget.source = local_path
+            img_widget.opacity = 1
+            return
+
+        # Si l'image doit être téléchargée, on applique le fade-in progressif
+        def fetch():
+            try:
+                r = requests.get(url, timeout=10, verify=False)
+                if r.status_code == 200:
+                    with open(local_path, "wb") as f: 
+                        f.write(r.content)
+                    Clock.schedule_once(lambda dt: self._apply_img(img_widget, local_path), 0)
+            except Exception as e: 
+                print(f"Erreur image: {e}")
+
+        threading.Thread(target=fetch, daemon=True).start()
 
 class BoutiqueScreen(Screen):
     def __init__(self, **kwargs):

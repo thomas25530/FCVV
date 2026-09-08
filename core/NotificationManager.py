@@ -7,6 +7,7 @@ class NotificationManager:
     def subscribe_to_topic(self, topic): raise NotImplementedError
     def unsubscribe_from_topic(self, topic): raise NotImplementedError
     def request_permissions(self): raise NotImplementedError
+    def get_fcm_token(self): raise NotImplementedError
 
 class AndroidNotificationManager(NotificationManager):
     def __init__(self):
@@ -29,14 +30,12 @@ class AndroidNotificationManager(NotificationManager):
             channel.setDescription("Notifications urgentes avec pop-up d'affichage")
             self.activity.getSystemService(self.Context.NOTIFICATION_SERVICE).createNotificationChannel(channel)
             print("[FCM] Canal Haute Priorite cree avec succes.")
-
             if self.FirebaseApp.getApps(self.context).isEmpty():
                 builder = self.autoclass('com.google.firebase.FirebaseOptions$Builder')()
                 builder.setApiKey("AIzaSyDTxB5sz0Y1Olg4qXoreO5AviBVbUhHIhw")
                 builder.setApplicationId("1:512335597045:android:9819dbed0c70a09d3be4bc")
                 builder.setProjectId("fcvv-app")
                 self.FirebaseApp.initializeApp(self.context, builder.build())
-
             self.token_task = self.FirebaseMessaging.getInstance().getToken()
             print("[FCM] Demande de token envoyee")
         except Exception as e:
@@ -65,6 +64,25 @@ class AndroidNotificationManager(NotificationManager):
             self.FirebaseMessaging.getInstance().unsubscribeFromTopic(topic)
         except Exception as e:
             print(f"[FCM ERROR] unsubscribe : {e}")
+            
+    def get_fcm_token(self):
+        try:
+            if self.token_task is None:
+                self.token_task = self.FirebaseMessaging.getInstance().getToken()
+            if self.token_task.isComplete():
+                if self.token_task.isSuccessful():
+                    token = self.token_task.getResult()
+                    if token:
+                        token = str(token)
+                        print(f"[FCM] Token Android disponible : {token[:25]}...")
+                        return token
+                print("[FCM] Token Android indisponible")
+                return None
+            print("[FCM] Token Android encore en cours de recuperation...")
+            return None
+        except Exception as e:
+            print(f"[FCM ERROR] get_fcm_token Android : {e}")
+            return None
 
     def request_permissions(self):
         from android.permissions import Permission, request_permissions
@@ -149,7 +167,7 @@ class IOSNotificationManager(NotificationManager):
         return False  # Arrête le timer
 
     def apns_token_received(self):
-        print("[FCM iOS] APNs reçu, demarrage de l'attente FCM...")
+        print("[FCM iOS] APNs recu, demarrage de l'attente FCM...")
         self._start_waiting_for_token()
 
     def _do_subscribe(self, topic):
@@ -204,6 +222,7 @@ class IOSNotificationManager(NotificationManager):
             Clock.schedule_once(self._register_remote_notifications, 0.5)
         except Exception as e:
             print(f"[FCM iOS] Erreur lors de request_permissions : {e!r}")
+            
     def _register_remote_notifications(self, dt=None):
         try:
             app = self.UIApplication.sharedApplication()
@@ -212,6 +231,15 @@ class IOSNotificationManager(NotificationManager):
             self._start_waiting_for_token()
         except Exception as e:
             print(f"[FCM iOS Error] registerForRemoteNotifications : {e!r}")
+    
+    def get_fcm_token(self):
+        token = self._get_token()
+        if token:
+            print(f"[FCM iOS] Token disponible : {token[:25]}...")
+            return token
+
+        print("[FCM iOS] Token FCM indisponible pour le moment.")
+        return None
 
 def get_notification_manager():
     if platform == 'android':

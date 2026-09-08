@@ -362,7 +362,7 @@ class RootLayout(FloatLayout):
             "agenda": ("ui.screens.agenda", "AgendaScreen"),
             "resultats": ("ui.screens.resultat", "ResultatScreen"),
             "classements": ("ui.screens.classement", "ClassementScreen"),
-            "effectifs": ("ui.screens.effectif", "EffectifScreen"),
+            #"effectifs": ("ui.screens.effectif", "EffectifScreen"),
             "organigramme": ("ui.screens.organigramme", "OrganigrammeScreen"),
             "divers": ("ui.screens.divers", "DiversScreen"),
             "presentation": ("ui.screens.presentation", "PresentationScreen"),
@@ -439,21 +439,26 @@ class RootLayout(FloatLayout):
     def switch_screen(self, screen_name):
         self.close_menu()
         
+        target_cat = None
+        # Si la cible est sous la forme "vestiaire:U11"
+        if str(screen_name).startswith("vestiaire:"):
+            parts = screen_name.split(":", 1)
+            screen_name = parts[0]  # "vestiaire"
+            target_cat = parts[1]   # "U11"
+
         # 1. Logique de redirection vers le login si vestiaire vide
         if screen_name == "vestiaire":
             app = App.get_running_app()
             if not app.authorized_vestiaires:
                 screen_name = "login_vestiaire"
-        
+
         # 2. Chargement dynamique si l'écran n'existe pas
         if not self.sm.has_screen(screen_name):
             if screen_name in self.screen_map:
                 try:
                     module_path, class_name = self.screen_map[screen_name]
-                    # Import dynamique
                     module = __import__(module_path, fromlist=[class_name])
                     screen_class = getattr(module, class_name)
-                    # Ajout au ScreenManager
                     self.sm.add_widget(screen_class(name=screen_name))
                 except Exception as e:
                     print(f"[ERROR] Impossible de charger l'ecran {screen_name}: {e}")
@@ -461,12 +466,26 @@ class RootLayout(FloatLayout):
             else:
                 print(f"[ERROR] L'ecran {screen_name} n'est pas dans screen_map.")
                 return
-        
-        # 3. Maintenant on est sûr que l'écran existe
+
+        # 3. Basculement d'écran
         self.sm.current = screen_name
         self.title_label.text = _(screen_name)
-        
-        # Gestion visuelle spécifique
+
+        # 🟢 AJOUT / MODIFICATION ICI : Actualiser l'interface du vestiaire
+        if screen_name == "vestiaire" and self.sm.has_screen("vestiaire"):
+            vestiaire_screen = self.sm.get_screen("vestiaire")
+            
+            # Reconstruire/Rafraîchir tous les onglets du vestiaire
+            if hasattr(vestiaire_screen, "update_ui"):
+                vestiaire_screen.update_ui()
+            elif hasattr(vestiaire_screen, "build_tabs"):
+                vestiaire_screen.build_tabs()
+            
+            # Si une catégorie spécifique a été cliquée depuis le menu
+            if target_cat and hasattr(vestiaire_screen, "set_category"):
+                vestiaire_screen.set_category(target_cat)
+
+        # Gestion visuelle spécifique (soirees...)
         if screen_name == "soirees":
             self.btn_reload.opacity = 1
             self.btn_reload.disabled = False
@@ -485,32 +504,42 @@ class RootLayout(FloatLayout):
             self.maj_label.height = 0
             self.maj_label.text = ""
 
+    def rebuild_menu(self):
+        """Force la reconstruction du menu (à appeler lors d'une connexion/déconnexion)."""
+        self.menu_built = False
+        self.build_menu()
+
     def build_menu(self):
         self.menu_panel.clear_widgets()
         app = App.get_running_app()
         is_dark = False
         if app and hasattr(app, 'config'):
-            try: is_dark = app.config.getboolean('User', 'dark_mode')
-            except: pass
+            try: 
+                is_dark = app.config.getboolean('User', 'dark_mode')
+            except Exception: 
+                pass
+
         bg_color = (0.15, 0.15, 0.2, 1) if is_dark else (1, 1, 1, 1)
         self.menu_panel.canvas.before.clear()
         with self.menu_panel.canvas.before:
             Color(*bg_color)
             self.menu_bg = Rectangle(pos=self.menu_panel.pos, size=self.menu_panel.size)
         self.menu_panel.bind(pos=self._update_menu_rect, size=self._update_menu_rect)
+
         header_img = Image(
             source="assets/menu_top.png",
-            size_hint=(1, None),      # Prend toute la largeur, hauteur manuelle
-            fit_mode="contain"        # Remplace avantageusement allow_stretch et keep_ratio
+            size_hint=(1, None),
+            fit_mode="contain"
         )
-        # On lie la hauteur de l'image à sa largeur réelle pour garder le ratio 1.5
         header_img.bind(width=lambda inst, val: setattr(inst, 'height', val * 0.66))
         self.menu_panel.add_widget(header_img)
+
         # Accueil
         row_home = MenuRow(icon_source="assets/icons/home.png", text="Accueil")
         row_home.bind(on_release=lambda x: self.switch_screen("home"))
         self.menu_panel.add_widget(row_home)
-        # Groupes
+
+        # Groupes Club & Tournoi
         self.menu_panel.add_widget(AccordionGroup(
             title="Club", 
             icon="assets/icons/fcvv.png", 
@@ -518,7 +547,6 @@ class RootLayout(FloatLayout):
                 ("Agenda", "agenda"), 
                 ("Résultats", "resultats"), 
                 ("Classements", "classements"), 
-                ("Effectifs", "effectifs"),
                 ("Organigramme", "organigramme"),
                 ("Divers", "divers")
             ]
@@ -528,12 +556,13 @@ class RootLayout(FloatLayout):
             icon="assets/icons/tournoi.png", 
             sub_items=[
                 ("Présentation", "presentation"), 
-                ("Inscriptions", "inscriptions"), # <-- Ajouté ici
+                ("Inscriptions", "inscriptions"),
                 ("Soirées", "soirees"), 
                 ("Restauration", "restauration")
             ]
         ))
-        # Autres
+
+        # Autres options
         others = [
             ("Boutique", "boutique", "assets/icons/boutique.png"),
             ("Info/Contact", "info", "assets/icons/contact.png"),
@@ -545,16 +574,33 @@ class RootLayout(FloatLayout):
             row = MenuRow(icon_source=icon, text=text)
             row.bind(on_release=lambda x, s=screen: self.switch_screen(s))
             self.menu_panel.add_widget(row)
-            
-        # --- NOUVEAU : Séparateur ---
-        self.menu_panel.add_widget(MenuSeparator())
-        # ----------------------------
 
-        # Mon Vestiaire (accès direct, séparé)
-        row_vestiaire = MenuRow(icon_source="assets/icons/vestiaire.png", text="Mon Vestiaire")
-        row_vestiaire.bind(on_release=lambda x: self.switch_screen("vestiaire"))
-        self.menu_panel.add_widget(row_vestiaire)
-        
+        # --- Séparateur ---
+        self.menu_panel.add_widget(MenuSeparator())
+
+        # --- GESTION DU VESTIAIRE DYNAMIQUE ---
+        categories_autorisees = getattr(app, "authorized_vestiaires", [])
+
+        if len(categories_autorisees) > 1:
+            # PLUSIEURS CATÉGORIES : Accordéon avec uniquement le nom de la catégorie
+            sub_items_vestiaire = [
+                (f"{cat}", f"vestiaire:{cat}") 
+                for cat in categories_autorisees
+            ]
+
+            accordion_vestiaire = AccordionGroup(
+                title="Mon Vestiaire", 
+                icon="assets/icons/vestiaire.png", 
+                sub_items=sub_items_vestiaire
+            )
+            self.menu_panel.add_widget(accordion_vestiaire)
+
+        else:
+            # 0 OU 1 CATÉGORIE : Bouton standard simple
+            row_vestiaire = MenuRow(icon_source="assets/icons/vestiaire.png", text="Mon Vestiaire")
+            row_vestiaire.bind(on_release=lambda x: self.switch_screen("vestiaire"))
+            self.menu_panel.add_widget(row_vestiaire)
+
         self.menu_panel.add_widget(Widget(size_hint_y=1)) 
         self.menu_built = True
 
@@ -626,7 +672,6 @@ def customize_android_bars():
     _set_bars_colors()
 #===============================================================================
 
-
 class MyApp(App):
     name = "fcvv" 
     org = "org.fcvv"
@@ -642,7 +687,6 @@ class MyApp(App):
         self.last_config_hash = ""
         self.authorized_vestiaires = []
         self.cache_images_dir = os.path.join(self.user_data_dir, "cache_images")
-        
         self.notifier = None
 
     def get_application_config(self):
@@ -652,9 +696,19 @@ class MyApp(App):
         return RootLayout()
     
     def clean_key(self, text):
-        # Enlève les accents et remplace espaces par underscores
+        """Normalise une catégorie pour son stockage dans le .ini."""
         import unicodedata
-        return unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('ASCII').replace(' ', '_')
+        if text is None:
+            return ""
+        text = str(text).strip()
+        return (
+            unicodedata
+            .normalize("NFKD", text)
+            .encode("ASCII", "ignore")
+            .decode("ASCII")
+            .replace(" ", "_")
+            .lower()
+        )
     
     def add_authorized_vestiaire(self, category_name, role, password_hash, save=True):
         """
@@ -689,7 +743,8 @@ class MyApp(App):
     
     def is_access_still_valid(self, cat):
         # Récupère le hash stocké localement
-        stored_hash = self.config.get('Roles', f'{cat}_hash', fallback='')
+        key = self.clean_key(cat)
+        stored_hash = self.config.get("Roles",f"{key}_hash",fallback="")
         # Récupère le hash actuel depuis votre config/API
         vestiaires = self.app_config.get("fcvv", {}).get("appli", {}).get("vestiaire", [])
         current_info = next((item for item in vestiaires if item.get("categorie") == cat), None)
@@ -728,8 +783,8 @@ class MyApp(App):
         for cat in self.authorized_vestiaires:
             remote_item = next((item for item in vestiaires if item.get("categorie") == cat), None)
             # Lecture du hash depuis la section [Roles]
-            local_hash = self.config.get('Roles', f'{cat}_hash', fallback="")
-            
+            key = self.clean_key(cat)
+            local_hash = self.config.get("Roles",f"{key}_hash",fallback="")
             # Condition : catégorie existe ET hash correspond (soit standard soit admin)
             if remote_item and local_hash in [remote_item.get("password_hash"), remote_item.get("password_admin_hash")]:
                 valid_auths.append(cat)
@@ -755,36 +810,49 @@ class MyApp(App):
             'nom_parent': '',
             'vestiaire_cgu_accept': '0'
         })
-        
         # Initialisation de la section 'Roles' pour éviter les erreurs lors du premier démarrage
         config.setdefaults('Roles', {})
         
     def set_vestiaire_role(self, cat, role):
-        """Sauvegarde le rôle (ADMIN/USER) pour une catégorie donnée dans le fichier config."""
-        # On vérifie si la section 'Roles' existe, sinon on la crée
-        if not self.config.has_section('Roles'):
-            self.config.add_section('Roles')
-        # Sauvegarde du rôle
-        self.config.set('Roles', cat, role)
-        # Écriture effective dans le fichier .ini
-        self.config.write()
-        print(f"[DEBUG] Role '{role}' sauvegarde pour la categorie '{cat}'.")
+        """Sauvegarde le rôle d'une catégorie dans le fichier .ini."""
+        if not self.config.has_section("Roles"):
+            self.config.add_section("Roles")
+        key = self.clean_key(cat)
+        role = str(role).strip().upper()
+        if role not in ("ATTENTE", "PARENT", "ADMIN", "EXCLU"):
+            print(f"[ROLE] Role invalide refuse : {role} pour {cat}")
+            return False
+        self.config.set("Roles", key, role)
+        try:
+            # IMPORTANT :
+            # self.config est un kivy.config.ConfigParser.
+            # Son write() ne prend pas de fichier en argument.
+            self.config.write()
+            return True
+        except Exception as e:
+            print(f"[ROLE ERROR] Impossible d'ecrire le .ini : {e}")
+            return False
         
     def set_joueur_associe_pour_cat(self, cat, nom_joueur):
-        """Sauvegarde le joueur ou les rôles associés pour une catégorie donnée dans le fichier config."""
-        if not self.config.has_section('Roles'):
-            self.config.add_section('Roles')
-        # On normalise la catégorie en minuscules pour correspondre au format du fichier .ini
-        cat_key = f"{cat.lower()}_joueur"
-        self.config.set('Roles', cat_key, str(nom_joueur))
-        self.config.write()
-        print(f"[DEBUG] elements associes '{nom_joueur}' sauvegardes pour la categorie '{cat}'.")
+        """Sauvegarde localement les joueurs associés à une catégorie."""
+        if not self.config.has_section("Roles"):
+            self.config.add_section("Roles")
+        cat_key = self.clean_key(cat)
+        self.config.set("Roles",f"{cat_key}_joueur",str(nom_joueur))
+        try:
+            # self.config est un kivy.config.ConfigParser
+            self.config.write()
+            return True
+        except Exception as e:
+            print(f"[ERROR] Impossible d'ecrire les joueurs associes : {e}")
+            return False
 
     def get_joueur_associe_pour_cat(self, cat):
-        """Récupère le joueur associé stocké localement pour la catégorie."""
-        if self.config.has_section('Roles') and self.config.has_option('Roles', f'{cat}_joueur'):
-            return self.config.get('Roles', f'{cat}_joueur')
-        return ""
+        """Récupère les joueurs associés stockés localement."""
+        if not self.config.has_section("Roles"):
+            return ""
+        cat_key = self.clean_key(cat)
+        return self.config.get("Roles",f"{cat_key}_joueur",fallback="")
     
     def rafraichir_donnees(self):
         try:
@@ -803,18 +871,96 @@ class MyApp(App):
             print(f"[ERREUR] echec du rafraichissement : {e}")
 
     def get_role_for_cat(self, cat):
-        """Récupère le rôle stocké pour la catégorie. Retourne 'USER' par défaut."""
-        if self.config.has_section('Roles'):
-            # Utilisation de has_option pour éviter une erreur si la clé n'existe pas
-            if self.config.has_option('Roles', cat):
-                return self.config.get('Roles', cat)
-        # Retourne 'USER' par défaut si aucune configuration n'est trouvée
-        return "USER"
+        """Récupère le rôle local d'une catégorie."""
+        if not self.config.has_section("Roles"):
+            return "ATTENTE"
+        key = self.clean_key(cat)
+        if self.config.has_option("Roles", key):
+            role = self.config.get("Roles", key, fallback="ATTENTE")
+            return str(role).strip().upper()
+        return "ATTENTE"
+    
+    def synchroniser_role(self, cat, role_api):
+        """Synchronise le rôle reçu du backend avec le .ini."""
+        role_api = str(role_api).strip().upper()
+        if role_api not in (
+            "ATTENTE",
+            "PARENT",
+            "ADMIN",
+            "EXCLU"
+        ):
+            print(f"[ROLE] Role inconnu recu : {role_api}")
+            return False
+    
+        role_local = self.get_role_for_cat(cat)
+        if role_local == role_api:
+            print(
+                f"[ROLE SYNC] {cat} : role deja a jour "
+                f"({role_api})"
+            )
+            return False
+        print(
+            f"[ROLE SYNC] {cat} : "
+            f"{role_local} -> {role_api}"
+        )
+        return self.set_vestiaire_role(cat, role_api)
+    
+    def synchroniser_role_backend(self, cat):
+        """Récupère le rôle réel depuis l'API et synchronise le .ini."""
+        import requests
+        from kivy.utils import platform
+        try:
+            nom_parent = self.get_current_user_name()
+            if not nom_parent:
+                print(f"[ROLE API] Aucun nom_parent pour {cat}")
+                return self.get_role_for_cat(cat)
+            url = "https://fcvv-api.onrender.com/users/role"
+            params = {"categorie": cat}
+            headers = {"nom_parent": nom_parent}
+            is_windows = (platform == "win")
+            response = requests.get(url,params=params,headers=headers,timeout=10,verify=not is_windows)
+            print(
+                f"[ROLE API] {cat} -> "
+                f"HTTP {response.status_code}"
+            )
+            if response.status_code != 200:
+                print(
+                    f"[ROLE API] Echec recuperation role : "
+                    f"{response.text}"
+                )
+                return self.get_role_for_cat(cat)
+            data = response.json()
+            role_api = str(data.get("role", "ATTENTE")).strip().upper()
+            print(
+                f"[ROLE API] {cat} -> role recu : "
+                f"{role_api}"
+            )
+            if role_api not in (
+                "ATTENTE",
+                "PARENT",
+                "ADMIN",
+                "EXCLU"
+            ):
+                print(
+                    f"[ROLE API] Role inconnu recu : "
+                    f"{role_api}"
+                )
+                return self.get_role_for_cat(cat)
+            self.synchroniser_role(cat,role_api)
+            return role_api
+    
+        except Exception as e:
+            print(f"[ROLE API ERROR] {cat} : {e}")
+            return self.get_role_for_cat(cat)
 
     def on_start(self):
-        threading.Thread(target=self.warmup_server, daemon=True).start()
-        auth_str = self.config.get("User", "authorized_list", fallback="")
-        self.authorized_vestiaires = [c.strip() for c in auth_str.split(",") if c.strip()]
+        threading.Thread(target=self.warmup_server,daemon=True).start()
+        auth_str = self.config.get("User","authorized_list",fallback="")
+        self.authorized_vestiaires = [
+            c.strip()
+            for c in auth_str.split(",")
+            if c.strip()
+        ]
         if platform in ("android", "ios"):
             from core.NotificationManager import get_notification_manager
             self.notifier = get_notification_manager()
@@ -822,33 +968,186 @@ class MyApp(App):
                 try:
                     self.notifier.request_permissions()
                     self.notifier.init_service()
-                    Clock.schedule_once(
-                        lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"), 5.0
-                    )
+                    # Tout le monde reçoit les notifications générales
+                    Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"),5.0)
+                    # Synchronisation du token FCM
+                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),6.0)
+                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),12.0)
+                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),20.0)
+                    # Synchronisation des topics de catégories
                     if self.authorized_vestiaires:
-                        Clock.schedule_once(
-                            lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires), 8.0
-                        )
+                        Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires),8.0)
                 except Exception as e:
                     print(f"[FCM ERROR] Initialisation : {e}")
         else:
             print("[FCM TRACE] Desktop : FCM ignore")
-    
+        # ============================================================
+        # WINDOWS : surveillance de la validation du compte
+        # ============================================================
+        if platform == "win":
+            print("[WINDOWS] FCM desactive : activation de la surveillance du role.")
+            Clock.schedule_once(lambda dt: self.verifier_validation_windows(),5.0)
+            Clock.schedule_interval(lambda dt: self.verifier_validation_windows(),5.0)
+
         if platform == "android" and "customize_android_bars" in globals():
             Clock.schedule_once(lambda dt: customize_android_bars(), 1)
-    
         try:
             os.makedirs(self.cache_images_dir, exist_ok=True)
         except Exception:
             pass
-    
         from kivy.core.window import Window
         Window.softinput_mode = "below_target"
         Window.bind(on_keyboard=self.on_back_button)
         Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
-    
         if platform in ("android", "ios"):
             Clock.schedule_once(lambda dt: self.verifier_redirection_notification(),2.0)
+            
+    def verifier_validation_windows(self):
+        """
+        Windows ne possède pas de token FCM.
+        On vérifie donc périodiquement auprès de l'API
+        si une demande ATTENTE est devenue PARENT ou ADMIN.
+        """
+        import requests
+        from kivy.utils import platform
+        if platform != "win":
+            return
+        try:
+            if not self.config.has_section("User"):
+                return
+            nom = self.config.get("User","nom_parent",fallback="").strip()
+            if not nom:
+                return
+            categories = list(self.authorized_vestiaires)
+            if not categories:
+                return
+            def verifier_sur_thread():
+                changements = []
+                for categorie in categories:
+                    try:
+                        url = "https://fcvv-api.onrender.com/users/role"
+                        is_windows = (platform == 'win')
+                        response = requests.get(
+                            url,
+                            params={
+                                "nom": nom,
+                                "categorie": categorie
+                            },
+                            timeout=15, verify=not is_windows
+                        )
+                        if response.status_code != 200:
+                            print(
+                                f"[WINDOWS ROLE] "
+                                f"{categorie} -> HTTP {response.status_code}"
+                            )
+                            continue
+                        data = response.json()
+                        role_serveur = str(data.get("role", "EXCLU")).strip().upper()
+                        role_local = self.get_role_for_cat(categorie)
+                        print(
+                            f"[WINDOWS ROLE] "
+                            f"{categorie} : local={role_local} "
+                            f"serveur={role_serveur}"
+                        )
+                        if (
+                            role_serveur in ("PARENT", "ADMIN")
+                            and role_local != role_serveur
+                        ):
+                            changements.append((categorie, role_serveur))
+                    except Exception as e:
+                        print(
+                            f"[WINDOWS ROLE ERROR] "
+                            f"{categorie} : {e}"
+                        )
+                if changements:
+                    Clock.schedule_once(lambda dt: self.appliquer_validations_windows(changements),0)
+            threading.Thread(target=verifier_sur_thread,daemon=True).start()
+        except Exception as e:
+            print(
+                f"[WINDOWS ROLE ERROR] "
+                f"Surveillance impossible : {e}"
+            )
+            
+    def appliquer_validations_windows(self, changements):
+        """
+        Applique localement les validations confirmées par le serveur.
+        Le serveur reste la source de vérité.
+        """
+        for categorie, role in changements:
+            print(
+                f"[WINDOWS VALIDATION] "
+                f"{categorie} : ATTENTE -> {role}"
+            )
+            try:
+                # Mise à jour du rôle local
+                self.set_vestiaire_role(categorie,role)
+                # Ajout / mise à jour de l'autorisation locale
+                auth_actuelles = list(self.authorized_vestiaires)
+                if categorie not in auth_actuelles:
+                    auth_actuelles.append(categorie)
+                self.authorized_vestiaires = auth_actuelles
+                # Mise à jour du .ini
+                self.config.set("User","authorized_list",",".join(auth_actuelles))
+                self.config.set("User","vestiaire_auth","1")
+                self.config.write()
+                print(
+                    f"[WINDOWS VALIDATION] "
+                    f"{categorie} maintenant autorisee."
+                )
+    
+            except Exception as e:
+                print(
+                    f"[WINDOWS VALIDATION ERROR] "
+                    f"{categorie} : {e}"
+                )
+        # Rafraîchissement éventuel de l'écran courant
+        try:
+            self.active_label.text = (
+                f"Connecté : "
+                f"{', '.join(self.authorized_vestiaires)}"
+            )
+        except Exception:
+            pass
+    
+    def synchroniser_token_fcm(self):
+        """
+        Synchronise le token FCM de l'utilisateur actuellement enregistré
+        avec Firestore via l'API.
+        """
+        import requests
+        if not self.config.has_section("User"):
+            print("[FCM TOKEN] Section User absente.")
+            return
+        nom = self.config.get("User","nom_parent",fallback="").strip()
+        if not nom:
+            print("[FCM TOKEN] Aucun nom utilisateur enregistre.")
+            return
+        if not getattr(self, "notifier", None):
+            print("[FCM TOKEN] NotificationManager absent.")
+            return
+        try:
+            fcm_token = self.notifier.get_fcm_token()
+        except Exception as e:
+            print(f"[FCM TOKEN ERROR] Recuperation du token : {e}")
+            return
+        if not fcm_token:
+            print("[FCM TOKEN] Token FCM pas encore disponible.")
+            return
+        fcm_token = str(fcm_token).strip()
+        print(
+            f"[FCM TOKEN] Synchronisation pour {nom} : "
+            f"{fcm_token[:25]}..."
+        )
+    
+        def _thread_sync():
+            url = "https://fcvv-api.onrender.com/users/fcm-token"
+            payload = {"nom": nom,"fcm_token": fcm_token}
+            try:
+                r = requests.post(url,json=payload,timeout=15)
+                print(f"[FCM TOKEN] API : HTTP {r.status_code} - {r.text}")
+            except Exception as e:
+                print(f"[FCM TOKEN ERROR] Erreur synchronisation : {e}")
+        threading.Thread(target=_thread_sync,daemon=True).start()
     
     def on_resume(self):
         # Utilisation de in ("android", "ios") pour couvrir les deux plateformes
@@ -899,7 +1198,7 @@ class MyApp(App):
             print("[iOS FCM] ===== DONNEES NOTIFICATION =====")
             print(f"[iOS FCM] Titre      : {titre}")
             print(f"[iOS FCM] Message    : {message}")
-            print(f"[iOS FCM] Catégorie  : {categorie}")
+            print(f"[iOS FCM] Categorie  : {categorie}")
             print(f"[iOS FCM] Match ID   : {match_id}")
             print(f"[iOS FCM] Type       : {notif_type}")
             print("[iOS FCM] ==================================")
@@ -931,10 +1230,8 @@ class MyApp(App):
             ]
             for key in keys_to_clean:
                 defaults.removeObjectForKey_(key)
-                
             defaults.synchronize()
             print("[iOS FCM] Cles NSUserDefaults purgees avec succes.")
-    
         except Exception as e:
             print(f"[iOS FCM ERROR] Echec lors de la verification : {e!r}")
     
@@ -1276,6 +1573,40 @@ class MyApp(App):
             return self.config.get('User', 'nom_parent', fallback='').strip()
         return ""
     
+    def recuperer_role_fcm(self, categorie):
+        """
+        Récupère le rôle réel de l'utilisateur pour une catégorie.
+        Retourne ATTENTE, PARENT, ADMIN ou EXCLU.
+        """
+        import requests
+        from kivy.utils import platform
+        try:
+            nom = self.get_current_user_name()
+            if not nom:
+                print(f"[FCM ROLE] Aucun utilisateur pour {categorie}")
+                return "EXCLU"
+            url = "https://fcvv-api.onrender.com/users/role"
+            params = {"nom": nom,"categorie": categorie}
+            is_windows = (platform == 'win')
+            response = requests.get(url,params=params,timeout=15, verify=not is_windows)
+            if response.status_code != 200:
+                print(
+                    f"[FCM ROLE] API HTTP {response.status_code} "
+                    f"pour {categorie}"
+                )
+                return "EXCLU"
+            data = response.json()
+            role = str(data.get("role", "EXCLU")).strip().upper()
+            print(f"[FCM ROLE] {categorie} -> {role}")
+            return role
+    
+        except Exception as e:
+            print(
+                f"[FCM ROLE ERROR] Impossible de recuperer "
+                f"le role {categorie} : {e}"
+            )
+            return "EXCLU"
+    
     def gerer_abonnements_fcm(self, nouvelles_categories, anciennes_categories=None):
         from kivy.clock import Clock
         # On délègue l'exécution à _execute_fcm_subscription
@@ -1298,14 +1629,11 @@ class MyApp(App):
                     anciennes_utilisees = [c.strip() for c in anciennes_str.split(',') if c.strip()]
                 else:
                     anciennes_utilisees = anciennes
-
                 current_user = self.get_current_user_name()
                 # Si l'utilisateur a saisi "Pierre DUPONT" dans LoginScreen,
                 # user_clean devient "pierre_dupont"
                 user_clean = current_user.replace(" ", "_").lower() if current_user else ""
-
                 print(f"[FCM DEBUG] Synchro : {nouvelles} | Anciennes : {anciennes_utilisees} | User: {user_clean}")
-
                 # 2. Désabonnement (Topics généraux + Sous-topics d'exclusion)
                 for cat in anciennes_utilisees:
                     if cat not in nouvelles:
@@ -1315,16 +1643,29 @@ class MyApp(App):
                             exclusion_topic = f"{cat}_exclure_{user_clean}"
                             print(f"[FCM] Desabonnement exclusion : {exclusion_topic}")
                             self.notifier.unsubscribe_from_topic(exclusion_topic)
-
                 # 3. ABONNEMENT FORCÉ (Topics généraux + Sous-topics d'exclusion)
                 for cat in nouvelles:
-                    print(f"[FCM] Abonnement force : {cat}")
-                    self.notifier.subscribe_to_topic(cat)
+                    role = self.recuperer_role_fcm(cat)
+                    if role in ("PARENT", "ADMIN"):
+                        print(
+                            f"[FCM] {cat} -> {role} : "
+                            f"abonnement au topic"
+                        )
+                        self.notifier.subscribe_to_topic(cat)
+                    else:
+                        print(
+                            f"[FCM] {cat} -> {role} : "
+                            f"PAS d'abonnement au topic"
+                        )
+                        # Sécurité : si le téléphone était déjà abonné,
+                        # on le retire.
+                        self.notifier.unsubscribe_from_topic(cat)
+                    # ==================================================
+                    # SYSTEME D'EXCLUSION : ON NE TOUCHE PAS A CETTE PARTIE
+                    # ==================================================
                     if user_clean:
                         exclusion_topic = f"{cat}_exclure_{user_clean}"
-                        print(f"[FCM] Abonnement exclusion : {exclusion_topic}")
                         self.notifier.subscribe_to_topic(exclusion_topic)
-
                 # 4. Global
                 self.notifier.subscribe_to_topic("TournoiVercel")
                 print("[FCM] Synchro terminee via NotificationManager")

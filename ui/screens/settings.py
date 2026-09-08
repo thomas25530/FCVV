@@ -202,7 +202,6 @@ class SettingsScreen(Screen):
         if app.root:
             app.root.switch_screen('login_vestiaire')
     
-    
     def remove_vestiaire_access(self, category):
         app, cat_str = App.get_running_app(), str(category).strip()
         if not (hasattr(app, "authorized_vestiaires") and cat_str in app.authorized_vestiaires):
@@ -212,6 +211,9 @@ class SettingsScreen(Screen):
         app.authorized_vestiaires.remove(cat_str)
         if hasattr(app, "roles") and isinstance(app.roles, dict):
             app.roles.pop(cat_str, None)
+            
+        if hasattr(app, "joueurs_par_categorie") and isinstance(app.joueurs_par_categorie, dict):
+            app.joueurs_par_categorie.pop(cat_str, None)
 
         if hasattr(app, "gerer_abonnements_fcm"):
             try:
@@ -252,6 +254,10 @@ class SettingsScreen(Screen):
 
         if hasattr(self, "refresh_settings_layout"):
             self.refresh_settings_layout()
+            
+        # Reconstruire le menu latéral pour refléter le retrait
+        if hasattr(app, "root") and app.root and hasattr(app.root, "rebuild_menu"):
+            app.root.rebuild_menu()
 
         if hasattr(app, "root") and app.root and hasattr(app.root, "sm") and app.root.sm.has_screen("home"):
             home = app.root.sm.get_screen("home")
@@ -270,8 +276,6 @@ class SettingsScreen(Screen):
         except Exception as e:
             print(f"[API ERROR] Impossible de joindre l'API pour {category} : {e}")
     
-    
-            
     def on_pre_enter(self):
         """
         Appelé automatiquement chaque fois que l'écran est affiché.
