@@ -24,6 +24,7 @@ from kivy.uix.popup import Popup
 import threading
 import ssl
 import os, hashlib
+
 #import urllib3
 from datetime import datetime, timedelta
 
@@ -378,13 +379,7 @@ class RootLayout(FloatLayout):
             "vestiaire": ("ui.screens.vestiaire", "VestiaireScreen"),
         }
         self.sm = ScreenManager()
-        Clock.schedule_once(
-            lambda dt: self.load_initial_screen(),
-            0
-        )
-        #from ui.screens.home import HomeScreen
-        #self.sm.add_widget(HomeScreen(name="home"))
-        
+        Clock.schedule_once(lambda dt: self.load_initial_screen(),0)
         self.main_ui.add_widget(self.sm)
         self.add_widget(self.main_ui)
         # Overlay
@@ -438,20 +433,17 @@ class RootLayout(FloatLayout):
 
     def switch_screen(self, screen_name):
         self.close_menu()
-        
         target_cat = None
         # Si la cible est sous la forme "vestiaire:U11"
         if str(screen_name).startswith("vestiaire:"):
             parts = screen_name.split(":", 1)
             screen_name = parts[0]  # "vestiaire"
             target_cat = parts[1]   # "U11"
-
         # 1. Logique de redirection vers le login si vestiaire vide
         if screen_name == "vestiaire":
             app = App.get_running_app()
             if not app.authorized_vestiaires:
                 screen_name = "login_vestiaire"
-
         # 2. Chargement dynamique si l'écran n'existe pas
         if not self.sm.has_screen(screen_name):
             if screen_name in self.screen_map:
@@ -466,25 +458,18 @@ class RootLayout(FloatLayout):
             else:
                 print(f"[ERROR] L'ecran {screen_name} n'est pas dans screen_map.")
                 return
-
         # 3. Basculement d'écran
         self.sm.current = screen_name
         self.title_label.text = _(screen_name)
-
         # 🟢 AJOUT / MODIFICATION ICI : Actualiser l'interface du vestiaire
         if screen_name == "vestiaire" and self.sm.has_screen("vestiaire"):
             vestiaire_screen = self.sm.get_screen("vestiaire")
-            
-            # Reconstruire/Rafraîchir tous les onglets du vestiaire
-            if hasattr(vestiaire_screen, "update_ui"):
-                vestiaire_screen.update_ui()
-            elif hasattr(vestiaire_screen, "build_tabs"):
-                vestiaire_screen.build_tabs()
-            
-            # Si une catégorie spécifique a été cliquée depuis le menu
-            if target_cat and hasattr(vestiaire_screen, "set_category"):
+            if target_cat:
+                vestiaire_screen._pending_navigation = (target_cat,"CALENDRIER")
+            if target_cat and getattr(vestiaire_screen, "_vestiaire_ready", False):
                 vestiaire_screen.set_category(target_cat)
-
+            elif not target_cat:
+                pass
         # Gestion visuelle spécifique (soirees...)
         if screen_name == "soirees":
             self.btn_reload.opacity = 1
@@ -525,15 +510,9 @@ class RootLayout(FloatLayout):
             Color(*bg_color)
             self.menu_bg = Rectangle(pos=self.menu_panel.pos, size=self.menu_panel.size)
         self.menu_panel.bind(pos=self._update_menu_rect, size=self._update_menu_rect)
-
-        header_img = Image(
-            source="assets/menu_top.png",
-            size_hint=(1, None),
-            fit_mode="contain"
-        )
+        header_img = Image(source="assets/menu_top.png",size_hint=(1, None),fit_mode="contain")
         header_img.bind(width=lambda inst, val: setattr(inst, 'height', val * 0.66))
         self.menu_panel.add_widget(header_img)
-
         # Accueil
         row_home = MenuRow(icon_source="assets/icons/home.png", text="Accueil")
         row_home.bind(on_release=lambda x: self.switch_screen("home"))
@@ -561,7 +540,6 @@ class RootLayout(FloatLayout):
                 ("Restauration", "restauration")
             ]
         ))
-
         # Autres options
         others = [
             ("Boutique", "boutique", "assets/icons/boutique.png"),
@@ -574,33 +552,30 @@ class RootLayout(FloatLayout):
             row = MenuRow(icon_source=icon, text=text)
             row.bind(on_release=lambda x, s=screen: self.switch_screen(s))
             self.menu_panel.add_widget(row)
-
         # --- Séparateur ---
         self.menu_panel.add_widget(MenuSeparator())
-
         # --- GESTION DU VESTIAIRE DYNAMIQUE ---
         categories_autorisees = getattr(app, "authorized_vestiaires", [])
-
         if len(categories_autorisees) > 1:
             # PLUSIEURS CATÉGORIES : Accordéon avec uniquement le nom de la catégorie
             sub_items_vestiaire = [
                 (f"{cat}", f"vestiaire:{cat}") 
                 for cat in categories_autorisees
             ]
-
             accordion_vestiaire = AccordionGroup(
                 title="Mon Vestiaire", 
                 icon="assets/icons/vestiaire.png", 
                 sub_items=sub_items_vestiaire
             )
             self.menu_panel.add_widget(accordion_vestiaire)
-
+            self.menu_panel.add_widget(
+                Widget(size_hint_y=None, height=dp(20))
+            )
         else:
             # 0 OU 1 CATÉGORIE : Bouton standard simple
             row_vestiaire = MenuRow(icon_source="assets/icons/vestiaire.png", text="Mon Vestiaire")
             row_vestiaire.bind(on_release=lambda x: self.switch_screen("vestiaire"))
             self.menu_panel.add_widget(row_vestiaire)
-
         self.menu_panel.add_widget(Widget(size_hint_y=1)) 
         self.menu_built = True
 
@@ -1427,9 +1402,14 @@ class MyApp(App):
         threading.Thread(target=self.load_remote_config, daemon=True).start()
 
     def load_remote_config(self):
-        """Optimise : Telecharge intelligemment et ne chaine les preloads que si necessaire."""
+        """Optimise : Telecharge intelligemment sans bloquer l'interface et ne chaine les preloads que si necessaire."""
         import yaml
         import requests
+        import hashlib
+        import os
+        import threading
+        from kivy.clock import Clock
+
         self.is_fetching_remote = True
         try:
             data_dir = self.user_data_dir
@@ -1438,7 +1418,8 @@ class MyApp(App):
                 ("config_fcvv.yaml", config_file_Id_fcvv, "fcvv"),
             ]
             is_first_run = not any(os.path.exists(os.path.join(data_dir, f[0])) for f in configs)
-            # 1. Chargement rapide du cache local existant
+
+            # 1. Chargement rapide du cache local existant (Accès mémoire immédiat)
             cached_data = {}
             for filename, _, key in configs:
                 cache_path = os.path.join(data_dir, filename)
@@ -1448,39 +1429,75 @@ class MyApp(App):
                             cached_data[key] = yaml.safe_load(f) or {}
                     except Exception as e:
                         print(f"[CACHE ERROR] {filename}: {e}")
-            if cached_data: self.app_config.update(cached_data)
-            # 2. Requêtes réseau
+            if cached_data:
+                self.app_config.update(cached_data)
+
+            # Gestion sécurisée du certificat SSL
+            try:
+                import certifi
+                verify_ssl = certifi.where()
+            except ImportError:
+                verify_ssl = True
+
+            # 2. Requêtes réseau optimisées
             session = requests.Session()
             tournoi_changed = False
             fcvv_changed = False
             updated_data = {}
-            for filename, fid, key in configs:
-                cache_path = os.path.join(data_dir, filename)
-                url = f"https://docs.google.com/uc?id={fid}&export=download"
-                print(f"[CONFIG] Verification {filename}...")
-                try:
-                    response = session.get(url, headers={"User-Agent": "Mozilla"}, timeout=10, verify=False)
-                    if response.status_code != 200:
-                        print(f"[CONFIG ERROR] HTTP {response.status_code} pour {filename}")
-                        continue
-                    content = response.content
-                    if b"<html" in content[:100].lower():
-                        print(f"[CONFIG ERROR] HTML recu pour {filename}")
-                        continue
-                    # Comparaison directe en mémoire
-                    old_content = b""
-                    if os.path.exists(cache_path):
-                        with open(cache_path, "rb") as f: old_content = f.read()
-                    if hashlib.sha256(content).hexdigest() != hashlib.sha256(old_content).hexdigest():
-                        with open(cache_path, "wb") as f: f.write(content)
-                        updated_data[key] = yaml.safe_load(content.decode("utf-8")) or {}
-                        if key == "tournoi": tournoi_changed = True
-                        if key == "fcvv": fcvv_changed = True
-                    else:
-                        print(f"[CONFIG] {filename} inchange.")
-                except Exception as e:
-                    print(f"[CONFIG ERROR] {filename}: {e}")
-            # 3. Application ciblee des changements
+
+            # Timeout adaptatif : si le cache existe, on ne bloque pas plus de 3 secondes
+            timeout_val = 5 if is_first_run else 3
+
+            try:
+                for filename, fid, key in configs:
+                    cache_path = os.path.join(data_dir, filename)
+                    url = f"https://docs.google.com/uc?id={fid}&export=download"
+                    print(f"[CONFIG] Verification {filename}...")
+                    
+                    try:
+                        response = session.get(
+                            url, 
+                            headers={"User-Agent": "Mozilla/5.0"}, 
+                            timeout=timeout_val, 
+                            verify=verify_ssl
+                        )
+                        if response.status_code != 200:
+                            print(f"[CONFIG ERROR] HTTP {response.status_code} pour {filename}")
+                            continue
+
+                        content = response.content
+                        if b"<html" in content[:100].lower():
+                            print(f"[CONFIG ERROR] HTML recu (page de confirmation Drive) pour {filename}")
+                            continue
+
+                        # Comparaison SHA256 directe
+                        old_content = b""
+                        if os.path.exists(cache_path):
+                            with open(cache_path, "rb") as f:
+                                old_content = f.read()
+
+                        if hashlib.sha256(content).hexdigest() != hashlib.sha256(old_content).hexdigest():
+                            # Fichier modifié sur le serveur
+                            with open(cache_path, "wb") as f:
+                                f.write(content)
+
+                            parsed_yaml = yaml.safe_load(content.decode("utf-8", errors="ignore")) or {}
+                            updated_data[key] = parsed_yaml
+
+                            if key == "tournoi":
+                                tournoi_changed = True
+                            if key == "fcvv":
+                                fcvv_changed = True
+                            print(f"[CONFIG] {filename} mis a jour avec succes.")
+                        else:
+                            print(f"[CONFIG] {filename} inchange.")
+
+                    except Exception as e:
+                        print(f"[CONFIG WARNING] Impossible de joindre Drive pour {filename} ({e})")
+            finally:
+                session.close()  # Libère les sockets Windows immédiatement
+
+            # 3. Application ciblée des changements sur le thread UI
             def finalize(dt):
                 try:
                     if fcvv_changed or tournoi_changed:
@@ -1497,7 +1514,9 @@ class MyApp(App):
                         Clock.schedule_once(self._update_home_screen, 0.1)
                 finally:
                     self.is_fetching_remote = False
+
             Clock.schedule_once(finalize, 0)
+
         except Exception as e:
             print(f"[CONFIG FATAL ERROR] {e}")
             self.is_fetching_remote = False
