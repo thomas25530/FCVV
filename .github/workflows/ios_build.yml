@@ -522,52 +522,57 @@ jobs:
           PY
 
           # ============================================================
-          # 5. Gestion FCM : validation -> abonnement immédiat catégorie
+          # 5. Gestion FCM / APNs :
+          #    - réception des notifications de validation
+          #    - abonnement immédiat au topic catégorie
+          #    - récupération du token APNs
+          #    - transmission du token APNs à Firebase Messaging
           #
           # Le fichier SDL_uikitappdelegate.m est généré par kivy-ios.
-          # On injecte donc les méthodes automatiquement dans sa classe.
+          # On injecte donc automatiquement les méthodes dans sa classe.
           # ============================================================
-
+          
           python3 - "$APPDELEGATE_FILE" <<'PY'
           from pathlib import Path
           import sys
-
+          
           path = Path(sys.argv[1])
           content = path.read_text()
-
+          
           marker = "// FCVV FCM VALIDATION HANDLER"
-
+          
           if marker not in content:
-
+          
               code = r'''
           // ============================================================
           // FCVV FCM VALIDATION HANDLER
           // ============================================================
-
+          
           static void FCVVSubscribeToValidatedCategory(NSString *categorie)
           {
               if (categorie == nil || categorie.length == 0) {
                   NSLog(@"[FCM iOS] Validation sans categorie.");
                   return;
               }
-
-              NSString *topic = [categorie stringByTrimmingCharactersInSet:
-                                  [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-
+          
+              NSString *topic =
+                  [categorie stringByTrimmingCharactersInSet:
+                      [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+          
               if (topic.length == 0) {
                   NSLog(@"[FCM iOS] Validation avec categorie vide.");
                   return;
               }
-
+          
               NSLog(
                   @"[FCM iOS] Validation reçue : abonnement immédiat au topic %@",
                   topic
               );
-
+          
               [[FIRMessaging messaging]
                   subscribeToTopic:topic
                   completion:^(NSError * _Nullable error) {
-
+          
                       if (error) {
                           NSLog(
                               @"[FCM iOS] ERREUR abonnement topic %@ : %@",
@@ -582,40 +587,96 @@ jobs:
                       }
                   }];
           }
-
+          
+          
+          // ============================================================
+          // APNs : TOKEN RECU
+          // ============================================================
+          //
+          // C'est ce callback qui reçoit le token APNs fourni par iOS.
+          //
+          // Firebase Messaging doit connaître ce token pour pouvoir
+          // associer APNs au token FCM.
+          //
+          
+          - (void)application:(UIApplication *)application
+              didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+          {
+              NSLog(
+                  @"[FCM iOS] APNs device token reçu : %@",
+                  deviceToken
+              );
+          
+              if (deviceToken == nil || deviceToken.length == 0) {
+                  NSLog(
+                      @"[FCM iOS] ERREUR : token APNs vide."
+                  );
+                  return;
+              }
+          
+              [[FIRMessaging messaging] setAPNSToken:deviceToken];
+          
+              NSLog(
+                  @"[FCM iOS] APNs token transmis à Firebase Messaging."
+              );
+          }
+          
+          
+          // ============================================================
+          // APNs : ECHEC ENREGISTREMENT
+          // ============================================================
+          
+          - (void)application:(UIApplication *)application
+              didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
+          {
+              NSLog(
+                  @"[FCM iOS] Échec enregistrement APNs : %@",
+                  error
+              );
+          }
+          
+          
+          // ============================================================
+          // NOTIFICATION AU PREMIER PLAN
+          // ============================================================
+          
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
                  willPresentNotification:(UNNotification *)notification
                    withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
           {
-              NSDictionary *userInfo = notification.request.content.userInfo;
-
+              NSDictionary *userInfo =
+                  notification.request.content.userInfo;
+          
               NSLog(
                   @"[FCM iOS] Notification reçue au premier plan : %@",
                   userInfo
               );
-
+          
               NSString *notifType = userInfo[@"notif_type"];
               NSString *categorie = userInfo[@"categorie"];
-
+          
               if (notifType != nil &&
                   [notifType isKindOfClass:[NSString class]] &&
                   [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
-
+          
                   NSLog(
                       @"[FCM iOS] Notification de validation détectée : %@",
                       categorie
                   );
-
+          
                   FCVVSubscribeToValidatedCategory(categorie);
               }
-
+          
               if (@available(iOS 14.0, *)) {
+          
                   completionHandler(
                       UNNotificationPresentationOptionBanner |
                       UNNotificationPresentationOptionSound |
                       UNNotificationPresentationOptionBadge
                   );
+          
               } else {
+          
                   completionHandler(
                       UNNotificationPresentationOptionAlert |
                       UNNotificationPresentationOptionSound |
@@ -623,39 +684,49 @@ jobs:
                   );
               }
           }
-
+          
+          
+          // ============================================================
+          // NOTIFICATION OUVERTE PAR L'UTILISATEUR
+          // ============================================================
+          
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
                  didReceiveNotificationResponse:(UNNotificationResponse *)response
                  withCompletionHandler:(void (^)(void))completionHandler
           {
               NSDictionary *userInfo =
                   response.notification.request.content.userInfo;
-
+          
               NSLog(
                   @"[FCM iOS] Notification ouverte : %@",
                   userInfo
               );
-
+          
               NSString *notifType = userInfo[@"notif_type"];
               NSString *categorie = userInfo[@"categorie"];
-
+          
               if (notifType != nil &&
                   [notifType isKindOfClass:[NSString class]] &&
                   [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
-
+          
                   NSLog(
                       @"[FCM iOS] Validation ouverte : %@",
                       categorie
                   );
-
+          
                   FCVVSubscribeToValidatedCategory(categorie);
               }
-
+          
               if (completionHandler != nil) {
                   completionHandler();
               }
           }
-
+          
+          
+          // ============================================================
+          // NOTIFICATION REMOTE EN BACKGROUND
+          // ============================================================
+          
           - (void)application:(UIApplication *)application
                  didReceiveRemoteNotification:(NSDictionary *)userInfo
                  fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler
@@ -664,43 +735,44 @@ jobs:
                   @"[FCM iOS] Remote notification reçue : %@",
                   userInfo
               );
-
+          
               NSString *notifType = userInfo[@"notif_type"];
               NSString *categorie = userInfo[@"categorie"];
-
+          
               if (notifType != nil &&
                   [notifType isKindOfClass:[NSString class]] &&
                   [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
-
+          
                   NSLog(
                       @"[FCM iOS] Validation FCM reçue en background : %@",
                       categorie
                   );
-
+          
                   FCVVSubscribeToValidatedCategory(categorie);
               }
-
+          
               if (completionHandler != nil) {
                   completionHandler(UIBackgroundFetchResultNewData);
               }
           }
-
+          
+          
           // ============================================================
           // FIN FCVV FCM VALIDATION HANDLER
           // ============================================================
           '''
-
+          
               # --------------------------------------------------------
               # Insérer juste avant le dernier @end du .m.
               # --------------------------------------------------------
-
+          
               last_end = content.rfind("@end")
-
+          
               if last_end == -1:
                   raise RuntimeError(
                       "Impossible de trouver @end dans SDL_uikitappdelegate.m"
                   )
-
+          
               content = (
                   content[:last_end]
                   + "\n"
@@ -708,20 +780,20 @@ jobs:
                   + "\n"
                   + content[last_end:]
               )
-
+          
               path.write_text(content)
-
+          
               print(
-                  "[FCM iOS] Gestion validation injectée dans "
+                  "[FCM iOS] Gestion FCM/APNs injectée dans "
                   "SDL_uikitappdelegate.m"
               )
-
+          
           else:
               print(
-                  "[FCM iOS] Gestion validation déjà présente."
+                  "[FCM iOS] Gestion FCM/APNs déjà présente."
               )
           PY
-
+          
           # ============================================================
           # 6. Vérifications finales
           # ============================================================
