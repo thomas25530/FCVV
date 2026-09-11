@@ -205,21 +205,30 @@ class IOSNotificationManager(NotificationManager):
             print(f"[FCM iOS] Erreur desabonnement topic '{topic}' : {e!r}")
 
     def request_permissions(self):
-        """Demande de permission et enregistrement APNs sécurisé pour PyObjUS."""
+        """Les permissions APNs sont gérées nativement côté iOS/Objective-C."""
+    
+        print("[FCM iOS] request_permissions() appelee")
+    
         if not self.UNCenter:
             print("[FCM iOS] UNUserNotificationCenter absent")
             return
+    
         try:
-            print("[FCM iOS] Demande de permissions et enregistrement APNs...")
-            from pyobjus import blockify
-            # Callback sécurisé évitant les crashs Segfault d'un completionHandler à None
-            def on_permission_result(granted, error):
-                print(f"[FCM iOS] Permission accordee : {granted}")
-            # 7 = UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge
-            handler_block = blockify(on_permission_result, signature="v@?B@")
-            self.UNCenter.requestAuthorizationWithOptions_completionHandler_(7, handler_block)
-            # Enregistrement auprès d'APNs sur le thread UI Kivy
-            Clock.schedule_once(self._register_remote_notifications, 0.5)
+            print(
+                "[FCM iOS] Permissions APNs deja gerees "
+                "par le code natif Objective-C"
+            )
+    
+            # Ne PAS utiliser :
+            # from pyobjus import blockify
+            #
+            # Ne PAS appeler ici :
+            # requestAuthorizationWithOptions_completionHandler_
+            #
+            # Le build iOS effectue déjà :
+            # 1. requestAuthorizationWithOptions
+            # 2. registerForRemoteNotifications
+    
         except Exception as e:
             print(f"[FCM iOS] Erreur lors de request_permissions : {e!r}")
             
