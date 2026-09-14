@@ -219,16 +219,6 @@ class IOSNotificationManager(NotificationManager):
                 "par le code natif Objective-C"
             )
     
-            # Ne PAS utiliser :
-            # from pyobjus import blockify
-            #
-            # Ne PAS appeler ici :
-            # requestAuthorizationWithOptions_completionHandler_
-            #
-            # Le build iOS effectue déjà :
-            # 1. requestAuthorizationWithOptions
-            # 2. registerForRemoteNotifications
-    
         except Exception as e:
             print(f"[FCM iOS] Erreur lors de request_permissions : {e!r}")
             

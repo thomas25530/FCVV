@@ -74,7 +74,30 @@ class SettingsScreen(Screen):
                     for sub_child in list(child.children):
                         sub_child.unbind()
             self.main_layout.unbind()
-
+    
+    def on_category_notification_toggle(self, category, is_active):
+        """Active ou désactive les notifications pour une catégorie spécifique."""
+        app = App.get_running_app()
+        cat_str = str(category).strip()
+        # 1. Sauvegarde dans la configuration
+        if hasattr(app, 'config'):
+            if not app.config.has_section('Notifications'):
+                app.config.add_section('Notifications')
+            app.config.set('Notifications', cat_str, '1' if is_active else '0')
+            app.config.write()
+        print(f"[NOTIF] Notifications pour {cat_str} : {'Activees' if is_active else 'Desactivees'}")
+        # 2. Mise à jour des abonnements FCM si la méthode existe dans votre application
+        if hasattr(app, 'gerer_abonnements_fcm') and hasattr(app, 'authorized_vestiaires'):
+            try:
+                # On recalcule les abonnements actifs en fonction de ceux qui ont le switch à True
+                actives = [
+                    cat for cat in app.authorized_vestiaires 
+                    if app.config.getboolean('Notifications', cat, fallback=True)
+                ]
+                app.gerer_abonnements_fcm(actives)
+            except Exception as e:
+                print(f"[FCM ERROR] Erreur mise a jour abonnements notifications : {e}")
+    
     def refresh_settings_layout(self):
         app = App.get_running_app()
         tr = app._ if hasattr(app, '_') else lambda x: x
@@ -86,7 +109,6 @@ class SettingsScreen(Screen):
         f_title = res_s(24)
         f_text = res_s(20)
         f_small = res_s(16)
-        
         current_font = 24
         current_refresh = 5
         current_news_period = 15
@@ -96,27 +118,18 @@ class SettingsScreen(Screen):
             current_refresh = int(app.config.get('User', 'refresh_interval', fallback=5))
             current_news_period = int(app.config.get('User', 'news_period', fallback=15))
             current_dark_mode = app.config.getboolean('User', 'dark_mode')
-            
         self._cleanup_layout()
         self.scroll.clear_widgets()
         padding_val = res_d(25)
         self.main_layout = BoxLayout(orientation='vertical', padding=[padding_val, padding_val, padding_val, res_d(60)], spacing=res_d(25), size_hint_y=None)
         self.main_layout.bind(minimum_height=self.main_layout.setter('height'))
-        
         # DISPLAY
         self.add_section_title(tr("display").upper(), f_title, res_d(60))
         dark_switch = Switch(active=current_dark_mode, size_hint=(None, None), size=(res_d(120), res_d(60)))
         dark_switch.bind(active=self.on_dark_mode_toggle)
         self.main_layout.add_widget(self.create_setting_row(tr("dark_mode"), dark_switch, h_row, f_text))
-        
         # SLIDER TAILLE POLICE
-        font_slider = Slider(
-            min=12, max=30, value=current_font, step=1, 
-            # Curseur plus gros
-            cursor_size=(dp(50), dp(50)), 
-            # Padding pour que la zone de toucher autour du curseur soit plus grande
-            padding=dp(20) 
-        )
+        font_slider = Slider(min=12, max=30, value=current_font, step=1, cursor_size=(dp(50), dp(50)), padding=dp(20) )
         self.font_value_label = Label(text=str(int(current_font)), font_size=f_small, color=self.ACCENT_YELLOW)
         font_slider.bind(value=self.update_font_label_and_config)
         font_cont = BoxLayout(orientation='vertical', spacing=res_d(5))
@@ -126,22 +139,29 @@ class SettingsScreen(Screen):
         
         # ACCÈS VESTIAIRES
         self.add_section_title("ACCÈS VESTIAIRES", f_title, res_d(60))
-        btn_conn = Button(
-            text="Ajouter un nouvel accès", 
-            size_hint_y=None, 
-            height=h_btn, 
-            font_size=f_text,  # Utilise la taille f_text définie dans votre méthode
-            bold=True,         # Ajout du gras pour la lisibilité
-            background_color=(0, 0.7, 0, 1)
-        )
+        btn_conn = Button(text="Ajouter un nouvel accès", size_hint_y=None, height=h_btn, font_size=f_text,  bold=True,       background_color=(0, 0.7, 0, 1))
         btn_conn.bind(on_release=self.go_to_login)
         self.main_layout.add_widget(btn_conn)
-        
         authorized = app.authorized_vestiaires if hasattr(app, 'authorized_vestiaires') else []
         if authorized:
             for cat in authorized:
                 row = BoxLayout(orientation='horizontal', size_hint_y=None, height=h_btn, spacing=dp(10))
                 row.add_widget(Label(text=f"• {cat}", font_size=f_text, halign='left'))
+                # --- AJOUT DU SWITCH DE NOTIFICATION (AVEC LABEL) ---
+                notif_active = True
+                if hasattr(app, 'config') and app.config.has_section('Notifications'):
+                    notif_active = app.config.getboolean('Notifications', cat, fallback=True)
+                # Conteneur pour grouper le texte "Notif" et le Switch
+                notif_box = BoxLayout(orientation='horizontal', spacing=dp(5), size_hint_x=None)
+                notif_box.bind(minimum_width=notif_box.setter('width'))
+                notif_label = Label(text="Notif :", font_size=f_small, size_hint_x=None, width=dp(50),halign='right',valign='middle')
+                notif_label.bind(size=notif_label.setter('text_size'))
+                switch_notif = Switch(active=notif_active, size_hint=(None, None), size=(res_d(90), h_btn))
+                switch_notif.bind(active=lambda sw, val, c=cat: self.on_category_notification_toggle(c, val))
+                notif_box.add_widget(notif_label)
+                notif_box.add_widget(switch_notif)
+                row.add_widget(notif_box)
+                # ----------------------------------------
                 btn_del = Button(text="Supprimer", size_hint_x=0.4, background_color=(0.8, 0.2, 0.2, 1))
                 btn_del.bind(on_release=lambda x, c=cat: self.remove_vestiaire_access(c))
                 row.add_widget(btn_del)
@@ -151,10 +171,7 @@ class SettingsScreen(Screen):
         # --- SECTION 2 : AUTOMATISATION ---
         self.add_section_title(tr("automation").upper(), f_title, res_d(60))
         # Fréquence de rafraîchissement
-        refresh_slider = Slider(min=1, max=15, value=current_refresh, step=1, cursor_size=(dp(50), dp(50)), 
-            # Padding pour que la zone de toucher autour du curseur soit plus grande
-            padding=dp(20) 
-        )
+        refresh_slider = Slider(min=1, max=15, value=current_refresh, step=1, cursor_size=(dp(50), dp(50)), padding=dp(20) )
         self.refresh_value_label = Label(text=f"{int(current_refresh)} min", font_size=f_small, color=self.ACCENT_YELLOW)
         refresh_slider.bind(value=self.update_refresh_label_and_config)
         refresh_cont = BoxLayout(orientation='vertical', spacing=res_d(5))
@@ -162,10 +179,7 @@ class SettingsScreen(Screen):
         refresh_cont.add_widget(self.refresh_value_label)
         self.main_layout.add_widget(self.create_setting_row(tr("refresh_rate"), refresh_cont, h_row_tall, f_text))
         # AJOUT : Période de validité des actualités (Affichage d'actu)
-        news_period_slider = Slider(min=1, max=60, value=current_news_period, step=1, cursor_size=(dp(50), dp(50)), 
-            # Padding pour que la zone de toucher autour du curseur soit plus grande
-            padding=dp(20) 
-        )
+        news_period_slider = Slider(min=1, max=60, value=current_news_period, step=1, cursor_size=(dp(50), dp(50)), padding=dp(20) )
         self.news_period_label = Label(text=f"{int(current_news_period)} jours", font_size=f_small, color=self.ACCENT_YELLOW)
         news_period_slider.bind(value=self.update_news_period_label_and_config)
         news_period_cont = BoxLayout(orientation='vertical', spacing=res_d(5))
@@ -185,14 +199,7 @@ class SettingsScreen(Screen):
         self.conn_label = Label(text=f"{tr('conn_state')} : [color=FFFF00]...[/color]", 
                                 markup=True, size_hint_y=None, height=res_d(40), font_size=f_small)
         self.main_layout.add_widget(self.conn_label)
-        btn_reset = Button(
-            text=tr("reset_btn"),
-            size_hint_y=None,
-            height=h_btn,
-            font_size=f_text,
-            background_color=(0.7, 0.7, 0.7, 1),
-            bold=True
-        )
+        btn_reset = Button(text=tr("reset_btn"),size_hint_y=None,height=h_btn,font_size=f_text,background_color=(0.7, 0.7, 0.7, 1),bold=True)
         btn_reset.bind(on_release=self.confirm_reset)
         self.main_layout.add_widget(btn_reset)
         self.scroll.add_widget(self.main_layout)
@@ -206,21 +213,17 @@ class SettingsScreen(Screen):
         app, cat_str = App.get_running_app(), str(category).strip()
         if not (hasattr(app, "authorized_vestiaires") and cat_str in app.authorized_vestiaires):
             return
-
         anciennes_categories = list(app.authorized_vestiaires)
         app.authorized_vestiaires.remove(cat_str)
         if hasattr(app, "roles") and isinstance(app.roles, dict):
             app.roles.pop(cat_str, None)
-            
         if hasattr(app, "joueurs_par_categorie") and isinstance(app.joueurs_par_categorie, dict):
             app.joueurs_par_categorie.pop(cat_str, None)
-
         if hasattr(app, "gerer_abonnements_fcm"):
             try:
                 app.gerer_abonnements_fcm(app.authorized_vestiaires, anciennes_categories)
             except Exception as e:
                 print(f"[FCM ERROR] Erreur desabonnement local : {e}")
-
         joueurs_a_supprimer = []
         if hasattr(app, "roles") and isinstance(app.roles, dict):
             j_val = (app.roles.get(cat_str) or app.roles.get(cat_str.lower(), {})).get("joueur", "")
@@ -236,7 +239,6 @@ class SettingsScreen(Screen):
                     joueurs_a_supprimer.extend([x.strip() for x in val.split(",") if x.strip()])
                     break
         joueurs_a_supprimer = list(set(joueurs_a_supprimer))
-
         if hasattr(app, "config"):
             app.config.set("User", "authorized_list", ",".join(app.authorized_vestiaires))
             if app.config.has_section("Roles"):
@@ -247,18 +249,14 @@ class SettingsScreen(Screen):
                 if app.config.has_option("User", key):
                     app.config.remove_option("User", key)
             app.config.write()
-
         nom_parent = app.config.get("User", "nom_parent", fallback="") or app.config.get("User", "nom", fallback="") if hasattr(app, "config") else ""
         if nom_parent:
             threading.Thread(target=self.supprimer_parent_firebase, args=(nom_parent, cat_str, joueurs_a_supprimer), daemon=True).start()
-
         if hasattr(self, "refresh_settings_layout"):
             self.refresh_settings_layout()
-            
         # Reconstruire le menu latéral pour refléter le retrait
         if hasattr(app, "root") and app.root and hasattr(app.root, "rebuild_menu"):
             app.root.rebuild_menu()
-
         if hasattr(app, "root") and app.root and hasattr(app.root, "sm") and app.root.sm.has_screen("home"):
             home = app.root.sm.get_screen("home")
             if hasattr(home, "update_ui"):
@@ -326,25 +324,11 @@ class SettingsScreen(Screen):
                 Clock.schedule_once(self.update_network_status, 0.2)
 
     def create_setting_row(self, label_text, widget, row_height, font_sz):
-        row = BoxLayout(
-            orientation='horizontal',
-            size_hint_y=None,
-            height=row_height,
-            spacing=dp(15),
-            padding=[0, dp(5)]
-        )
-        lbl = Label(
-            text=label_text,
-            halign='left',
-            valign='middle',
-            font_size=font_sz,
-            size_hint_x=0.45
-        )
+        row = BoxLayout(orientation='horizontal',size_hint_y=None,height=row_height,spacing=dp(15),padding=[0, dp(5)])
+        lbl = Label(text=label_text,halign='left',valign='middle',font_size=font_sz,size_hint_x=0.45)
         lbl.bind(size=self._update_setting_row_label)
         row.add_widget(lbl)
-        container = BoxLayout(
-            size_hint_x=0.55
-        )
+        container = BoxLayout(size_hint_x=0.55)
         container.add_widget(widget)
         row.add_widget(container)
         return row
@@ -440,20 +424,15 @@ class SettingsScreen(Screen):
         if not sm.has_screen("login_vestiaire"):
             print("[RESET] LoginScreen n'existe pas actuellement.")
             return
-
         try:
             old_login = sm.get_screen("login_vestiaire")
             current_screen = sm.current
-
             from ui.screens.login import LoginScreen
             new_login = LoginScreen(name="login_vestiaire")
-
             sm.add_widget(new_login)
             sm.remove_widget(old_login)
-
             if current_screen == "login_vestiaire":
                 sm.current = "login_vestiaire"
-
             print("[RESET] LoginScreen recree completement : nouveau TextInput Android.")
         except Exception as e:
             print(f"[RESET ERROR] Recreation LoginScreen : {e}")
@@ -469,37 +448,32 @@ class SettingsScreen(Screen):
             if hasattr(app, "config"):
                 if not app.config.has_section("User"):
                     app.config.add_section("User")
-
                 app.config.set("User", "font_size_factor", "24")
                 app.config.set("User", "refresh_interval", "5")
                 app.config.set("User", "news_period", "15")
                 app.config.set("User", "dark_mode", "0")
                 app.config.set("User", "authorized_list", "")
-
                 if app.config.has_option("User", "nom_parent"):
                     app.config.remove_option("User", "nom_parent")
-
                 app.config.set("User", "vestiaire_cgu_accept", "0")
-
                 if app.config.has_section("Roles"):
                     app.config.remove_section("Roles")
                 app.config.add_section("Roles")
-
+                if app.config.has_section("Notifications"):
+                    app.config.remove_section("Notifications")
+                app.config.add_section("Notifications")
                 if hasattr(app, "authorized_vestiaires"):
                     app.authorized_vestiaires = []
                 if hasattr(app, "roles") and isinstance(app.roles, dict):
                     app.roles.clear()
-
                 if hasattr(app, "gerer_abonnements_fcm"):
                     try:
                         app.gerer_abonnements_fcm([])
                         print("[FCM] Tous les abonnements locaux ont ete reinitialises.")
                     except Exception as e:
                         print(f"[FCM ERROR] Desabonnement FCM : {e}")
-
                 app.config.write()
                 print("Configuration reinitialisee : User nettoye + Roles supprime/recree + acces supprimes.")
-
                 if getattr(app, "root", None):
                     sm = getattr(app.root, "sm", app.root)
                     if sm.has_screen("login_vestiaire"):
@@ -507,15 +481,12 @@ class SettingsScreen(Screen):
                         print("[RESET] LoginScreen trouve : reinitialisation du champ nom programmee.")
                     else:
                         print("[RESET] LoginScreen 'login_vestiaire' non trouve.")
-
             Clock.schedule_once(lambda dt: self._start_reset_safe(instance), 0.1)
-
         except Exception as e:
             print(f"[RESET ERROR] Erreur pendant la reinitialisation : {e}")
             instance.text = "Erreur"
             instance.disabled = False
             Clock.schedule_once(lambda dt: self._reset_btn_ui(instance, self.app_tr("reset_btn")), 2)
-
 
     def _start_reset_safe(self, instance):
         t = threading.Thread(target=self._perform_reset_logic, args=(instance,))
@@ -548,10 +519,7 @@ class SettingsScreen(Screen):
         instance.disabled = True
         # Téléchargement fond
         if hasattr(app, 'load_remote_config'):
-            threading.Thread(
-                target=self._background_reset_reload,
-                daemon=True
-            ).start()
+            threading.Thread(target=self._background_reset_reload,daemon=True).start()
             
     def _background_reset_reload(self):
         app = App.get_running_app()
@@ -566,9 +534,7 @@ class SettingsScreen(Screen):
         app = App.get_running_app()
         # 1. Reconstruction complète de l'interface
         self.refresh_settings_layout()
-        
         Clock.schedule_once(self.update_network_status, 0.2)
-        
         if hasattr(app, 'refresh_ui_theme'):
             app.refresh_ui_theme()
             

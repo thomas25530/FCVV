@@ -17,52 +17,215 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.graphics import Color, RoundedRectangle
 from kivy.uix.textinput import TextInput
+from kivy.uix.dropdown import DropDown
+
+import os, sys
+from pathlib import Path
+
+from kivy.app import App
+
+def obtenir_dossier_documents():
+    if platform in ("android", "ios"):
+        try:
+            app = App.get_running_app()
+            if app and app.user_data_dir: return app.user_data_dir
+        except Exception: pass
+        try:
+            from plyer import storagepath
+            return storagepath.get_documents_dir() or storagepath.get_application_dir() or os.getcwd()
+        except Exception: return os.getcwd()
+    try:
+        from plyer import storagepath
+        d = storagepath.get_documents_dir()
+        if d and os.path.isdir(d): return d
+    except Exception: pass
+    d = Path.home() / "Documents"
+    return str(d if d.exists() else Path.home())
+
+def generer_pdf_convocation(match_info, tous_les_joueurs=None):
+    from fpdf import FPDF
+    tous_les_joueurs = tous_les_joueurs or []
+    txt = lambda v, n=60: str(v or "-").replace("\n", " ").strip()[:n]
+    # Licences
+    licences = {}
+    for j in tous_les_joueurs:
+        if isinstance(j, dict):
+            nom = txt(j.get("nom"), 40).upper()
+            prenom = txt(j.get("prenom"), 30).capitalize()
+            licences[f"{nom} {prenom}".upper()] = txt(
+                j.get("licence") or j.get("num_licence") or j.get("numero_licence"), 25)
+    # Fichier
+    dossier = obtenir_dossier_documents()
+    os.makedirs(dossier, exist_ok=True)
+    titre = txt(match_info.get("titre"), 50)
+    safe = lambda s: "".join(c for c in str(s) if c.isalnum() or c in " _-").strip() or "Match"
+    chemin = os.path.join(dossier, f"Convocation_{safe(titre)}_{safe(match_info.get('date','date'))}.pdf")
+    # Assets
+    bases = []
+    for b in (os.path.dirname(__file__), getattr(App.get_running_app(), "directory", ""),
+              os.getcwd(), getattr(sys, "_MEIPASS", "")):
+        if b: bases.append(os.path.abspath(b))
+    def asset(nom):
+        vus = set()
+        for base in bases:
+            while base not in vus:
+                vus.add(base)
+                p = os.path.join(base, "assets", nom)
+                if os.path.isfile(p): return p
+                parent = os.path.dirname(base)
+                if parent == base: break
+                base = parent
+        return None
+    font = asset("fonts/DejaVuSans.ttf")
+    bold = asset("fonts/DejaVuSans-Bold.ttf")
+    logo = asset("logo.png")
+    if not font or not bold:
+        raise FileNotFoundError("Polices DejaVu introuvables dans assets/fonts/")
+    # PDF
+    pdf = FPDF("P", "mm", "A4")
+    pdf.set_margins(10, 10, 10)
+    pdf.set_auto_page_break(True, 12)
+    pdf.add_font("DejaVu", "", font)
+    pdf.add_font("DejaVu", "B", bold)
+    pdf.add_page()
+    def section(s):
+        pdf.ln(3)
+        pdf.set_font("DejaVu", "B", 12)
+        pdf.set_text_color(45, 106, 79)
+        pdf.cell(0, 7, txt(s, 60))
+        pdf.ln(7)
+    # En-tête
+    pdf.set_text_color(27, 67, 50)
+    pdf.set_font("DejaVu", "B", 17)
+    if logo:
+        try:
+            pdf.image(logo, 10, 10, 23, 23)
+            pdf.set_xy(38, 16)
+        except Exception:
+            pass
+    pdf.cell(0, 10, txt(titre, 60).upper(), align="C")
+    pdf.ln(17)
+    # Infos match
+    section("Détails du Match")
+    infos = [
+        ("Adversaire :", match_info.get("adversaire"), "Date :", match_info.get("date")),
+        ("RDV Valdahon :", match_info.get("heure_rdv"), "Sur Place :", match_info.get("heure_sur_place")),
+        ("Coup d'envoi :", match_info.get("heure_coup_envoi"), "Lieu :", match_info.get("lieu"))
+    ]
+    widths = [34, 50, 34, 52]
+    for row in infos:
+        for i, v in enumerate(row):
+            pdf.set_font("DejaVu", "B" if i in (0, 2) else "", 8)
+            pdf.set_fill_color(248, 249, 250)
+            pdf.set_draw_color(225, 228, 230)
+            pdf.cell(widths[i], 8, txt(v, 35), border=1, fill=True)
+        pdf.ln()
+    # Entraîneurs
+    entraineurs = [e.strip() for e in str(match_info.get("entraineurs", "")).split(",") if e.strip()]
+    coachs = []
+    for e in entraineurs:
+        morceaux = e.split()
+        if len(morceaux) > 1:
+            nom_e = " ".join(morceaux[:-1]).upper()
+            prenom_e = morceaux[-1].capitalize()
+        else:
+            nom_e, prenom_e = e.upper(), ""
+        lic = licences.get(f"{nom_e} {prenom_e}".upper(), "-")
+        coachs.append(f"{e} (Licence : {lic})" if lic != "-" else e)
+
+    pdf.set_font("DejaVu", "B", 8)
+    pdf.set_fill_color(248, 249, 250)
+    pdf.cell(34, 8, "Entraîneur(s) :", border=1, fill=True)
+    pdf.set_font("DejaVu", "", 8)
+    pdf.multi_cell(136, 8, txt(", ".join(coachs) or "-", 120), border=1, fill=True)
+    # Notes
+    notes = txt(match_info.get("notes"), 500)
+    if notes != "-":
+        pdf.ln(2)
+        pdf.set_font("DejaVu", "B", 8)
+        pdf.cell(0, 6, "Notes :")
+        pdf.ln(5)
+        pdf.set_font("DejaVu", "", 8)
+        pdf.multi_cell(0, 5, notes)
+    # Joueurs
+    joueurs = match_info.get("joueurs_convoques", [])
+    if match_info.get("activer_convocation") and joueurs:
+        section(f"Joueurs Convoqués ({len(joueurs)})")
+        headers = ["#", "Nom", "Prénom", "Catégorie", "N° Licence"]
+        widths = [9, 39, 39, 31, 42]
+        pdf.set_font("DejaVu", "B", 8)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_fill_color(45, 106, 79)
+        for i, h in enumerate(headers):
+            pdf.cell(widths[i], 8, h, border=1, align="C", fill=True)
+        pdf.ln()
+        for idx, j in enumerate(joueurs, 1):
+            if isinstance(j, dict):
+                nom = txt(j.get("nom"), 40).upper()
+                prenom = txt(j.get("prenom"), 25).capitalize()
+                cat = txt(j.get("categorie"), 18).upper()
+            else:
+                p = txt(j, 60).split()
+                nom = " ".join(p[:-1]).upper() if len(p) > 1 else (p[0].upper() if p else "-")
+                prenom = p[-1].capitalize() if len(p) > 1 else ""
+                cat = "-"
+            lic = licences.get(f"{nom} {prenom}".upper(), "-")
+            row = [idx, nom, prenom, cat, lic]
+            pdf.set_text_color(43, 43, 43)
+            pdf.set_fill_color(241, 245, 242) if idx % 2 == 0 else pdf.set_fill_color(255, 255, 255)
+            for i, v in enumerate(row):
+                pdf.cell(widths[i], 7, txt(v, 35), border=1,
+                         align="C" if i == 0 else "L", fill=True)
+            pdf.ln()
+    # Sauvegarde
+    pdf.output(chemin)
+    print(f"PDF cree : {chemin}")
+    # Ouverture / partage
+    if platform == "win":
+        try:
+            os.startfile(chemin)
+        except Exception as e:
+            print(f"Ouverture PDF impossible : {e}")
+    elif platform in ("android", "ios"):
+        try:
+            from plyer import share
+            share.share(filepath=chemin)
+        except Exception as e:
+            print(f"Partage PDF impossible : {e}")
+    return chemin
 
 class DateTextInput(TextInput):
     def insert_text(self, substring, from_undo=False):
-    
         # On filtre pour ne garder que les chiffres
         chiffres_entres = "".join(c for c in substring if c.isdigit())
-    
         if not chiffres_entres:
             return
-    
         # On récupère les chiffres déjà présents
         chiffres_actuels = "".join(c for c in self.text if c.isdigit())
-    
         # Maximum 8 chiffres : JJMMAAAA
         tous_les_chiffres = (chiffres_actuels + chiffres_entres)[:8]
-    
         # Formatage JJ/MM/AAAA
         formate = ""
-    
         for i, c in enumerate(tous_les_chiffres):
             formate += c
-    
             if i == 1 or i == 3:
                 formate += "/"
-    
         self.text = formate
         self.cursor = (len(formate), 0)
 
-
 class EventManager:
-    
     @staticmethod
     def on_date_text(instance, value):
         if getattr(instance, "_en_cours_de_formatage", False):
             return
-
         # Nettoyage : uniquement les chiffres (max 8)
         chiffres = "".join(c for c in value if c.isdigit())[:8]
-        
         # Construction dynamique du format JJ/MM/AAAA au fil de la frappe
         formate = ""
         for i, c in enumerate(chiffres):
             if i == 2 or i == 4:
                 formate += "/"
             formate += c
-            
         if formate != value:
             instance._en_cours_de_formatage = True
             instance.text = formate
@@ -72,31 +235,25 @@ class EventManager:
 
     @staticmethod
     def ouvrir_formulaire(screen_instance, match_id="", match_info=None):
-
         if match_info is None:
             match_info = {}
-
-        # SÉCURITÉ : Si le dictionnaire reçu est partiel ou vide (ex: depuis la liste), on va le chercher complet dans le cache
         if match_id and match_id != "Nouvel événement" and match_id != "Nouvel evenement":
             cat_data = getattr(screen_instance, "_cache_data", {}).get(screen_instance.current_cat, {})
             calendrier = cat_data.get("calendrier", {})
             if match_id in calendrier:
                 match_info = calendrier[match_id]
-
-        # COPIE PROFONDE pour que chaque onglet possède ses propres données isolées en mémoire
+                
         match_info_match = match_info.copy()
         match_info_entrainement = match_info.copy()
         match_info_evenement = match_info.copy()
-
-        # --- CONTENEUR PRINCIPAL AVEC FOND CLAIR ---
+    
         content = BoxLayout(orientation="vertical", padding=dp(15), spacing=dp(10))
         with content.canvas.before:
-            Color(0.95, 0.95, 0.97, 1)  # Fond clair uniforme
+            Color(0.95, 0.95, 0.97, 1)
             self_bg = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(15)])
         content.bind(pos=lambda obj, val: setattr(self_bg, 'pos', val),
                      size=lambda obj, val: setattr(self_bg, 'size', val))
-
-        # En-tête du formulaire (Titre sombre et contrasté)
+    
         lbl_titre_popup = Label(
             text="[b]Édition de l'événement[/b]",
             markup=True,
@@ -107,47 +264,42 @@ class EventManager:
             halign="center"
         )
         content.add_widget(lbl_titre_popup)
-
         tab_layout = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(5))
         tabs = ["MATCH", "ENTRAINEMENT", "EVENEMENT"]
-        
         current_type = match_info.get("type", "MATCH").upper()
         if current_type not in tabs:
             current_type = "MATCH"
-
         tab_buttons = {}
         dynamic_container = BoxLayout(orientation="vertical", size_hint=(1, 1))
-        popup_ref = []  # Liste mutable pour stocker la référence de la popup
+        popup_ref = []
 
         def rafraichir_formulaire(t):
             nonlocal current_type
             current_type = t
             for k, btn in tab_buttons.items():
                 if k == t:
-                    btn.background_color = (0.2, 0.6, 0.3, 1)  # Vert actif
+                    btn.background_color = (0.2, 0.6, 0.3, 1)
                     btn.color = (1, 1, 1, 1)
                 else:
-                    btn.background_color = (0.85, 0.85, 0.88, 1)  # Gris clair inactif
+                    btn.background_color = (0.85, 0.85, 0.88, 1)
                     btn.color = (0.3, 0.3, 0.3, 1)
                 
             dynamic_container.clear_widgets()
             
-            # --- ONGLET MATCH ---
             if current_type == "MATCH":
                 form_scroll = ScrollView(size_hint=(1, 1), bar_width=0)
                 form_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10), padding=dp(5))
                 form_box.bind(minimum_height=form_box.setter("height"))
-
+    
                 def add_field(label_text, default_val=""):
                     form_box.add_widget(Label(text=label_text, size_hint_y=None, height=dp(25), halign="left", color=(0.2, 0.2, 0.25, 1)))
                     ti = TextInput(text=str(default_val), multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
                     form_box.add_widget(ti)
                     return ti
-
+    
                 ti_titre = add_field("Titre du match", match_info_match.get("titre", ""))
                 ti_adversaire = add_field("Adversaire", match_info_match.get("adversaire", ""))
-
-                # --- CHAMP DATE INSTANTANÉ ---
+    
                 form_box.add_widget(Label(text="Date", size_hint_y=None, height=dp(25), halign="left", color=(0.2, 0.2, 0.25, 1)))
                 ti_date = DateTextInput(
                     text=str(match_info.get("date", "")),
@@ -161,41 +313,98 @@ class EventManager:
                 )
                 form_box.add_widget(ti_date)
                 
-
                 ti_heure_rdv = add_field("Heure du RDV (ex: 13:30)", match_info_match.get("heure_rdv", ""))
-                
-                # --- NOUVEAU : CONVOCATION SUR PLACE (Placé entre RDV et Coup d'envoi) ---
                 ti_heure_sur_place = add_field("Convocation sur place (ex: 14:15)", match_info_match.get("heure_sur_place", ""))
-                
                 ti_heure_coup = add_field("Heure du coup d'envoi (ex: 15:00)", match_info_match.get("heure_coup_envoi", ""))
                 ti_lieu = add_field("Lieu (Domicile / Extérieur)", match_info_match.get("lieu", ""))
-                ti_entraineurs = add_field("Entraîneurs présents", match_info_match.get("entraineurs", ""))
+                
+                cat_data = screen_instance._cache_data.get(screen_instance.current_cat, {})
+                liste_joueurs = cat_data.get("tous_les_joueurs", [])
+                groupes_yaml = cat_data.get("groupes", {})
+    
+                dirigeants = [
+                    f"{j.get('nom', '').strip().upper()} {j.get('prenom', '').strip().capitalize()}".strip()
+                    for j in liste_joueurs
+                    if str(j.get("poste", "")).strip().lower() == "dirigeant" or str(j.get("statut", "")).strip().lower() == "dirigeant"
+                ]
+                dirigeants = sorted(list(set(filter(None, dirigeants))))
+    
+                form_box.add_widget(Label(text="Entraîneurs présents", size_hint_y=None, height=dp(25), halign="left", color=(0.2, 0.2, 0.25, 1)))
+                box_entraineurs = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(5))
+                
+                ti_entraineurs = TextInput(
+                    text=str(match_info_match.get("entraineurs", "")),
+                    multiline=False,
+                    size_hint_y=None,
+                    height=dp(40),
+                    background_color=(1, 1, 1, 1),
+                    foreground_color=(0.1, 0.1, 0.1, 1),
+                    cursor_color=(0.1, 0.1, 0.1, 1)
+                )
+                box_entraineurs.add_widget(ti_entraineurs)
+    
+                if dirigeants:
+                    dropdown_dir = DropDown()
+                    for dir_nom in dirigeants:
+                        btn_dir = Button(text=dir_nom, size_hint_y=None, height=dp(35), background_normal="", background_color=(0.9, 0.9, 0.9, 1), color=(0.1, 0.1, 0.1, 1))
+                        def fit_text(b):
+                            actuel = ti_entraineurs.text.strip()
+                            if actuel:
+                                if b.text not in actuel:
+                                    ti_entraineurs.text = f"{actuel}, {b.text}"
+                            else:
+                                ti_entraineurs.text = b.text
+                            dropdown_dir.dismiss()
+                        btn_dir.bind(on_release=fit_text)
+                        dropdown_dir.add_widget(btn_dir)
+    
+                    btn_select_dir = Button(
+                        text="> Choisir",
+                        size_hint_x=None,
+                        width=dp(90),
+                        background_normal="",
+                        background_color=(0.2, 0.6, 0.3, 1),
+                        color=(1, 1, 1, 1),
+                        bold=True
+                    )
+                    btn_select_dir.bind(on_release=dropdown_dir.open)
+                    box_entraineurs.add_widget(btn_select_dir)
+    
+                form_box.add_widget(box_entraineurs)
+    
                 form_box.add_widget(Label(text="Notes / Informations complémentaires", size_hint_y=None, height=dp(25), halign="left", color=(0.2, 0.2, 0.25, 1)))
                 ti_notes = TextInput(
                     text=str(match_info.get("notes", "")),
-                    multiline=True,              # Permet d'aller à la ligne et d'écrire de longs textes
+                    multiline=True,
                     size_hint_y=None,
-                    height=dp(80),               # Hauteur plus confortable (environ 3 lignes)
+                    height=dp(80),
                     background_color=(1, 1, 1, 1),
                     foreground_color=(0.1, 0.1, 0.1, 1),
                     cursor_color=(0.1, 0.1, 0.1, 1)
                 )
                 form_box.add_widget(ti_notes)
-
-                form_box.add_widget(Label(text="[b]Sondages[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
+    
+                form_box.add_widget(Label(text="[b]Sondages & Options[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                 
                 box_sondage_classique = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
                 chk_sondage_classique = CheckBox(active=match_info_match.get("sondage_classique", True), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
                 box_sondage_classique.add_widget(chk_sondage_classique)
                 box_sondage_classique.add_widget(Label(text="Activer Sondage Présent / Absent", halign="left", color=(0.2, 0.2, 0.25, 1)))
                 form_box.add_widget(box_sondage_classique)
-
+    
                 box_sondage_trajet = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
                 chk_sondage_trajet = CheckBox(active=match_info_match.get("sondage_trajet", False), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
                 box_sondage_trajet.add_widget(chk_sondage_trajet)
                 box_sondage_trajet.add_widget(Label(text="Activer Sondage Trajet", halign="left", color=(0.2, 0.2, 0.25, 1)))
                 form_box.add_widget(box_sondage_trajet)
 
+                # --- NOUVELLE OPTION : EXPORTER PDF ---
+                box_exporter_pdf = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
+                chk_exporter_pdf = CheckBox(active=False, size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
+                box_exporter_pdf.add_widget(chk_exporter_pdf)
+                box_exporter_pdf.add_widget(Label(text="Générer et exporter en PDF dans Documents", halign="left", color=(0.2, 0.2, 0.25, 1)))
+                form_box.add_widget(box_exporter_pdf)
+    
                 form_box.add_widget(Label(text="[b]Convocations[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                 
                 box_convocation = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
@@ -203,38 +412,32 @@ class EventManager:
                 box_convocation.add_widget(chk_convocation)
                 box_convocation.add_widget(Label(text="Activer les convocations pour ce match", halign="left", color=(0.2, 0.2, 0.25, 1)))
                 form_box.add_widget(box_convocation)
-
-                # --- CONTENEUR DYNAMIQUE POUR LA LISTE DES JOUEURS & COMPTEUR ---
+    
                 container_joueurs_section = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(5))
                 container_joueurs_section.bind(minimum_height=container_joueurs_section.setter('height'))
                 form_box.add_widget(container_joueurs_section)
-
-                cat_data = screen_instance._cache_data.get(screen_instance.current_cat, {})
-                liste_joueurs = cat_data.get("tous_les_joueurs", [])
-                groupes_yaml = cat_data.get("groupes", {})
-
+    
                 checkboxes_joueurs = []
-
+    
                 def actualiser_section_joueurs(checkbox, value):
                     container_joueurs_section.clear_widgets()
                     checkboxes_joueurs.clear()
                     
-                    if value:  # Uniquement si "Activer les convocations" est coché
+                    if value:
                         lbl_compteur = Label(
                             text="[b]--- Liste des Joueurs Convoqués (Sélectionnés : 0) ---[/b]", 
                             markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)
                         )
                         container_joueurs_section.add_widget(lbl_compteur)
-
+    
                         def mettre_a_jour_compteur(*args):
                             nb_coches = sum(1 for cb in checkboxes_joueurs if cb.active)
                             lbl_compteur.text = f"[b]--- Liste des Joueurs Convoqués (Sélectionnés : {nb_coches}) ---[/b]"
-
-                        # --- SÉLECTEUR DE GROUPE (DEPUIS LE YAML) ---
+    
                         if groupes_yaml:
                             box_groupe = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
                             box_groupe.add_widget(Label(text="Modèle de groupe :", size_hint_x=None, width=dp(130), halign="left", color=(0.2, 0.2, 0.25, 1)))
-
+    
                             noms_groupes = ["Sélectionner un groupe..."] + list(groupes_yaml.keys())
                             spinner_groupes = Spinner(
                                 text="Sélectionner un groupe...",
@@ -244,38 +447,30 @@ class EventManager:
                                 background_color=(0.15, 0.65, 0.35, 1),
                                 color=(1, 1, 1, 1)
                             )
-
+    
                             def sur_changement_groupe(spinner, texte_selectionne):
                                 if texte_selectionne in groupes_yaml:
-                                    joueurs_du_groupe = groupes_yaml[texte_selectionne]  # Liste de chaînes ex: ["COULOT Quentin", ...]
-                                    
-                                    # Normalisation de la liste du groupe pour un matching facile (en minuscules)
+                                    joueurs_du_groupe = groupes_yaml[texte_selectionne]
                                     joueurs_groupe_lower = [j.strip().lower() for j in joueurs_du_groupe]
-
+    
                                     for cb in checkboxes_joueurs:
                                         nom_cb = getattr(cb, 'nom_joueur', "").strip().lower()
                                         prenom_cb = getattr(cb, 'prenom_joueur', "").strip().lower()
+                                        format_1 = f"{nom_cb} {prenom_cb}".strip()
+                                        format_2 = f"{prenom_cb} {nom_cb}".strip()
                                         
-                                        # Formats possibles dans l'application
-                                        format_1 = f"{nom_cb} {prenom_cb}".strip()         # ex: "coulot quentin"
-                                        format_2 = f"{prenom_cb} {nom_cb}".strip()         # ex: "quentin coulot"
-                                        
-                                        # On vérifie si l'un des formats correspond à une entrée du groupe YAML
-                                        correspondance = any(
+                                        cb.active = any(
                                             (format_1 in j or j in format_1) or (format_2 in j or j in format_2)
                                             for j in joueurs_groupe_lower
                                         )
-                                        
-                                        cb.active = correspondance
-
+    
                             spinner_groupes.bind(text=sur_changement_groupe)
                             box_groupe.add_widget(spinner_groupes)
                             container_joueurs_section.add_widget(box_groupe)
-
+    
                         joueurs_layout = GridLayout(cols=1, size_hint_y=None, spacing=dp(5))
                         joueurs_layout.bind(minimum_height=joueurs_layout.setter('height'))
-
-                        # --- AJOUT MANUEL RAPIDE ---
+    
                         container_joueurs_section.add_widget(
                             Label(
                                 text="Ajout manuel rapide :",
@@ -286,60 +481,58 @@ class EventManager:
                                 color=(0.3, 0.3, 0.35, 1),
                             )
                         )
-
+    
                         add_manual_box = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(5))
                         cat_input = TextInput(hint_text="Cat", multiline=False, size_hint_x=0.25, background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
                         nom_input = TextInput(hint_text="Nom Prénom", multiline=False, background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
-
+    
                         def ajouter_joueur_manuel(instance):
                             nom_complet_saisi = nom_input.text.strip()
                             cat = cat_input.text.strip().upper()
-
+    
                             if nom_complet_saisi:
                                 parts = nom_complet_saisi.split(" ", 1)
                                 nom = parts[0].upper()
-                                prenom = parts[1].capitalize() if len(parts) > 0 else ""
-
-                                label_text_brut = f"[{cat}] {nom} {prenom}".strip() if cat else f"{nom} {prenom}".strip()
-
+                                prenom = parts[1].capitalize() if len(parts) > 1 else ""
+    
+                                nom_affiche = f"{nom} {prenom}".strip()
+                                label_text_brut = f"{nom_affiche} ({cat})" if cat else nom_affiche
+    
                                 row = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(10))
                                 cb = CheckBox(size_hint_x=None, width=dp(40), active=True, color=(0.2, 0.2, 0.2, 1))
                                 cb.nom_joueur = nom
                                 cb.prenom_joueur = prenom
                                 cb.categorie = cat
                                 cb.est_manuel = True
-
+    
                                 lbl_manuel = Label(
                                     text=f"[b]{label_text_brut}[/b]",
                                     markup=True,
                                     halign="left",
                                     color=(0.2, 0.2, 0.25, 1)
                                 )
-
+    
                                 def update_manual_style(checkbox, value, label_widget=lbl_manuel, texte_brut=label_text_brut):
                                     label_widget.text = f"[b]{texte_brut}[/b]" if value else texte_brut
                                     mettre_a_jour_compteur()
-
+    
                                 cb.bind(active=update_manual_style)
-
                                 row.add_widget(cb)
                                 row.add_widget(lbl_manuel)
-
+    
                                 joueurs_layout.add_widget(row, index=len(joueurs_layout.children))
                                 checkboxes_joueurs.insert(0, cb)
-
                                 nom_input.text = ""
                                 cat_input.text = ""
                                 mettre_a_jour_compteur()
-
+    
                         btn_add = Button(text="+", size_hint_x=0.15, background_normal="", background_color=(0.2, 0.6, 0.3, 1), color=(1, 1, 1, 1), bold=True)
                         btn_add.bind(on_release=ajouter_joueur_manuel)
                         add_manual_box.add_widget(cat_input)
                         add_manual_box.add_widget(nom_input)
                         add_manual_box.add_widget(btn_add)
-
                         container_joueurs_section.add_widget(add_manual_box)
-
+    
                         joueurs_deja_convoques = match_info_match.get("joueurs_convoques", [])
                         noms_deja_convoques = []
                         for j in joueurs_deja_convoques:
@@ -347,14 +540,15 @@ class EventManager:
                                 noms_deja_convoques.append(f"{j.get('nom', '').upper()} {j.get('prenom', '')}".strip())
                             else:
                                 noms_deja_convoques.append(str(j).strip())
-
+    
                         for joueur in joueurs_deja_convoques:
                             if isinstance(joueur, dict) and joueur.get("est_manuel", False):
                                 nom = joueur.get('nom', '').upper()
                                 prenom = joueur.get('prenom', '')
                                 cat = joueur.get('categorie', '').upper()
-                                label_text = f"[{cat}] {nom} {prenom}".strip() if cat else f"{nom} {prenom}".strip()
-
+                                nom_affiche = f"{nom} {prenom}".strip()
+                                label_text = f"{nom_affiche} ({cat})" if cat else nom_affiche
+    
                                 row = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(10))
                                 cb = CheckBox(size_hint_x=None, width=dp(40), active=True, color=(0.2, 0.2, 0.2, 1))
                                 cb.nom_joueur = nom
@@ -362,12 +556,12 @@ class EventManager:
                                 cb.categorie = cat
                                 cb.est_manuel = True
                                 cb.bind(active=mettre_a_jour_compteur)
-
+    
                                 row.add_widget(cb)
                                 row.add_widget(Label(text=label_text, halign="left", color=(0.2, 0.2, 0.25, 1)))
                                 joueurs_layout.add_widget(row)
                                 checkboxes_joueurs.append(cb)
-
+    
                         joueurs_tries = sorted(
                             liste_joueurs,
                             key=lambda j: (
@@ -375,48 +569,51 @@ class EventManager:
                                 j.get("prenom", "").strip().upper(),
                             ),
                         )
-
+    
                         for joueur in joueurs_tries:
                             nom = joueur.get('nom', '').strip().upper()
                             prenom = joueur.get('prenom', '').strip()
+                            cat_joueur = joueur.get('categorie', '').strip()
                             nom_complet = f"{nom} {prenom}".strip()
                             
                             if any(cb.nom_joueur == nom and cb.prenom_joueur == prenom for cb in checkboxes_joueurs if getattr(cb, 'est_manuel', False)):
                                 continue
-
+    
+                            texte_affichage = f"{nom_complet} ({cat_joueur})" if cat_joueur else nom_complet
+    
                             row = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(10))
                             chk_j = CheckBox(active=(nom_complet in noms_deja_convoques), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
                             chk_j.nom_joueur = nom
                             chk_j.prenom_joueur = prenom
+                            chk_j.categorie = cat_joueur
                             chk_j.est_manuel = False
                             
                             lbl_j = Label(
-                                text=f"[b]{nom_complet}[/b]" if chk_j.active else nom_complet,
+                                text=f"[b]{texte_affichage}[/b]" if chk_j.active else texte_affichage,
                                 markup=True,
                                 halign="left",
                                 color=(0.2, 0.2, 0.25, 1)
                             )
-
-                            def update_label_style(cb, value, label_widget=lbl_j, texte_brut=nom_complet):
+    
+                            def update_label_style(cb, value, label_widget=lbl_j, texte_brut=texte_affichage):
                                 label_widget.text = f"[b]{texte_brut}[/b]" if value else texte_brut
                                 mettre_a_jour_compteur()
-
+    
                             chk_j.bind(active=update_label_style)
-                            
                             checkboxes_joueurs.append(chk_j)
                             row.add_widget(chk_j)
                             row.add_widget(lbl_j)
                             joueurs_layout.add_widget(row)
-
+    
                         container_joueurs_section.add_widget(joueurs_layout)
                         mettre_a_jour_compteur()
-
+    
                 chk_convocation.bind(active=actualiser_section_joueurs)
                 actualiser_section_joueurs(chk_convocation, chk_convocation.active)
-
+    
                 form_scroll.add_widget(form_box)
                 dynamic_container.add_widget(form_scroll)
-
+    
                 btn_save = Button(text="Enregistrer le match", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                 
                 def save_match(x):
@@ -435,13 +632,12 @@ class EventManager:
                         joueurs_convoques = []
                         if chk_convocation.active:
                             for cb in checkboxes_joueurs:
-                                if cb.active:  # ⚠️ Seuls les éléments COCHÉS sont conservés
+                                if cb.active:
                                     nom = getattr(cb, "nom_joueur", "").strip().upper()
                                     prenom = getattr(cb, "prenom_joueur", "").strip()
                                     cat = getattr(cb, "categorie", "").strip().upper()
                                     est_manuel = getattr(cb, "est_manuel", False)
                 
-                                    # Si le joueur est manuel ou s'il a une catégorie explicite
                                     if est_manuel or cat:
                                         joueurs_convoques.append({
                                             "nom": nom,
@@ -461,7 +657,7 @@ class EventManager:
                             "adversaire": ti_adversaire.text.strip(),
                             "date": date_val,
                             "heure_rdv": ti_heure_rdv.text.strip(),
-                            "heure_sur_place": ti_heure_sur_place.text.strip(),  # <--- SAUVEGARDE DU CHAMP CONVOCATION SUR PLACE
+                            "heure_sur_place": ti_heure_sur_place.text.strip(),
                             "heure_coup_envoi": ti_heure_coup.text.strip(),
                             "lieu": ti_lieu.text.strip(),
                             "entraineurs": ti_entraineurs.text.strip(),
@@ -474,6 +670,13 @@ class EventManager:
                             "timestamp_action": maintenant_str,
                             "est_modification": est_une_modification
                         })
+
+                        # --- GÉNÉRATION PDF SI OPTION COCHÉE ---
+                        if chk_exporter_pdf.active:
+                            try:
+                                generer_pdf_convocation(match_info_match, liste_joueurs)
+                            except Exception as e_pdf:
+                                print(f"Erreur lors de la generation du PDF : {e_pdf}")
                 
                         if est_une_modification:
                             key = match_id
@@ -500,6 +703,13 @@ class EventManager:
                                 headers = screen_instance.get_user_header() if hasattr(screen_instance, "get_user_header") else {}
                                 is_windows = (platform == 'win')
                                 requests.put(url, json=match_info_match, headers=headers, timeout=10, verify=not is_windows)
+                                requests.post(
+                                    f"https://fcvv-api.onrender.com/stats/historique/evenement/"
+                                    f"{screen_instance.current_cat}/{key}",
+                                    headers=headers,
+                                    timeout=10,
+                                    verify=not is_windows
+                                )
                                 Clock.schedule_once(lambda dt: screen_instance.fetch_convocations_from_firebase(data))
                             except Exception as e:
                                 print(f"Erreur sauvegarde match API : {e}")
@@ -509,28 +719,19 @@ class EventManager:
                         if popup_ref:
                             popup_ref[0].dismiss()
             
-
                     if est_une_modification:
                         content_commit = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-                        
-                        # 1. Le champ de saisie en premier (tout en haut)
                         ti_commit = TextInput(hint_text="Ex: Modification de l'heure du RDV", multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
                         content_commit.add_widget(ti_commit)
-                        
-                        # 2. Le bouton juste en dessous du champ
                         btn_valider_commit = Button(text="Confirmer l'enregistrement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                         content_commit.add_widget(btn_valider_commit)
-                        
-                        # 3. Le label explicatif placé après
                         content_commit.add_widget(Label(text="[b]Note de modification (optionnel)[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
-                        
                         content_commit.add_widget(Widget())
                         
-                        # Titre de la popup propre
                         popup_commit = Popup(title="Motif de modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
                         def valider_avec_commit(instance):
-                            msg = ti_commit.text.strip() or "Mise à jour de l'événement"
+                            msg = ti_commit.text.strip()
                             popup_commit.dismiss()
                             executer_sauvegarde(msg)
                             
@@ -538,7 +739,7 @@ class EventManager:
                         popup_commit.open()
                     else:
                         executer_sauvegarde("Création de l'événement")
-
+    
                 btn_save.bind(on_release=save_match)
                 dynamic_container.add_widget(btn_save)
 
@@ -751,6 +952,13 @@ class EventManager:
                                     json_payload = list(payload_batch.values())[0]
                         
                                 requests.put(url, json=json_payload, headers=headers, timeout=15, verify=not is_windows)
+                                requests.post(
+                                    f"https://fcvv-api.onrender.com/stats/historique/evenement/"
+                                    f"{screen_instance.current_cat}/{key}",
+                                    headers=headers,
+                                    timeout=10,
+                                    verify=not is_windows
+                                )
                                 Clock.schedule_once(lambda dt: screen_instance.fetch_convocations_from_firebase(data))
                             except Exception as e:
                                 print(f"Erreur sauvegarde entrainement API : {e}")
@@ -773,7 +981,7 @@ class EventManager:
                         popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
                         def valider_avec_commit(instance):
-                            msg = ti_commit.text.strip() or "Mise à jour de l'entraînement"
+                            msg = ti_commit.text.strip()
                             popup_commit.dismiss()
                             executer_sauvegarde(msg)
                             
@@ -1011,7 +1219,7 @@ class EventManager:
                         popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
                         def valider_avec_commit(instance):
-                            msg = ti_commit.text.strip() or "Mise à jour de l'événement"
+                            msg = ti_commit.text.strip()
                             popup_commit.dismiss()
                             executer_sauvegarde(msg)
                             

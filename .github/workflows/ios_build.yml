@@ -55,7 +55,8 @@ jobs:
             pillow \
             requests \
             urllib3 \
-            pyyaml
+            pyyaml \
+            fpdf2
 
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
 
@@ -89,7 +90,8 @@ jobs:
           toolchain pip install \
             pyyaml \
             requests \
-            urllib3
+            urllib3 \
+            fpdf2
 
       # ============================================================
       # 6. PREPARE IOS SOURCES

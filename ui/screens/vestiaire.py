@@ -34,6 +34,7 @@ from kivy.utils import escape_markup
 from kivy.uix.image import Image
 import requests
 import yaml
+from kivy.uix.modalview import ModalView
 
 from core.calendrier_view import EventCard
 from core.event_manager import EventManager
@@ -46,37 +47,323 @@ def get_user_font_size():
         else 18
     )
 
+class StatChampSaisie(BoxLayout):
+    """Ligne de saisie avec label et champ numérique pour la modale d'édition."""
+    def __init__(self, titre, valeur_initiale=0, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = "horizontal"
+        self.size_hint_y = None
+        self.height = dp(36)
+        self.spacing = dp(8)
+        lbl = Label(text=titre,font_size="13sp",bold=True,color=(0.2, 0.2, 0.2, 1),halign="left",valign="middle",size_hint_x=0.65)
+        lbl.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        self.input = TextInput(text=str(valeur_initiale),input_filter="int",multiline=False,font_size="14sp",size_hint_x=0.35,halign="center")
+        self.add_widget(lbl)
+        self.add_widget(self.input)
+
+    def get_value(self):
+        val = self.input.text.strip()
+        return int(val) if val.isdigit() else 0
+
+class ModifierStatsPopup(ModalView):
+    """Popup de modification des performances sportives d'un joueur."""
+    def __init__(self, joueur, callback_sauvegarde=None, **kwargs):
+        super().__init__(**kwargs)
+        self.joueur = joueur or {}
+        self.callback_sauvegarde = callback_sauvegarde
+        self.size_hint = (0.85, None)
+        self.auto_dismiss = True
+        content = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10), size_hint_y=None)
+        content.bind(minimum_height=content.setter('height'))
+        with content.canvas.before:
+            Color(1, 1, 1, 1)
+            self.bg_rect = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(10)])
+        content.bind(pos=self._update_bg, size=self._update_bg)
+        # Titre
+        nom_j = str(self.joueur.get("nom", "Joueur")).upper()
+        lbl_title = Label(text=f"[b]ÉDITION : {nom_j}[/b]",markup=True,font_size="16sp",color=(30 / 255, 58 / 255, 138 / 255, 1),size_hint_y=None,height=dp(26),halign="center")
+        lbl_title.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        content.add_widget(lbl_title)
+        # Champs de saisie
+        self.field_buts = StatChampSaisie("Buts", self.joueur.get("buts", 0))
+        self.field_passes = StatChampSaisie("Passes décisives", self.joueur.get("passes_decisives", 0))
+        self.field_titu = StatChampSaisie("Titularisations", self.joueur.get("titularisations", 0))
+        self.field_min = StatChampSaisie("Minutes jouées", self.joueur.get("minutes_jouees", 0))
+        self.field_cj = StatChampSaisie("Cartons jaunes", self.joueur.get("cartons_jaunes", 0))
+        self.field_cr = StatChampSaisie("Cartons rouges", self.joueur.get("cartons_rouges", 0))
+        content.add_widget(self.field_buts)
+        content.add_widget(self.field_passes)
+        content.add_widget(self.field_titu)
+        content.add_widget(self.field_min)
+        content.add_widget(self.field_cj)
+        content.add_widget(self.field_cr)
+        # Boutons de validation / annulation
+        box_btn = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(40))
+        btn_cancel = Button(text="ANNULER",background_normal="",background_color=(0.6, 0.6, 0.6, 1),color=(1, 1, 1, 1),bold=True)
+        btn_cancel.bind(on_release=self.dismiss)
+
+        btn_save = Button(text="ENREGISTRER",background_normal="",background_color=(34 / 255, 197 / 255, 94 / 255, 1),color=(1, 1, 1, 1),bold=True)
+        btn_save.bind(on_release=self.sauvegarder)
+
+        box_btn.add_widget(btn_cancel)
+        box_btn.add_widget(btn_save)
+        content.add_widget(box_btn)
+
+        self.add_widget(content)
+        content.bind(height=lambda inst, val: setattr(self, 'height', val))
+
+    def _update_bg(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+
+    def sauvegarder(self, instance):
+        payload = {
+            "joueur_id": self.joueur.get("id") or self.joueur.get("nom", "").strip().replace(" ", "_").lower(),
+            "buts": self.field_buts.get_value(),
+            "passes_decisives": self.field_passes.get_value(),
+            "titularisations": self.field_titu.get_value(),
+            "minutes_jouees": self.field_min.get_value(),
+            "cartons_jaunes": self.field_cj.get_value(),
+            "cartons_rouges": self.field_cr.get_value()
+        }
+        # Mise à jour locale du dictionnaire joueur
+        self.joueur.update(payload)
+        # Appel du callback parent pour synchronisation API
+        if self.callback_sauvegarde:
+            self.callback_sauvegarde(self.joueur, payload)
+        self.dismiss()
+
+class StatBoxBlue(BoxLayout):
+    """Rectangle bleu foncé avec texte blanc."""
+    def __init__(self, titre, valeur, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = "vertical"
+        self.padding = [dp(6), dp(6)]
+        self.spacing = dp(2)
+        self.size_hint_y = None
+        self.height = dp(60)
+        with self.canvas.before:
+            Color(30 / 255, 58 / 255, 138 / 255, 1)
+            self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(8)])
+        self.bind(pos=self._update_rect, size=self._update_rect)
+        self.lbl_val = Label(text=str(valeur),font_size="18sp",bold=True,color=(1, 1, 1, 1),halign="center",valign="middle")
+        lbl_titre = Label(text=str(titre).upper(),font_size="11sp",bold=True,color=(1, 1, 1, 0.9),halign="center",valign="middle")
+        self.lbl_val.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        lbl_titre.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        self.add_widget(self.lbl_val)
+        self.add_widget(lbl_titre)
+
+    def update_valeur(self, nouvelle_valeur):
+        self.lbl_val.text = str(nouvelle_valeur)
+
+    def _update_rect(self, instance, value):
+        self.rect.pos = instance.pos
+        self.rect.size = instance.size
+
+class JoueurStatsPopup(ModalView):
+    """ModalView de consultation des statistiques avec option d'édition."""
+    def __init__(self, joueur, app_reference=None, **kwargs):
+        super().__init__(**kwargs)
+        self.joueur = joueur or {}
+        self.app_reference = app_reference
+        self.size_hint = (0.9, None)
+        self.auto_dismiss = True
+        content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12), size_hint_y=None)
+        content.bind(minimum_height=content.setter('height'))
+        with content.canvas.before:
+            Color(1, 1, 1, 1)
+            self.bg_rect = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(12)])
+        content.bind(pos=self._update_bg, size=self._update_bg)
+        # EN-TÊTE
+        header = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(2))
+        header.bind(minimum_height=header.setter('height'))
+        nom_joueur = str(self.joueur.get("nom", "Joueur Inconnu")).upper()
+        rang = self.joueur.get("rang", "-")
+        equipe = self.joueur.get("equipe", "Équipe Principale")
+        lbl_nom = Label(text=f"[b]{nom_joueur}[/b]",markup=True,font_size="22sp",color=(0, 0, 0, 1),size_hint_y=None,height=dp(28),halign="left")
+        lbl_nom.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        lbl_sub = Label(text=f"Rang #{rang}  |  {equipe}",font_size="15sp",bold=True,color=(0, 0, 0, 0.75),size_hint_y=None,height=dp(20),halign="left")
+        lbl_sub.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        header.add_widget(lbl_nom)
+        header.add_widget(lbl_sub)
+        content.add_widget(header)
+        # GRILLE DE STATS PERFORMANCES
+        self.grid_stats = GridLayout(cols=2, spacing=dp(8), size_hint_y=None)
+        self.grid_stats.bind(minimum_height=self.grid_stats.setter('height'))
+        self.box_buts = StatBoxBlue("Buts", self.joueur.get("buts", 0))
+        self.box_passes = StatBoxBlue("Passes Decisives", self.joueur.get("passes_decisives", 0))
+        self.box_titu = StatBoxBlue("Titularisations", self.joueur.get("titularisations", 0))
+        self.box_min = StatBoxBlue("Minutes Jouees", f"{self.joueur.get('minutes_jouees', 0)}'")
+        self.box_cj = StatBoxBlue("Cartons Jaunes", self.joueur.get("cartons_jaunes", 0))
+        self.box_cr = StatBoxBlue("Cartons Rouges", self.joueur.get("cartons_rouges", 0))
+        self.grid_stats.add_widget(self.box_buts)
+        self.grid_stats.add_widget(self.box_passes)
+        self.grid_stats.add_widget(self.box_titu)
+        self.grid_stats.add_widget(self.box_min)
+        self.grid_stats.add_widget(self.box_cj)
+        self.grid_stats.add_widget(self.box_cr)
+        content.add_widget(self.grid_stats)
+        # BLOC ASSIDUITÉ
+        box_assiduite = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(4), size_hint_y=None)
+        box_assiduite.bind(minimum_height=box_assiduite.setter('height'))
+
+        with box_assiduite.canvas.before:
+            Color(30 / 255, 58 / 255, 138 / 255, 1)
+            self.rect_ass = RoundedRectangle(pos=box_assiduite.pos, size=box_assiduite.size, radius=[dp(8)])
+        box_assiduite.bind(pos=self._update_ass_rect, size=self._update_ass_rect)
+        e_pres = self.joueur.get("entrainements", 0)
+        e_tot = self.joueur.get("entrainements_total", 0)
+        pct_e = int((e_pres / e_tot * 100)) if e_tot > 0 else 0
+        m_pres = self.joueur.get("matchs", 0)
+        m_tot = self.joueur.get("matchs_total_equipe", self.joueur.get("matchs_total", 0))
+        pct_m = int((m_pres / m_tot * 100)) if m_tot > 0 else 0
+        taux_global = int(self.joueur.get("taux_assiduite", 0) * 100)
+        lbl_ass_title = Label(text=f"[b]ASSIDUITE GLOBALE : {taux_global}%[/b]",markup=True,font_size="14sp",color=(1, 1, 1, 1),size_hint_y=None,height=dp(20),halign="left")
+        lbl_ass_title.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        lbl_entr = Label(text=f"Entraînements : {e_pres} / {e_tot} ({pct_e}%)",font_size="13sp",bold=True,color=(1, 1, 1, 1),size_hint_y=None,height=dp(18),halign="left")
+        lbl_entr.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        lbl_match = Label(text=f"Matchs Convoqués/Joués : {m_pres} / {m_tot} ({pct_m}%)",font_size="13sp",bold=True,color=(1, 1, 1, 1),size_hint_y=None,height=dp(18),halign="left")
+        lbl_match.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+        box_assiduite.add_widget(lbl_ass_title)
+        box_assiduite.add_widget(lbl_entr)
+        box_assiduite.add_widget(lbl_match)
+        content.add_widget(box_assiduite)
+        # BARRE D'ACTIONS : BOUTON MODIFIER & BOUTON FERMER
+        box_actions = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(42))
+        btn_edit = Button(text="MODIFIER PERFS",size_hint_x=0.5,background_normal="",background_color=(234 / 255, 88 / 255, 12 / 255, 1),color=(1, 1, 1, 1),bold=True,font_size="13sp")
+        btn_edit.bind(on_release=self.ouvrir_modification)
+        btn_close = Button(text="FERMER",size_hint_x=0.5,background_normal="",background_color=(30 / 255, 58 / 255, 138 / 255, 1),color=(1, 1, 1, 1),bold=True,font_size="13sp")
+        btn_close.bind(on_release=self.dismiss)
+        box_actions.add_widget(btn_edit)
+        box_actions.add_widget(btn_close)
+        content.add_widget(box_actions)
+        self.add_widget(content)
+        content.bind(height=lambda inst, val: setattr(self, 'height', val))
+
+    def ouvrir_modification(self, instance):
+        edit_popup = ModifierStatsPopup(joueur=self.joueur, callback_sauvegarde=self.rafraichir_affichage)
+        edit_popup.open()
+
+    def rafraichir_affichage(self, dictionnaire_joueur, payload):
+        """Met à jour l'affichage local et sauvegarde les performances via VestiaireScreen."""
+        self.joueur.update(payload)
+        self.box_buts.update_valeur(payload["buts"])
+        self.box_passes.update_valeur(payload["passes_decisives"])
+        self.box_titu.update_valeur(payload["titularisations"])
+        self.box_min.update_valeur(f"{payload['minutes_jouees']}'")
+        self.box_cj.update_valeur(payload["cartons_jaunes"])
+        self.box_cr.update_valeur(payload["cartons_rouges"])
+        if not self.app_reference:
+            print(
+                "[PERF API ERROR] "
+                "VestiaireScreen introuvable."
+            )
+            return
+        if not hasattr(self.app_reference,"envoyer_update_performance"):
+            print(
+                "[PERF API ERROR] "
+                "envoyer_update_performance() "
+                "introuvable sur VestiaireScreen."
+            )
+            return
+        categorie = str(self.joueur.get("equipe", "")).strip()
+        if not categorie:
+            print(
+                "[PERF API ERROR] "
+                "equipe/categorie absente pour le joueur."
+            )
+            return
+        print(
+            f"[PERF API] Sauvegarde des performances "
+            f"| joueur={self.joueur.get('nom', '')} "
+            f"| categorie={categorie} "
+            f"| payload={payload}"
+        )
+        self.app_reference.envoyer_update_performance(categorie=categorie,payload=dict(payload))
+
+    def _update_bg(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+
+    def _update_ass_rect(self, instance, value):
+        self.rect_ass.pos = instance.pos
+        self.rect_ass.size = instance.size
+
+class StatsTableRow(BoxLayout):
+    def __init__(self, joueur=None, fs=13, header=False, **kwargs):
+        super().__init__(**kwargs)
+        self.joueur = joueur or {}
+        self.header = header
+        self.orientation = "horizontal"
+        self.size_hint = (1, None)
+        self.height = dp(44 if header else 40)
+        # RANG | JOUEUR | ENTR. | MATCHS | TOTAL
+        self.col_weights = [0.10, 0.30, 0.20, 0.20, 0.20]
+        with self.canvas.before:
+            if header:
+                Color(30 / 255, 58 / 255, 138 / 255, 1)  # Bleu FCVV foncé
+            else:
+                Color(45 / 255, 85 / 255, 180 / 255, 0.35)  # Bleu intermédiaire
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(3)])
+        self.bind(pos=self._update_rect, size=self._update_rect)
+
+        if header:
+            values = ["#", "JOUEUR", "ENTR.", "MATCH", "TOTAL"]
+        else:
+            rang = self.joueur.get("rang", "")
+            entr = self.joueur.get("entrainements", 0)
+            entr_t = self.joueur.get("entrainements_total", 0)
+            mat = self.joueur.get("matchs", 0)
+            mat_t = self.joueur.get("matchs_total_equipe", self.joueur.get("matchs_total", 0))
+            tot = self.joueur.get("total_present", 0)
+            tot_t = self.joueur.get("total_evenements", 0)
+            values = [str(rang),str(self.joueur.get("nom", "")),f"{entr}/{entr_t}",f"{mat}/{mat_t}",f"{tot}/{tot_t}"]
+
+        for i, value in enumerate(values):
+            lbl = Label(
+                text=value,
+                font_size=f"{fs}sp",
+                bold=header,
+                size_hint=(self.col_weights[i], 1),
+                color=(1, 1, 1, 1),
+                halign="center" if i != 1 else "left",
+                valign="middle",
+                shorten=(i == 1),
+                shorten_from="right",
+                padding=(dp(4), 0)
+            )
+            lbl.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+            self.add_widget(lbl)
+
+    def _update_rect(self, instance, value):
+        self.bg_rect.pos = instance.pos
+        self.bg_rect.size = instance.size
+
+    def on_touch_down(self, touch):
+        """Ouvre le popup des statistiques lors du clic."""
+        if self.collide_point(*touch.pos):
+            if self.header or not self.joueur:
+                return super().on_touch_down(touch)
+            # Récupération de l'écran VestiaireScreen
+            vestiaire_screen = self.parent
+            while vestiaire_screen is not None:
+                if isinstance(vestiaire_screen, VestiaireScreen):
+                    break
+                vestiaire_screen = getattr(vestiaire_screen, "parent", None)
+            popup = JoueurStatsPopup(joueur=self.joueur,app_reference=vestiaire_screen)
+            popup.open()
+            return True
+        return super().on_touch_down(touch)
+
 # ==============================================================================
 # BUBBLE & CHAT VIEW
 # ==============================================================================
 class MessageBubble(BoxLayout):
-
-    def __init__(
-        self,
-        msg_data,
-        is_me,
-        show_author=True,
-        est_admin=False,
-        can_delete=False,
-        on_delete=None,
-        font_size=15,
-        **kwargs,
-    ):
-        super().__init__(
-            orientation="vertical",
-            size_hint_y=None,
-            padding=[
-                dp(10) if is_me else dp(60),
-                0,
-                dp(60) if is_me else dp(10),
-                0,
-            ],
-            **kwargs,
-        )
+    def __init__(self,msg_data,is_me,show_author=True,est_admin=False,can_delete=False,on_delete=None,font_size=15,**kwargs,):
+        super().__init__(orientation="vertical",size_hint_y=None,padding=[dp(10) if is_me else dp(60),0,dp(60) if is_me else dp(10),0,],**kwargs,)
         self.msg_data = msg_data
         self.can_delete = can_delete
         self.bind(minimum_height=self.setter("height"))
-
         # Couleurs selon le rôle
         if est_admin:
             bg = (0.8, 0.5, 0, 1)
@@ -87,46 +374,19 @@ class MessageBubble(BoxLayout):
         else:
             bg = (0.22, 0.22, 0.22, 1)
             name_c = (1, 0.85, 0.4, 1)
-
-        self.bubble = BoxLayout(
-            orientation="vertical",
-            spacing=dp(4),
-            padding=[dp(12), dp(8)],
-            size_hint=(None, None),
-        )
-
+        self.bubble = BoxLayout(orientation="vertical",spacing=dp(4),padding=[dp(12), dp(8)],size_hint=(None, None),)
         # Fond arrondi
         with self.bubble.canvas.before:
             Color(*bg)
-            self.bubble.rect = RoundedRectangle(
-                pos=self.bubble.pos, size=self.bubble.size, radius=[dp(16)]
-            )
-        self.bubble.bind(
-            pos=lambda _, v: setattr(self.bubble.rect, "pos", v),
-            size=lambda _, v: setattr(self.bubble.rect, "size", v),
-        )
-
+            self.bubble.rect = RoundedRectangle(pos=self.bubble.pos, size=self.bubble.size, radius=[dp(16)])
+        self.bubble.bind(pos=lambda _, v: setattr(self.bubble.rect, "pos", v),size=lambda _, v: setattr(self.bubble.rect, "size", v),)
         # Auteur & Contenu
         if show_author:
             auth_text = f"[b]{'[!] ' if est_admin else ''}{escape_markup(msg_data.get('auteur', ''))}[/b]"
-            self.author = Label(
-                text=auth_text,
-                markup=True,
-                color=name_c,
-                font_size=f"{max(10, font_size - 3)}sp",
-                size_hint=(None, None),
-            )
+            self.author = Label(text=auth_text,markup=True,color=name_c,font_size=f"{max(10, font_size - 3)}sp",size_hint=(None, None),)
             self.bubble.add_widget(self.author)
 
-        self.content = Label(
-            text=msg_data.get("contenu", ""),
-            markup=True,
-            font_size=f"{max(10, font_size - 2)}sp",
-            size_hint=(None, None),
-            halign="left",
-            valign="top",
-            text_size=(Window.width * 0.7 - dp(40), None),
-        )
+        self.content = Label(text=msg_data.get("contenu", ""),markup=True,font_size=f"{max(10, font_size - 2)}sp",size_hint=(None, None),halign="left",valign="top",text_size=(Window.width * 0.7 - dp(40), None),)
         self.bubble.add_widget(self.content)
 
         # Datetime parsing
@@ -140,55 +400,24 @@ class MessageBubble(BoxLayout):
                 )
             except Exception as e:
                 print(f"Erreur de parsing date: {e}")
-
         # Ligne basse (Timestamp & Suppression)
-        bottom_row = BoxLayout(
-            orientation="horizontal",
-            size_hint=(1, None),
-            height=dp(24),
-            spacing=dp(8),
-        )
-
-        self.timestamp = Label(
-            text=(
-                f"[color={'FFFFFF' if is_me or est_admin else 'AAAAAA'}]{ts_str}[/color]"
-            ),
-            markup=True,
-            size_hint_x=1,
-            halign="right",
-            valign="middle",
-        )
+        bottom_row = BoxLayout(orientation="horizontal",size_hint=(1, None),height=dp(24),spacing=dp(8),)
+        self.timestamp = Label(text=(f"[color={'FFFFFF' if is_me or est_admin else 'AAAAAA'}]{ts_str}[/color]"),markup=True,size_hint_x=1,halign="right",valign="middle",)
         self.timestamp.bind(size=lambda inst, v: setattr(inst, "text_size", v))
         bottom_row.add_widget(self.timestamp)
-
         if can_delete:
-            del_btn = Button(
-                text="×",
-                size_hint=(None, None),
-                size=(dp(24), dp(24)),
-                font_size=f"{max(12, font_size - 2)}sp",
-                background_normal="",
-                background_color=(0, 0, 0, 0),
-            )
-
+            del_btn = Button(text="×",size_hint=(None, None),size=(dp(24), dp(24)),font_size=f"{max(12, font_size - 2)}sp",background_normal="",background_color=(0, 0, 0, 0),)
             with del_btn.canvas.before:
                 Color(0, 0, 0, 0.3)
                 del_btn.circle = Ellipse(pos=del_btn.pos, size=del_btn.size)
-
-            del_btn.bind(
-                pos=lambda inst, v: setattr(inst.circle, "pos", v),
-                size=lambda inst, v: setattr(inst.circle, "size", v),
-            )
-
+            del_btn.bind(pos=lambda inst, v: setattr(inst.circle, "pos", v),size=lambda inst, v: setattr(inst.circle, "size", v),)
             msg_id = msg_data.get("id") or msg_data.get("_id")
             if on_delete and msg_id:
                 del_btn.bind(on_release=lambda *_: on_delete(msg_id))
             bottom_row.add_widget(del_btn)
-
         self.bubble.add_widget(bottom_row)
         Clock.schedule_once(self.finalize_layout, 0)
         self.add_widget(self.bubble)
-
     # =============================================================
     # DIMENSIONS
     # =============================================================
@@ -196,27 +425,14 @@ class MessageBubble(BoxLayout):
         self.content.text_size = (self.content.text_size[0], None)
         self.content.size = self.content.texture_size
         self.timestamp.size = self.timestamp.texture_size
-
         has_author = hasattr(self, "author")
         if has_author:
             self.author.size = self.author.texture_size
-
         h_auth = self.author.height if has_author else 0
-
-        min_bottom_w = self.timestamp.width + (
-            dp(32) if self.can_delete else 0
-        )
-        max_w = max(
-            self.content.width,
-            min_bottom_w,
-            self.author.width if has_author else 0,
-        )
-
+        min_bottom_w = self.timestamp.width + (dp(32) if self.can_delete else 0)
+        max_w = max(self.content.width,min_bottom_w,self.author.width if has_author else 0,)
         bottom_row_height = dp(24)
-        self.bubble.size = (
-            max_w + dp(40),
-            self.content.height + h_auth + bottom_row_height + dp(25),
-        )
+        self.bubble.size = (max_w + dp(40),self.content.height + h_auth + bottom_row_height + dp(25),)
         
 class EchangeBubble(BoxLayout):
     def __init__(self, msg_data, is_me, show_author=True, est_admin=False, can_delete=False, on_delete=None, font_size=15, **kwargs):
@@ -261,50 +477,24 @@ class EchangeBubble(BoxLayout):
                 print(f"Erreur de parsing date: {e}")
 
         # Ligne basse (Timestamp & Suppression) propre et alignée
-        bottom_row = BoxLayout(
-            orientation="horizontal", 
-            size_hint=(1, None), 
-            height=dp(24), 
-            spacing=dp(8)
-        )
-        
-        self.timestamp = Label(
-            text=f"[color={'FFFFFF' if is_me or est_admin else 'AAAAAA'}]{ts_str}[/color]", 
-            markup=True, 
-            size_hint_x=1, 
-            halign="right", 
-            valign="middle"
-        )
+        bottom_row = BoxLayout(orientation="horizontal", size_hint=(1, None), height=dp(24), spacing=dp(8))
+        self.timestamp = Label(text=f"[color={'FFFFFF' if is_me or est_admin else 'AAAAAA'}]{ts_str}[/color]", markup=True, size_hint_x=1, halign="right", valign="middle")
         self.timestamp.bind(size=lambda inst, v: setattr(inst, "text_size", v))
         bottom_row.add_widget(self.timestamp)
 
         if can_delete:
-            del_btn = Button(
-                text="×", 
-                size_hint=(None, None), 
-                size=(dp(24), dp(24)), 
-                font_size=f"{max(12, font_size - 2)}sp", 
-                background_normal="", 
-                background_color=(0, 0, 0, 0)
-            )
-            
+            del_btn = Button(text="×", size_hint=(None, None), size=(dp(24), dp(24)), font_size=f"{max(12, font_size - 2)}sp", background_normal="", background_color=(0, 0, 0, 0))
             with del_btn.canvas.before:
                 Color(0, 0, 0, 0.3)
                 del_btn.circle = Ellipse(pos=del_btn.pos, size=del_btn.size)
             
-            del_btn.bind(
-                pos=lambda inst, v: setattr(inst.circle, "pos", v), 
-                size=lambda inst, v: setattr(inst.circle, "size", v)
-            )
-
+            del_btn.bind(pos=lambda inst, v: setattr(inst.circle, "pos", v), size=lambda inst, v: setattr(inst.circle, "size", v))
             if on_delete:
                 del_btn.bind(on_release=lambda *_: on_delete(msg_data.get("id")))
             bottom_row.add_widget(del_btn)
-
         self.bubble.add_widget(bottom_row)
         Clock.schedule_once(self.finalize_layout, 0)
         self.add_widget(self.bubble)
-
     # =============================================================
     # DIMENSIONS
     # =============================================================
@@ -312,38 +502,24 @@ class EchangeBubble(BoxLayout):
         self.content.text_size = (self.content.text_size[0], None)
         self.content.size = self.content.texture_size
         self.timestamp.size = self.timestamp.texture_size
-        
         has_author = hasattr(self, "author")
         if has_author:
             self.author.size = self.author.texture_size
-    
         h_auth = self.author.height if has_author else 0
-        
         min_bottom_w = self.timestamp.width + (dp(32) if hasattr(self, 'can_delete' ) and self.can_delete else 0)
         max_w = max(self.content.width, min_bottom_w, self.author.width if has_author else 0)
-        
         bottom_row_height = dp(24)
-        self.bubble.size = (
-            max_w + dp(40), 
-            self.content.height + h_auth + bottom_row_height + dp(25)
-        )
-
+        self.bubble.size = (max_w + dp(40), self.content.height + h_auth + bottom_row_height + dp(25))
 
 class ChatView(BoxLayout):
-
     def __init__(self, categorie, screen_instance=None, **kwargs):
         super().__init__(orientation="vertical", spacing=dp(5), **kwargs)
         self.categorie, self.cached_messages, self.limit = categorie, [], 25
         self.last_hash = None
-
         self.opacity = 0
-
         cat_data = {}
         if screen_instance:
-            cat_data = getattr(screen_instance, "_cache_data", {}).get(
-                self.categorie, {}
-            )
-
+            cat_data = getattr(screen_instance, "_cache_data", {}).get(self.categorie, {})
         app = App.get_running_app()
         self.is_admin_only = cat_data.get("chat_admin_only", False)
         self.user_role = (
@@ -351,51 +527,22 @@ class ChatView(BoxLayout):
             if hasattr(app, "get_role_for_cat")
             else "PARENT"
         )
-
         self.scroll = ScrollView(bar_width=0, do_scroll_x=False)
-        self.msg_container = BoxLayout(
-            orientation="vertical", size_hint_y=None
-        )
-        self.msg_container.bind(
-            minimum_height=self.msg_container.setter("height")
-        )
-
+        self.msg_container = BoxLayout(orientation="vertical", size_hint_y=None)
+        self.msg_container.bind(minimum_height=self.msg_container.setter("height"))
         fs = (
             app.config.getint("User", "font_size_factor", fallback=18)
             if hasattr(app, "config")
             else 18
         )
-
-        self.empty_label = Label(
-            text="Aucun message pour le moment.\nSoyez le premier à écrire !",
-            halign="center",
-            valign="middle",
-            color=(0.7, 0.7, 0.7, 1),
-            size_hint_y=None,
-            height=0,
-            font_size=f"{fs + 4}sp",
-        )
-        self.empty_label.bind(
-            size=lambda i, v: setattr(i, "text_size", (v[0], None))
-        )
+        self.empty_label = Label(text="Aucun message pour le moment.\nSoyez le premier à écrire !",halign="center",valign="middle",color=(0.7, 0.7, 0.7, 1),size_hint_y=None,height=0,font_size=f"{fs + 4}sp",)
+        self.empty_label.bind(size=lambda i, v: setattr(i, "text_size", (v[0], None)))
         self.msg_container.add_widget(self.empty_label)
-
         self.scroll.add_widget(self.msg_container)
         self.add_widget(self.scroll)
-
         if not self.is_admin_only or self.user_role == "ADMIN":
-            self.input_box = BoxLayout(
-                size_hint_y=None, height=dp(50), spacing=dp(10), padding=dp(5)
-            )
-
-            self.input_field = TextInput(
-                hint_text="Message...",
-                multiline=True,
-                size_hint_y=None,
-                height=dp(40),
-                font_size=f"{fs + 2}sp",
-                padding=[dp(10), dp(8)],
-            )
+            self.input_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10), padding=dp(5))
+            self.input_field = TextInput(hint_text="Message...",multiline=True,size_hint_y=None,height=dp(40),font_size=f"{fs + 2}sp",padding=[dp(10), dp(8)],)
 
             def ajuster_hauteur(instance, min_height):
                 nouvelle_hauteur = max(dp(40), min(min_height, dp(220)))
@@ -403,15 +550,8 @@ class ChatView(BoxLayout):
                 self.input_box.height = nouvelle_hauteur + dp(10)
 
             self.input_field.bind(minimum_height=ajuster_hauteur)
-
-            send_btn = Button(
-                text="Envoyer",
-                size_hint_x=0.25,
-                font_size=f"{fs}sp",
-                bold=True,
-            )
+            send_btn = Button(text="Envoyer",size_hint_x=0.25,font_size=f"{fs}sp",bold=True,)
             send_btn.bind(on_release=self.send_message)
-
             self.input_box.add_widget(self.input_field)
             self.input_box.add_widget(send_btn)
             self.add_widget(self.input_box)
@@ -430,7 +570,6 @@ class ChatView(BoxLayout):
 
         # 1. Chargement immédiat du cache local (silencieux et instantané)
         self.load_cache()
-
         # 2. Appel Firebase / API en arrière-plan
         self.fetch_messages()
         self.refresh_event = Clock.schedule_interval(self.fetch_messages, 5)
@@ -537,14 +676,10 @@ class ChatView(BoxLayout):
         old_scroll = self.scroll.scroll_y
         self.limit += 25
         self.render_messages(scroll_trigger=False)
-        Clock.schedule_once(
-            lambda dt: setattr(self.scroll, "scroll_y", old_scroll), 0.1
-        )
+        Clock.schedule_once(lambda dt: setattr(self.scroll, "scroll_y", old_scroll), 0.1)
 
     def fetch_messages(self, *args):
-        threading.Thread(
-            target=self._fetch_messages_thread, daemon=True
-        ).start()
+        threading.Thread(target=self._fetch_messages_thread, daemon=True).start()
 
     def _fetch_messages_thread(self):
         try:
@@ -1143,6 +1278,11 @@ class VestiaireScreen(Screen):
         self._pending_navigation = None
         self._reset_sub_scroll_after_category = False
         self._vestiaire_ready = False
+        
+        self.stats_data = None
+        self._stats_fetching = False
+        self._stats_loaded = False
+        
         self._cache_data = {}
         self._vestiaire_session_id = 0
         self.KIVY_BLUE = (30 / 255, 58 / 255, 138 / 255, 1)
@@ -1157,16 +1297,12 @@ class VestiaireScreen(Screen):
         self.main_layout = BoxLayout(orientation="vertical", size_hint=(1, 1))
         self.root_layout.add_widget(self.main_layout)
         # Barre supérieure des catégories d'équipes
-        self.cat_scroll = ScrollView(
-            size_hint_y=None, height=dp(70), do_scroll_x=True, do_scroll_y=False, bar_width=0
-        )
+        self.cat_scroll = ScrollView(size_hint_y=None, height=dp(70), do_scroll_x=True, do_scroll_y=False, bar_width=0)
         self.cat_bar = BoxLayout(size_hint_x=None, height=dp(70), spacing=dp(8), padding=[dp(10), dp(10)])
         self.cat_bar.bind(minimum_width=self.cat_bar.setter("width"))
         self.cat_scroll.add_widget(self.cat_bar)
         # Barre des sous-onglets façon SportEasy
-        self.sub_scroll = ScrollView(
-            size_hint_y=None, height=dp(60), do_scroll_x=True, do_scroll_y=False, bar_width=0
-        )
+        self.sub_scroll = ScrollView(size_hint_y=None, height=dp(60), do_scroll_x=True, do_scroll_y=False, bar_width=0)
         self.sub_bar = BoxLayout(size_hint_x=None, height=dp(60), spacing=dp(2), padding=[dp(10), dp(5)])
         self.sub_bar.bind(minimum_width=self.sub_bar.setter("width"))
         self.sub_scroll.add_widget(self.sub_bar)
@@ -1190,10 +1326,7 @@ class VestiaireScreen(Screen):
         with self.fab_button.canvas.before:
             Color(0.97, 0.93, 0.25, 1)  # Jaune
             self.fab_bg = RoundedRectangle(pos=self.fab_button.pos, size=self.fab_button.size, radius=[dp(37.5)])
-        self.fab_button.bind(
-            pos=lambda i, v: setattr(self.fab_bg, "pos", v),
-            size=lambda i, v: setattr(self.fab_bg, "size", v),
-        )
+        self.fab_button.bind(pos=lambda i, v: setattr(self.fab_bg, "pos", v),size=lambda i, v: setattr(self.fab_bg, "size", v),)
         # Action au clic : s'ouvre uniquement si l'utilisateur est ADMIN
         self.fab_button.bind(on_release=self.verifier_et_ouvrir_admin)
         # On l'ajoute au root_layout pour qu'il flotte par-dessus le reste
@@ -1208,13 +1341,15 @@ class VestiaireScreen(Screen):
     
     def check_fab_visibility(self):
         app = App.get_running_app()
-        role = app.get_role_for_cat(self.current_cat) if hasattr(app, "get_role_for_cat") else "PARENT"
-        if self.current_sub_tab == "CALENDRIER" and role == "ADMIN":
-            self.fab_button.opacity = 1
-            self.fab_button.disabled = False
-        else:
-            self.fab_button.opacity = 0
-            self.fab_button.disabled = True
+        role = (
+            app.get_role_for_cat(self.current_cat)
+            if hasattr(app, "get_role_for_cat")
+            else "PARENT"
+        )
+        # FAB uniquement dans CALENDRIER pour un ADMIN
+        visible = (self.current_sub_tab == "CALENDRIER" and role == "ADMIN")
+        self.fab_button.opacity = 1 if visible else 0
+        self.fab_button.disabled = not visible
 
     def verifier_et_ouvrir_admin(self, *args):
         calendrier = self._cache_data.get(self.current_cat, {}).get("calendrier", {})
@@ -1233,7 +1368,20 @@ class VestiaireScreen(Screen):
         if not calendrier:
             grid.add_widget(Label(text="Aucun événement enregistré.", size_hint_y=None, height=dp(40), color=(0.4, 0.4, 0.45, 1), halign="center"))
         else:
-            for nom_match, match_info in calendrier.items():
+            def extraire_date(item):
+                ts_str = item[1].get("timestamp_action", "")
+                try:
+                    # Convertit "23/08/2026 à 09:33" en objet date/heure exploitable
+                    return datetime.strptime(ts_str, "%d/%m/%Y à %H:%M")
+                except (ValueError, TypeError):
+                    # Si le champ est vide ou mal formaté, on le place tout en bas/haut
+                    return datetime.min
+
+            # Tri par ordre chronologique (du plus ancien au plus récent)
+            # Ajoutez reverse=True si vous voulez les plus récents en premier
+            items_tries = sorted(calendrier.items(), key=extraire_date,reverse=True) # Mettez False si vous préférez l'ancien en premier)
+
+            for nom_match, match_info in items_tries:
                 vrai_titre = match_info.get("titre") or match_info.get("adversaire") or match_info.get("nom") or str(nom_match)
                 type_ev, date_ev = match_info.get("type", "ÉVÉNEMENT").upper(), match_info.get("date", "")
                 box = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(8))
@@ -1271,16 +1419,18 @@ class VestiaireScreen(Screen):
         else:
             print("[VESTIAIRE TRACE] Aucune categorie autorisee")
             return
-        valides = {"CALENDRIER", "MESSAGES", "CHAT", "NOTIFICATIONS", "SAISON", "EQUIPE", "DOCS", "MEMBRES", "PROFIL"}
+        valides = {"CALENDRIER", "MESSAGES", "CHAT", "NOTIFICATIONS", "SAISON", "EQUIPE","STATS", "DOCS", "MEMBRES", "PROFIL"}
         if sous_onglet not in valides:
             sous_onglet = "NOTIFICATIONS"
         role = app.get_role_for_cat(self.current_cat) if hasattr(app, "get_role_for_cat") else "USER"
-        if sous_onglet == "EQUIPE" and role != "ADMIN":
+        if sous_onglet in ("EQUIPE", "STATS") and role != "ADMIN":
             sous_onglet = "CALENDRIER"
+        # Si on arrive directement sur STATS,
+        # on force un nouveau chargement.
+        if sous_onglet == "STATS":
+            self.invalidate_stats()
         self.current_sub_tab = sous_onglet
-        Clock.schedule_once(lambda dt: self.update_ui(), 0)
-    
-    
+        Clock.schedule_once(lambda dt: self.update_ui(),0)
 
     def fetch_convocations_from_firebase(self, data, silent=False):
         if getattr(self, "_fetching_in_progress", False):
@@ -1288,23 +1438,12 @@ class VestiaireScreen(Screen):
         self._fetching_in_progress = True
         requested_cat = self.current_cat
         requested_tab = self.current_sub_tab
-    
         # Si silent=True, on ne vide PAS le layout avant la réponse
         if not silent:
             self.scroll_content.clear_widgets()
             self.scroll_content.opacity = 1
             self.scroll_content.do_scroll_y = True
-            self.scroll_content.add_widget(
-                Label(
-                    text="Chargement des événements...",
-                    color=(1, 1, 1, 0.65),
-                    font_size=f"{get_user_font_size()}sp",
-                    halign="center",
-                    valign="middle",
-                    size_hint_y=None,
-                    height=dp(60),
-                )
-            )
+            self.scroll_content.add_widget(Label(text="Chargement des événements...",color=(1, 1, 1, 0.65),font_size=f"{get_user_font_size()}sp",halign="center",valign="middle",size_hint_y=None,height=dp(60),))
         url = f"https://fcvv-api.onrender.com/convocations/{requested_cat}"
         
         def normaliser_convocations(convocs):
@@ -1413,12 +1552,7 @@ class VestiaireScreen(Screen):
                     print(f"[ROLE TRACE] ERREUR JSON = {e}")
                     return
                 role_api = str(data.get("role", "")).strip().upper()
-                if role_api not in (
-                    "ATTENTE",
-                    "PARENT",
-                    "ADMIN",
-                    "EXCLU"
-                ):
+                if role_api not in ("ATTENTE","PARENT","ADMIN","EXCLU"):
                     print(f"[ROLE TRACE] STOP : role inconnu '{role_api}'")
                     return
                 # --------------------------------------------------
@@ -1520,6 +1654,7 @@ class VestiaireScreen(Screen):
             threading.Thread(target=faire_requete,args=(cat,),daemon=True).start()
     
     def on_enter(self, *args):
+        self.invalidate_stats()
         app = App.get_running_app()
         if not getattr(app, "authorized_vestiaires", None):
             if hasattr(getattr(app, "root", None), "switch_screen"):
@@ -1592,6 +1727,53 @@ class VestiaireScreen(Screen):
         if target_cat == self.current_cat:
             Clock.schedule_once(lambda dt: self.fetch_convocations_from_firebase(data) if self.current_sub_tab == "CALENDRIER" else self.render_content(data), 0)
     
+    def fetch_stats_async(self, mark_loaded=None):
+        app = App.get_running_app()
+        categorie = self.current_cat
+        headers = self.get_user_header()
+        def _worker():
+            stats = {}
+            request_ok = False
+            try:
+                is_windows = (platform == "win")
+                url = f"https://fcvv-api.onrender.com/stats/{categorie}"
+                r = requests.get(url,headers=headers,timeout=15,verify=not is_windows)
+                if r.status_code == 200:
+                    stats = r.json()
+                    request_ok = True
+                else:
+                    print(
+                        f"[STATS] Erreur API HTTP "
+                        f"{r.status_code}: {r.text}"
+                    )
+            except Exception as e:
+                print(f"[STATS] Erreur recuperation statistiques : {e}")
+    
+            def _update_ui(dt):
+                self._stats_fetching = False
+                # ------------------------------------------
+                # Résultat de la requête
+                # ------------------------------------------
+                if mark_loaded is True and request_ok:
+                    self._stats_loaded = True
+                # ------------------------------------------
+                # L'utilisateur a changé de catégorie
+                # ou d'onglet pendant la requête.
+                # On abandonne le rafraîchissement UI.
+                # ------------------------------------------
+                if (self.current_cat != categorie or self.current_sub_tab != "STATS"):
+                    return
+                # ------------------------------------------
+                # Stockage des données
+                # ------------------------------------------
+                self.stats_data = stats
+                cached_data = self._cache_data.get(categorie,{})
+                if not cached_data and hasattr(self, "data"):
+                    cached_data = self.data
+                self.render_content(cached_data or {})
+            Clock.schedule_once(_update_ui,0)
+        threading.Thread(target=_worker,daemon=True).start()
+    
     def update_ui(self):
         app = App.get_running_app()
         if not getattr(app, "authorized_vestiaires", None):
@@ -1625,13 +1807,7 @@ class VestiaireScreen(Screen):
                 bold=True,
                 color=(0, 0, 0, 1) if active else (1, 1, 1, 1)
             )
-            btn.bind(
-                texture_size=lambda i, v: setattr(
-                    i,
-                    "width",
-                    max(dp(100), v[0] + dp(30))
-                )
-            )
+            btn.bind(texture_size=lambda i, v: setattr(i,"width",max(dp(100), v[0] + dp(30))))
             with btn.canvas.before:
                 Color(
                     0.97, 0.93, 0.25, 1
@@ -1639,11 +1815,7 @@ class VestiaireScreen(Screen):
                     1, 1, 1, .15
                 )
                 btn.bg = RoundedRectangle(pos=btn.pos,size=btn.size,radius=[dp(8)])
-            btn.bind(
-                pos=lambda i, v: setattr(i.bg, "pos", v),
-                size=lambda i, v: setattr(i.bg, "size", v),
-                on_release=lambda _, c=cat: self.set_category(c)
-            )
+            btn.bind(pos=lambda i, v: setattr(i.bg, "pos", v),size=lambda i, v: setattr(i.bg, "size", v),on_release=lambda _, c=cat: self.set_category(c))
             self.cat_bar.add_widget(btn)
         self.sub_bar.clear_widgets()
         role_actuel = (
@@ -1651,27 +1823,16 @@ class VestiaireScreen(Screen):
             if hasattr(app, "get_role_for_cat")
             else "PARENT"
         )
-        sous_onglets = ("CALENDRIER","MESSAGES","CHAT","NOTIFICATIONS","SAISON","EQUIPE","DOCS","MEMBRES","PROFIL")
+        sous_onglets = ("CALENDRIER","MESSAGES","STATS","EQUIPE","CHAT","SAISON","MEMBRES","NOTIFICATIONS","DOCS","PROFIL")
+        #if role_actuel == "ADMIN":
+        #    sous_onglets += ("STATS",)
+            
         for sub in sous_onglets:
-            if sub == "EQUIPE" and role_actuel != "ADMIN":
+            if sub in ("EQUIPE", "STATS") and role_actuel != "ADMIN":
                 continue
             active = self.current_sub_tab == sub
-            btn = Button(
-                text=sub.capitalize(),
-                size_hint=(None, 1),
-                font_size=f"{fs - 2}sp",
-                background_normal="",
-                background_color=(0, 0, 0, 0),
-                bold=active,
-                color=(0, 0, 0, 1) if active else (1, 1, 1, 1)
-            )
-            btn.bind(
-                texture_size=lambda i, v: setattr(
-                    i,
-                    "width",
-                    max(dp(90), v[0] + dp(20))
-                )
-            )
+            btn = Button(text=sub.capitalize(),size_hint=(None, 1),font_size=f"{fs - 2}sp",background_normal="",background_color=(0, 0, 0, 0),bold=active,color=(0, 0, 0, 1) if active else (1, 1, 1, 1))
+            btn.bind(texture_size=lambda i, v: setattr(i,"width",max(dp(90), v[0] + dp(20))))
             with btn.canvas.before:
                 Color(
                     0.97, 0.93, 0.25, 1
@@ -1679,28 +1840,27 @@ class VestiaireScreen(Screen):
                     1, 1, 1, .1
                 )
                 btn.bg = Rectangle(pos=btn.pos,size=btn.size)
-            btn.bind(
-                pos=lambda i, v: setattr(i.bg, "pos", v),
-                size=lambda i, v: setattr(i.bg, "size", v),
-                on_release=lambda _, s=sub: self.set_sub_tab(s)
-            )
+            btn.bind(pos=lambda i, v: setattr(i.bg, "pos", v),size=lambda i, v: setattr(i.bg, "size", v),on_release=lambda _, s=sub: self.set_sub_tab(s))
             self.sub_bar.add_widget(btn)
+            
         if self._reset_sub_scroll_after_category:
             self._reset_sub_scroll_after_category = False
             Clock.schedule_once(lambda dt: self.reset_sub_scroll(),0)
             Clock.schedule_once(lambda dt: self.reset_sub_scroll(),0.15)
-        if (
-            self.current_sub_tab == "EQUIPE"
-            and role_actuel != "ADMIN"
-        ):
+            
+        if (self.current_sub_tab == "EQUIPE" and role_actuel != "ADMIN"):
             self.current_sub_tab = "CALENDRIER"
+            
         self.scroll_content.clear_widgets()
-        data = self._cache_data.get(self.current_cat)
+        data = self._cache_data.get(self.current_cat, {})
         is_cal = self.current_sub_tab == "CALENDRIER"
-        if data:
-            # Affichage immédiat des données en cache
+        
+        if self.current_sub_tab == "STATS":
             self.render_content(data)
-            # Mise à jour silencieuse
+            return
+            
+        if data:
+            self.render_content(data)
             if (
                 is_cal
                 and not getattr(
@@ -1786,6 +1946,10 @@ class VestiaireScreen(Screen):
         except Exception:
             pass
 
+    def invalidate_stats(self):
+        self.stats_data = None
+        self._stats_loaded = False
+    
     def set_category(self, cat):
         if self.current_cat == cat:
             return
@@ -1793,12 +1957,14 @@ class VestiaireScreen(Screen):
             self.joueurs_par_categorie = None
         if hasattr(self, "cache_membres_list"):
             self.cache_membres_list = None
+        # Les statistiques appartiennent à la catégorie précédente.
+        # On les invalide avant de changer de catégorie.
+        self.invalidate_stats()
         self.scroll_content.clear_widgets()
         self.current_cat = cat
         self.current_sub_tab = "CALENDRIER"
         self._reset_sub_scroll_after_category = True
         anim = Animation(opacity=0,duration=0.1)
-    
         def on_complete(*args):
             self.update_ui()
             self.scroll_content.opacity = 0
@@ -1809,9 +1975,14 @@ class VestiaireScreen(Screen):
     def set_sub_tab(self, sub):
         if self.current_sub_tab == sub:
             return
+        ancien_sub_tab = self.current_sub_tab
+        # ------------------------------------------
+        # Changement vers STATS
+        # ------------------------------------------
+        if sub == "STATS" and ancien_sub_tab != "STATS":
+            self.invalidate_stats()
         self.current_sub_tab = sub
         anim = Animation(opacity=0,duration=0.1)
-    
         def on_complete(*args):
             self.update_ui()
             Animation(opacity=1,duration=0.1).start(self.scroll_content)
@@ -1873,7 +2044,6 @@ class VestiaireScreen(Screen):
             joueurs_cat = {}
             membres_list = []
             role_mis_a_jour = None
-
             try:
                 url = "https://fcvv-api.onrender.com/users"
                 params = {"categorie": cat}
@@ -1881,7 +2051,6 @@ class VestiaireScreen(Screen):
                 if r.status_code == 200:
                     data = r.json()
                     membres_list = data if isinstance(data, list) else data.get("users", []) if isinstance(data, dict) else []
-                    
                     for membre in membres_list:
                         if isinstance(membre, dict) and str(membre.get("nom", "")).strip().lower() == nom_connecte:
                             joueurs = membre.get("joueurs_par_categorie", {})
@@ -1896,37 +2065,160 @@ class VestiaireScreen(Screen):
             def _update_ui(dt):
                 self.joueurs_par_categorie = joueurs_cat
                 self.cache_membres_list = membres_list
-
                 # Mise à jour synchronisée du rôle de l'utilisateur dans l'application si disponible
                 if app and role_mis_a_jour and hasattr(app, "set_role_for_cat"):
                     app.set_role_for_cat(cat, role_mis_a_jour)
-
                 if on_success_callback:
                     on_success_callback(membres_list)
-    
             Clock.schedule_once(_update_ui, 0)
-    
         threading.Thread(target=_worker, daemon=True).start()
+    
+    def envoyer_update_performance(self, categorie, payload):
+        """Envoie les performances mises à jour vers FastAPI puis Firestore."""
+    
+        app = App.get_running_app()
+    
+        # ---------------------------------------------------------
+        # Récupération robuste du nom du parent connecté
+        # ---------------------------------------------------------
+        nom_parent = ""
+    
+        if app and hasattr(app, "config"):
+            try:
+                nom_parent = app.config.get(
+                    "User",
+                    "nom_parent",
+                    fallback=""
+                )
+            except Exception:
+                nom_parent = ""
+    
+        # Fallback sur les attributs existants de l'application
+        if not nom_parent and app:
+            nom_parent = getattr(app, "nom_parent", "") or ""
+    
+        if not nom_parent:
+            nom_parent = getattr(self, "nom_parent_actuel", "") or ""
+    
+        nom_parent = str(nom_parent).strip()
+    
+        # ---------------------------------------------------------
+        # Vérifications avant l'appel API
+        # ---------------------------------------------------------
+        categorie = str(categorie or "").strip()
+    
+        if not categorie:
+            print(
+                "[PERF API ERROR] Catégorie/équipe absente. "
+                "Sauvegarde annulée."
+            )
+            return
+    
+        if not nom_parent:
+            print(
+                "[PERF API ERROR] nom_parent absent. "
+                "Impossible d'identifier l'utilisateur connecté."
+            )
+            return
+    
+        if not isinstance(payload, dict):
+            print(
+                f"[PERF API ERROR] Payload invalide : "
+                f"{type(payload).__name__}"
+            )
+            return
+    
+        # ---------------------------------------------------------
+        # Copie du payload pour éviter toute modification concurrente
+        # ---------------------------------------------------------
+        payload = dict(payload)
+    
+        print(
+            f"[PERF API] Préparation sauvegarde : "
+            f"nom_parent={nom_parent!r}, "
+            f"categorie={categorie!r}, "
+            f"payload={payload}"
+        )
+    
+        def task():
+            url = (
+                "https://fcvv-api.onrender.com/"
+                f"stats/performance/{categorie}"
+            )
+    
+            headers = {
+                "nom_parent": nom_parent,
+                "Content-Type": "application/json",
+            }
+    
+            try:
+                is_windows = (platform == "win")
+    
+                print(
+                    f"[PERF API] POST {url}"
+                )
+    
+                res = requests.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=10,
+                    verify=not is_windows
+                )
+    
+                print(
+                    f"[PERF API] Réponse serveur : "
+                    f"{res.status_code} - {res.text}"
+                )
+    
+                if res.status_code == 200:
+                    print(
+                        "[PERF API SUCCESS] "
+                        "Performances enregistrées dans Firestore."
+                    )
+                else:
+                    print(
+                        f"[PERF API ERROR] "
+                        f"{res.status_code} - {res.text}"
+                    )
+    
+            except requests.exceptions.Timeout:
+                print(
+                    "[PERF API ERROR] Timeout lors de la connexion "
+                    "au serveur FastAPI."
+                )
+    
+            except requests.exceptions.RequestException as e:
+                print(
+                    f"[PERF API REQUEST EXCEPTION] {e}"
+                )
+    
+            except Exception as e:
+                print(
+                    f"[PERF API EXCEPTION] {e}"
+                )
+    
+        threading.Thread(
+            target=task,
+            daemon=True
+        ).start()
     
     def render_content(self, data):
         self.scroll_content.clear_widgets()
         self.scroll_content.scroll_y = 1
         fs = get_user_font_size()
-
-        def EtatLabel(text):
-            return Label(
-                text=text,
-                italic=True,
-                font_size=f"{fs}sp",
-                color=(1, 1, 1, 0.65),
-                halign="center",
-                valign="middle",
-                size_hint_y=None,
-                height=dp(60),
-            )
+        stats_debug = getattr(self, "stats_data", None)
+        def EtatLabel(text, **kwargs):
+            # Dictionnaire des valeurs par défaut
+            params = {"italic": True,"font_size": f"{fs}sp","color": (1, 1, 1, 0.65),"halign": "center","valign": "middle","size_hint_y": None,"height": dp(60),}
+            # Les arguments passés à l'appel écrasent ou complètent les défauts
+            params.update(kwargs)
+            return Label(text=text, **params)
         
-        def SectionTitle(t):
-            return Label(text=f"[b]{t}[/b]", markup=True, color=self.YELLOW, size_hint_y=None, height=dp(45), font_size=f"{fs + 4}sp")
+        def SectionTitle(text, **kwargs):
+            params = {"text": f"[b]{text}[/b]","markup": True,"color": self.YELLOW,"size_hint_y": None,"height": dp(45),"font_size": f"{fs + 4}sp",}
+            params.update(kwargs)
+            return Label(**params)
 
         if self.current_sub_tab == "MESSAGES":
             self.scroll_content.do_scroll_y = False
@@ -1943,7 +2235,6 @@ class VestiaireScreen(Screen):
         self.scroll_content.do_scroll_y = True
         layout = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(20), size_hint_y=None, opacity=0)
         layout.bind(minimum_height=layout.setter("height"))
-        
         app = App.get_running_app()
         role = app.get_role_for_cat(self.current_cat) if hasattr(app, "get_role_for_cat") else "PARENT"
 
@@ -2103,6 +2394,106 @@ class VestiaireScreen(Screen):
                     self._populate_event = Clock.schedule_once(lambda dt: add_batch(0), 0)
                 stream_joueurs(joueurs)
 
+
+        elif self.current_sub_tab == "STATS":
+            stats = getattr(self, "stats_data", None)
+            if (
+                stats is None
+                and not getattr(self, "_stats_fetching", False)
+                and not getattr(self, "_stats_loaded", False)
+            ):
+                self._stats_fetching = True
+                self.fetch_stats_async(mark_loaded=True)
+            if stats is None:
+                etat = EtatLabel(text="Chargement des statistiques...",size_hint_y=None,height=dp(60),font_size=f"{fs}sp")
+                etat.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+                layout.add_widget(etat)
+                layout.opacity = 1
+                self.scroll_content.add_widget(layout)
+                return
+            tot_e = stats.get("nombre_entrainements", 0)
+            tot_m = stats.get("nombre_matchs", 0)
+            # Sécurité si les valeurs arrivent sous forme de None
+            tot_e = tot_e or 0
+            tot_m = tot_m or 0
+            total_evenements = tot_e + tot_m
+            stats_dict = {
+                str(j.get("nom", "")).strip().lower(): j
+                for j in stats.get("joueurs", [])
+            }
+            joueurs_stats = []
+            for j_eq in data.get("tous_les_joueurs", []):
+                nom = str(j_eq.get("nom", "")).strip()
+                prenom = str(j_eq.get("prenom", "")).strip()
+                nom_complet = (
+                    f"{nom} {prenom}".strip()
+                    or nom
+                    or "Inconnu"
+                )
+                # Recherche des statistiques existantes
+                joueur_stats = (
+                    stats_dict.get(nom_complet.lower())
+                    or stats_dict.get(nom.lower())
+                    or {}
+                )
+                # Copie pour ne pas modifier stats_data
+                joueur = dict(joueur_stats)
+                joueur["nom"] = joueur.get("nom") or nom_complet
+                # Si le joueur n'a pas voté, il est à 0.
+                joueur["entrainements"] = (
+                    joueur.get("entrainements", 0) or 0
+                )
+                joueur["matchs"] = (
+                    joueur.get("matchs", 0) or 0
+                )
+                joueur["entrainements_total"] = tot_e
+                joueur["matchs_total"] = tot_m
+                joueur["total_present"] = (joueur["entrainements"] + joueur["matchs"])
+                joueur["total_evenements"] = total_evenements
+                if total_evenements > 0:
+                    joueur["taux_assiduite"] = (joueur["total_present"] / total_evenements)
+                else:
+                    joueur["taux_assiduite"] = 0
+                joueurs_stats.append(joueur)
+            layout.add_widget(SectionTitle(text="STATISTIQUES DE PRÉSENCE"))
+            resume = Label(
+                text=(
+                    f"Entraînements : [b]{tot_e}[/b]"
+                    f"    •    "
+                    f"Matchs : [b]{tot_m}[/b]"
+                ),
+                markup=True,
+                size_hint_y=None,
+                height=dp(45),
+                font_size=f"{fs}sp",
+                color=(1, 1, 1, 1),
+                halign="left",
+                valign="middle"
+            )
+        
+            resume.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+            layout.add_widget(resume)
+            if not joueurs_stats:
+                etat_vide = EtatLabel(text="Aucune statistique disponible.",size_hint_y=None,height=dp(60),font_size=f"{fs}sp")
+                etat_vide.bind(size=lambda l, sz: setattr(l, "text_size", sz))
+                layout.add_widget(etat_vide)
+                layout.opacity = 1
+                self.scroll_content.add_widget(layout)
+                return
+        
+            sorted_joueurs = sorted(joueurs_stats,key=lambda x: (-x.get("taux_assiduite", 0),-x.get("total_present", 0),str(x.get("nom", "")).lower()))
+            for rang, joueur in enumerate(sorted_joueurs, start=1):
+                joueur["rang"] = rang
+            layout.add_widget(StatsTableRow(joueur={},fs=fs,header=True))
+            for joueur in sorted_joueurs:
+                layout.add_widget(StatsTableRow(joueur=joueur,fs=fs,header=False))
+            layout.opacity = 1
+            # Le ScrollView PRINCIPAL de la page gère maintenant
+            # le défilement de toute la liste.
+            self.scroll_content.add_widget(layout)
+            if hasattr(self, "check_fab_visibility"): self.check_fab_visibility()
+            return
+        
         elif self.current_sub_tab == "DOCS":
             layout.add_widget(SectionTitle("DOCUMENTS UTILES"))
             if not (docs := [d for d in data.get("documents", []) if d.get("nom")]):
@@ -2174,7 +2565,6 @@ class VestiaireScreen(Screen):
 
         elif self.current_sub_tab == "PROFIL":
             layout.add_widget(SectionTitle("MON PROFIL"))
-            
             # 1. Si la donnée n'a JAMAIS été chargée
             if not hasattr(self, "joueurs_par_categorie") or self.joueurs_par_categorie is None:
                 layout.add_widget(EtatLabel("Chargement des données du profil..."))
@@ -2191,29 +2581,19 @@ class VestiaireScreen(Screen):
             # 2. Rendu de la carte profil une fois synchronisée
             mon_nom = app.config.get("User", "nom_parent", fallback="Inconnu") if hasattr(app, "config") else "Inconnu"
             joueurs_par_cat = getattr(self, "joueurs_par_categorie", {})
-            
             if not isinstance(joueurs_par_cat, dict):
                 joueurs_par_cat = {}
             joueurs_cat = joueurs_par_cat.get(self.current_cat, [])
             if not isinstance(joueurs_cat, list):
                 joueurs_cat = []
             joueurs_cat = [str(j).strip() for j in joueurs_cat if str(j).strip()]
-            
             # Détection COACH
             joueurs_normalises = [str(j).strip().upper() for j in joueurs_cat]
             est_coach = any(j == "COACH" or j.startswith("COACH_") for j in joueurs_normalises)
-            
             # Enfants
             enfants = [j for j in joueurs_cat if not (str(j).strip().upper() == "COACH" or str(j).strip().upper().startswith("COACH_"))]
-            
             # Rôle affiché
-            role_affiche = {
-                "PARENT": "NORMAL",
-                "ATTENTE": "ATTENTE",
-                "EXCLU": "EXCLU",
-                "ADMIN": "ADMIN"
-            }.get(role.upper(), role)
-            
+            role_affiche = {"PARENT": "NORMAL","ATTENTE": "ATTENTE","EXCLU": "EXCLU","ADMIN": "ADMIN"}.get(role.upper(), role)
             # Bloc d'affichage
             bloc_enfants = (
                 "[b]Joueur associé :[/b] Aucun" if not enfants
@@ -2221,7 +2601,6 @@ class VestiaireScreen(Screen):
                 else "[b]Joueurs associés :[/b]\n" + "\n".join([f"  • {e}" for e in enfants])
             )
             hauteur_label = dp(140) if len(enfants) <= 1 else dp(140) + (len(enfants) * dp(20))
-            
             layout.add_widget(
                 Label(
                     text=(
@@ -2260,10 +2639,8 @@ class VestiaireScreen(Screen):
             Color(0.95, 0.95, 0.97, 1)
             content.bg_rect = RoundedRectangle(pos=content.pos, size=content.size, radius=[dp(15)])
         content.bind(pos=lambda o, v: setattr(content.bg_rect, 'pos', v), size=lambda o, v: setattr(content.bg_rect, 'size', v))
-
         nom_complet = f"{joueur.get('nom', '').upper()} {joueur.get('prenom', '')}"
         content.add_widget(Label(text=f"[b]{nom_complet}[/b]", markup=True, size_hint_y=None, height=dp(35), font_size=f"{fs+4}sp", color=(0.1, 0.1, 0.15, 1), halign="center"))
-
         avatar_source = 'assets/default_user.png'
         if (photo_url := joueur.get('photo_url') or joueur.get('photo', '')) and photo_url.startswith("http"):
             cache_dir = os.path.join(App.get_running_app().user_data_dir, "joueur_cache")
@@ -2285,7 +2662,6 @@ class VestiaireScreen(Screen):
         email = joueur.get('email') or 'Non renseigné'
         adresse = joueur.get('adresse') or 'Non renseignée'
         poste = joueur.get('poste') or joueur.get('position') or 'Non spécifié'
-        
         lbl_details = Label(
             text=f"[b]Informations sportives :[/b]\n• Poste : {poste}\n• Numéro de licence : {licence}\n\n"
                  f"[b]Informations personnelles :[/b]\n• Date de naissance : {date_nais}\n• Adresse : {adresse}\n\n"
@@ -2308,37 +2684,27 @@ class VestiaireScreen(Screen):
     def logout_user(self):
         app = App.get_running_app()
         if not app or not (cat_id := str(self.current_cat or "").strip()): return
-
         anciennes_categories, joueurs_a_retirer = list(getattr(app, "authorized_vestiaires", [])), []
-
         if hasattr(app, "get_joueur_associe_pour_cat") and (res := app.get_joueur_associe_pour_cat(cat_id)):
             joueurs_a_retirer.extend(res if isinstance(res, list) else [x.strip() for x in str(res).split(",") if x.strip()])
-
         if not joueurs_a_retirer and hasattr(app, "roles") and isinstance(app.roles, dict):
             if isinstance(cat_role := app.roles.get(cat_id, {}) or app.roles.get(cat_id.lower(), {}), dict):
                 v = cat_role.get("joueur", "") or cat_role.get("joueurs", "")
                 joueurs_a_retirer.extend(v if isinstance(v, list) else [x.strip() for x in str(v).split(",") if x.strip()])
-
         if not joueurs_a_retirer and hasattr(app, "config") and app.config:
             for k in [f"{cat_id.lower()}_joueur", f"{cat_id}_joueur", f"joueur_{cat_id.lower()}", f"joueur_{cat_id}"]:
                 val = app.config.get("Roles", k, fallback="") if app.config.has_option("Roles", k) else app.config.get("User", k, fallback="") if app.config.has_option("User", k) else ""
                 if val:
                     joueurs_a_retirer.extend([x.strip() for x in val.split(",") if x.strip()]); break
-
         if not joueurs_a_retirer and hasattr(self, "get_joueurs_associes_pour_parent") and isinstance(res := self.get_joueurs_associes_pour_parent(), list):
             joueurs_a_retirer.extend([str(x).strip() for x in res if x])
-
         joueurs_a_retirer = list(set(str(j).strip() for j in joueurs_a_retirer if str(j).strip()))
-
         if hasattr(app, "authorized_vestiaires") and isinstance(app.authorized_vestiaires, list):
             app.authorized_vestiaires = [v for v in app.authorized_vestiaires if str(v).strip() != cat_id]
-
         if hasattr(app, "roles") and isinstance(app.roles, dict): app.roles.pop(cat_id, None)
-        
         # 🟢 AJOUT : Nettoyer aussi la catégorie dans joueurs_par_categorie si elle existe
         if hasattr(app, "joueurs_par_categorie") and isinstance(app.joueurs_par_categorie, dict):
             app.joueurs_par_categorie.pop(cat_id, None)
-
         if hasattr(app, "config") and app.config:
             if app.config.has_section("Roles"):
                 cat_lower, pfx = cat_id.lower(), f"{cat_id.lower()}_"
@@ -2347,7 +2713,6 @@ class VestiaireScreen(Screen):
 
             for k in [f"joueur_{cat_id.lower()}", f"joueur_{cat_id}", f"{cat_id.lower()}_joueur", f"{cat_id}_joueur"]:
                 if app.config.has_option("User", k): app.config.remove_option("User", k)
-
             if app.config.has_section("User"): app.config.set("User", "authorized_list", ",".join(getattr(app, "authorized_vestiaires", [])))
             app.config.write()
 
@@ -2368,7 +2733,6 @@ class VestiaireScreen(Screen):
                 res = requests.post("https://fcvv-api.onrender.com/users/unregister", json={"nom": user_nom, "categorie": cat_id, "joueurs_a_retirer": joueurs_a_retirer}, headers=headers, timeout=10, verify=not is_windows)
                 print(f"[FIREBASE] Succes unregister : {res.json()}" if res.status_code == 200 else f"[FIREBASE] Erreur unregister ({res.status_code}) : {res.text}")
             except Exception as e: print(f"[FIREBASE] Erreur lors de l'appel /users/unregister : {e}")
-
         threading.Thread(target=_sync_firebase_unregister, daemon=True).start()
         self.current_cat = None
 
@@ -2377,13 +2741,11 @@ class VestiaireScreen(Screen):
                 # 🟢 AJOUT : Reconstruire le menu dynamique avec les catégories restantes
                 if hasattr(app, "root") and hasattr(app.root, "rebuild_menu"):
                     app.root.rebuild_menu()
-
                 # Redirection vers l'écran approprié
                 if hasattr(app, "root") and hasattr(app.root, "switch_screen"):
                     app.root.switch_screen("home" if getattr(app, "authorized_vestiaires", []) else "login_vestiaire")
             except Exception as e: 
                 print(f"[ERROR] Impossible de changer d'ecran ou reconstruire le menu : {e}")
-
         Clock.schedule_once(_changer_ecran, 0)
 
     def get_joueurs_associes_pour_parent(self, categorie_cible=None):
@@ -2419,48 +2781,155 @@ class VestiaireScreen(Screen):
         target_cat = self.current_cat
         def do_delete():
             try:
-                is_windows = (platform == 'win')
-                if requests.delete(f"https://fcvv-api.onrender.com/convocations/delete/{target_cat}/{nom_match}", headers=self.get_user_header(), timeout=10, verify=not is_windows).status_code == 200:
-                    cat_data = self._cache_data.get(target_cat, {})
-                    cat_data.get("calendrier", {}).pop(nom_match, None)
-
+                is_windows = (platform == "win")
+                headers = self.get_user_header()
+                api_url = "https://fcvv-api.onrender.com"
+                try:
+                    res_stats = requests.delete(
+                        f"{api_url}/stats/historique/evenement/{target_cat}/{nom_match}",
+                        headers=headers,
+                        timeout=10,
+                        verify=not is_windows
+                    )
+                    if res_stats.status_code == 200:
+                        print(
+                            f"[STATS] Historique sauvegarde avant suppression : "
+                            f"{target_cat}/{nom_match}"
+                        )
+                    else:
+                        print(
+                            f"[STATS] Impossible de sauvegarder la suppression "
+                            f"({res_stats.status_code}) : {res_stats.text}"
+                        )
+                except Exception as e:
+                    print(
+                        f"[STATS] Erreur historique suppression : {e}"
+                    )
+                # ---------------------------------------------------------
+                # 2. Suppression EXISTANTE de la convocation
+                # ---------------------------------------------------------
+                res = requests.delete(f"{api_url}/convocations/delete/{target_cat}/{nom_match}",headers=headers,timeout=10,verify=not is_windows)
+                if res.status_code == 200:
+                    cat_data = self._cache_data.get(target_cat,{})
+                    cat_data.get("calendrier",{}).pop(nom_match, None)
+    
                     def actualiser(dt):
-                        if popup := getattr(self, "convoc_admin_popup", None):
-                            try: popup.dismiss()
-                            except Exception: pass
+                        if popup := getattr(self,"convoc_admin_popup",None):
+                            try:
+                                popup.dismiss()
+                            except Exception:
+                                pass
                         if self.current_cat == target_cat:
                             self.fetch_convocations_from_firebase(cat_data)
                             self.verifier_et_ouvrir_admin()
-
                     Clock.schedule_once(actualiser)
+                else:
+                    print(
+                        f"Erreur suppression ({res.status_code}) : "
+                        f"{res.text}"
+                    )
             except Exception as e:
                 print(f"Erreur suppression : {e}")
+    
+        threading.Thread(target=do_delete,daemon=True).start()
 
-        threading.Thread(target=do_delete, daemon=True).start()
-
-    def sauvegarder_tout_match(self, match_id, fields, checkboxes, popup_instance=None):
-        if not (nom_equipe := match_id.strip()): return
+    def sauvegarder_tout_match(self,match_id,fields,checkboxes,popup_instance=None):
+        if not (nom_equipe := match_id.strip()):
+            return
         date_val = fields["Date"].text.strip()
         try:
-            datetime.strptime(date_val, "%d/%m/%Y")
+            datetime.strptime(date_val,"%d/%m/%Y")
         except ValueError:
-            return Popup(title="Erreur", content=Label(text="Format de date invalide !\nUtilisez JJ/MM/AAAA"), size_hint=(0.7, 0.3)).open()
-
-        liste_joueurs = [{"nom": cb.nom_joueur, "prenom": cb.prenom_joueur, "est_manuel": False} for cb in checkboxes if cb.active]
+            return Popup(
+                title="Erreur",
+                content=Label(
+                    text=(
+                        "Format de date invalide !\n"
+                        "Utilisez JJ/MM/AAAA"
+                    )
+                ),
+                size_hint=(0.7, 0.3)
+            ).open()
+    
+        liste_joueurs = [
+            {
+                "nom": cb.nom_joueur,
+                "prenom": cb.prenom_joueur,
+                "est_manuel": False
+            }
+            for cb in checkboxes
+            if cb.active
+        ]
         data = {
-            "adversaire": fields["Adversaire"].text.strip(), "date": date_val,
-            "heure_rdv": fields["Heure RDV"].text.strip(), "heure_match": fields["Heure Match"].text.strip(),
-            "lieu": fields["Lieu"].text.strip(), "entraineurs": fields["Entraineurs"].text.strip(),
-            "joueurs_convoques": liste_joueurs, "sondage_actif": True
+            "adversaire": fields["Adversaire"].text.strip(),
+            "date": date_val,
+            "heure_rdv": fields["Heure RDV"].text.strip(),
+            "heure_match": fields["Heure Match"].text.strip(),
+            "lieu": fields["Lieu"].text.strip(),
+            "entraineurs": fields["Entraineurs"].text.strip(),
+            "joueurs_convoques": liste_joueurs,
+            "sondage_actif": True
         }
-
+    
+        target_cat = self.current_cat
         def do_save():
             try:
-                is_windows = (platform == 'win')
-                if requests.put(f"https://fcvv-api.onrender.com/convocations/update/{self.current_cat}/{nom_equipe}", json=data, headers=self.get_user_header(), timeout=10, verify=not is_windows).status_code == 200:
-                    Clock.schedule_once(lambda dt: self.fetch_convocations_from_firebase(self._cache_data.get(self.current_cat, {})))
-                    if popup_instance: Clock.schedule_once(lambda dt: popup_instance.dismiss())
+                is_windows = (platform == "win")
+                headers = self.get_user_header()
+                api_url = "https://fcvv-api.onrender.com"
+                # ---------------------------------------------------------
+                # 1. Fonctionnement EXISTANT
+                # ---------------------------------------------------------
+                res = requests.put(
+                    f"{api_url}/convocations/update/"
+                    f"{target_cat}/{nom_equipe}",
+                    json=data,
+                    headers=headers,
+                    timeout=10,
+                    verify=not is_windows
+                )
+                if res.status_code != 200:
+                    print(
+                        f"Erreur sauvegarde match "
+                        f"({res.status_code}) : {res.text}"
+                    )
+                    return
+                print(
+                    f"[CONVOCATION] Sauvegarde reussie : "
+                    f"{target_cat}/{nom_equipe}"
+                )
+                # ---------------------------------------------------------
+                # 2. NOUVEAU : sauvegarde de l'événement dans l'historique
+                # ---------------------------------------------------------
+                try:
+                    res_stats = requests.post(
+                        f"{api_url}/stats/historique/evenement/"
+                        f"{target_cat}/{nom_equipe}",
+                        headers=headers,
+                        timeout=10,
+                        verify=not is_windows
+                    )
+                    if res_stats.status_code == 200:
+                        print(
+                            f"[STATS] Evenement archive : "
+                            f"{target_cat}/{nom_equipe}"
+                        )
+                    else:
+                        print(
+                            f"[STATS] Erreur archivage evenement "
+                            f"({res_stats.status_code}) : "
+                            f"{res_stats.text}"
+                        )
+                except Exception as e:
+                    print(f"[STATS] Erreur appel historique evenement : {e}")
+                # ---------------------------------------------------------
+                # 3. Rafraîchissement EXISTANT
+                # ---------------------------------------------------------
+                Clock.schedule_once(lambda dt:self.fetch_convocations_from_firebase(self._cache_data.get(target_cat,{})))
+                if popup_instance:
+                    Clock.schedule_once(lambda dt: popup_instance.dismiss())
+    
             except Exception as e:
                 print(f"Erreur sauvegarde match : {e}")
-
-        threading.Thread(target=do_save, daemon=True).start()
+    
+        threading.Thread(target=do_save,daemon=True).start()

@@ -19,8 +19,9 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.animation import Animation
 from kivy.uix.button import Button
 
-# Mettez à jour ce numéro à chaque nouvelle publication d'APK
-CURRENT_VERSION = "2026.1.1.0"
+CURRENT_VERSION_ANDROID = "2026.1.1.0"
+CURRENT_VERSION_IOS = "2026.1.1.0"
+
 URL_CGU = "https://sites.google.com/view/fcvv-application/conditions-utilisation"
 URL_CONFIDENTIALITE = "https://sites.google.com/view/fcvv-application/confidentialite"
 
@@ -77,7 +78,6 @@ class AboutScreen(Screen):
         webbrowser.open(url)
 
     def bind_label(self, lbl):
-        """Fonction utilitaire pour gérer le redimensionnement du texte."""
         lbl.bind(width=lambda s, w: s.setter('text_size')(s, (w, None)))
         lbl.bind(texture_size=lambda s, z: s.setter('height')(s, z[1]))
 
@@ -91,7 +91,14 @@ class AboutScreen(Screen):
         lang = app.config.get('User', 'langue') if app.config.has_section('User') else "Francais"
         user_size = int(app.config.get('User', 'font_size_factor', fallback=20)) if app.config.has_section('User') else 20
         
-        # 1. Texte d'introduction
+        if platform == 'ios':
+            current_version = CURRENT_VERSION_IOS
+            version_key = 'version_ios'
+        else:
+            current_version = CURRENT_VERSION_ANDROID
+            version_key = 'version_android'
+
+        # 1. Intro
         intro = about_data.get('intro_text_en' if lang == 'English' else 'intro_text') or _('about_intro')
         if "Cette application" in intro and "\n" not in intro:
             intro = intro.replace("Cette application", "Cette application\n")
@@ -99,7 +106,7 @@ class AboutScreen(Screen):
         self.intro_label.text = f"[b]{intro}[/b]"
         self.intro_label.font_size = f"{user_size + (4 if self.is_mobile else 2)}sp"
         
-        # 2. Image
+        # 2. Logo
         self.img_offert.url = about_data.get("sponsor_url")
         path = about_data.get("logo_partenaire", "./assets/default_logo.png")
         if path.startswith("http"):
@@ -108,36 +115,38 @@ class AboutScreen(Screen):
             self.img_offert.source = path
             self.img_offert.opacity = 1
             
-        # 3. Liste des détails et vérification de version
+        # 3. Traitement des versions
         self.info_list.clear_widgets()
         
-        remote_version = next((d['value'] for d in about_data.get("details", []) if d.get('label') == 'Version'), CURRENT_VERSION)
+        remote_version = str(about_data.get(version_key, current_version)).strip()
+        current_version_clean = str(current_version).strip()
         
+        # Affiche uniquement "Version actuelle"
+        lbl_curr = Label(
+            text=f"[color=bbbbbb]Version actuelle :[/color] [b]{current_version_clean}[/b]", 
+            markup=True, font_size=f"{user_size + 2}sp", halign='center', size_hint_y=None
+        )
+        self.bind_label(lbl_curr)
+        self.info_list.add_widget(lbl_curr)
+        
+        # Message rouge si différente du YAML
+        if remote_version and current_version_clean != remote_version:
+            lbl_alert = Label(
+                text=f"[color=FF4500][b]Une mise à jour est nécessaire ({remote_version})[/b][/color]", 
+                markup=True, font_size=f"{user_size + 2}sp", halign='center', size_hint_y=None
+            )
+            self.bind_label(lbl_alert)
+            self.info_list.add_widget(lbl_alert)
+
+        # 4. Autres détails (en ignorant tout libellé de version résiduel)
         for item in about_data.get("details", []):
+            label_text = str(item.get('label', '')).strip().lower()
+            if label_text in ('version', 'version actuelle', 'version android', 'version ios'):
+                continue
+                
             name = item.get('label_en' if lang == 'English' else 'label', '')
             val = item.get("value", "")
             
-            # Gestion spécifique pour la ligne Version
-            if item.get('label') == 'Version':
-                # Ligne 1 : Version actuelle
-                lbl_curr = Label(
-                    text=f"[color=bbbbbb]Version actuelle :[/color] [b]{CURRENT_VERSION}[/b]", 
-                    markup=True, font_size=f"{user_size + 2}sp", halign='center', size_hint_y=None
-                )
-                self.bind_label(lbl_curr)
-                self.info_list.add_widget(lbl_curr)
-                
-                # Ligne 2 : Version disponible (si différente)
-                if CURRENT_VERSION != remote_version:
-                    lbl_alert = Label(
-                        text=f"[color=FF4500]Version disponible : [b]{remote_version}[/b] (Mise à jour requise)[/color]", 
-                        markup=True, font_size=f"{user_size + 2}sp", halign='center', size_hint_y=None
-                    )
-                    self.bind_label(lbl_alert)
-                    self.info_list.add_widget(lbl_alert)
-                continue 
-            
-            # Ajout des autres lignes (Développeur, Contact, etc.)
             lbl = Label(
                 text=f"[color=bbbbbb]{name} :[/color] [b]{val}[/b]", 
                 markup=True, font_size=f"{user_size + 2}sp", halign='center', size_hint_y=None
@@ -145,7 +154,7 @@ class AboutScreen(Screen):
             self.bind_label(lbl)
             self.info_list.add_widget(lbl)
             
-        
+        # 5. Documents légaux
         lbl_update = Label(
             text="[color=bbbbbb]Documents légaux mis à jour le :[/color] [b]22 juillet 2026[/b]",
             markup=True,
@@ -153,10 +162,9 @@ class AboutScreen(Screen):
             halign='center',
             size_hint_y=None
         )
-        
         self.bind_label(lbl_update)
         self.info_list.add_widget(lbl_update)
-        # 4. Boutons documents légaux
+        
         lbl_legal = Label(
             text="[b]Documents légaux[/b]",
             markup=True,
@@ -167,7 +175,6 @@ class AboutScreen(Screen):
         )
         self.info_list.add_widget(lbl_legal)
 
-
         btn_cgu = Button(
             text="Conditions Générales d'Utilisation",
             font_size=f"{user_size + 2}sp",
@@ -175,13 +182,8 @@ class AboutScreen(Screen):
             height=dp(60),
             background_color=(0.2, 0.5, 1, 1)
         )
-
-        btn_cgu.bind(
-            on_release=lambda x: self.open_url(URL_CGU)
-        )
-
+        btn_cgu.bind(on_release=lambda x: self.open_url(URL_CGU))
         self.info_list.add_widget(btn_cgu)
-
 
         btn_conf = Button(
             text="Politique de confidentialité",
@@ -190,11 +192,7 @@ class AboutScreen(Screen):
             height=dp(60),
             background_color=(0.2, 0.5, 1, 1)
         )
-
-        btn_conf.bind(
-            on_release=lambda x: self.open_url(URL_CONFIDENTIALITE)
-        )
-
+        btn_conf.bind(on_release=lambda x: self.open_url(URL_CONFIDENTIALITE))
         self.info_list.add_widget(btn_conf)
 
     def download_external_image(self, url):

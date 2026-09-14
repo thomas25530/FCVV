@@ -787,6 +787,7 @@ class MyApp(App):
         })
         # Initialisation de la section 'Roles' pour éviter les erreurs lors du premier démarrage
         config.setdefaults('Roles', {})
+        config.setdefaults('Notifications', {})
         
     def set_vestiaire_role(self, cat, role):
         """Sauvegarde le rôle d'une catégorie dans le fichier .ini."""
@@ -858,12 +859,7 @@ class MyApp(App):
     def synchroniser_role(self, cat, role_api):
         """Synchronise le rôle reçu du backend avec le .ini."""
         role_api = str(role_api).strip().upper()
-        if role_api not in (
-            "ATTENTE",
-            "PARENT",
-            "ADMIN",
-            "EXCLU"
-        ):
+        if role_api not in ("ATTENTE","PARENT","ADMIN","EXCLU"):
             print(f"[ROLE] Role inconnu recu : {role_api}")
             return False
     
@@ -910,12 +906,7 @@ class MyApp(App):
                 f"[ROLE API] {cat} -> role recu : "
                 f"{role_api}"
             )
-            if role_api not in (
-                "ATTENTE",
-                "PARENT",
-                "ADMIN",
-                "EXCLU"
-            ):
+            if role_api not in ("ATTENTE","PARENT","ADMIN","EXCLU"):
                 print(
                     f"[ROLE API] Role inconnu recu : "
                     f"{role_api}"
@@ -950,8 +941,14 @@ class MyApp(App):
                     Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),12.0)
                     Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),20.0)
                     # Synchronisation des topics de catégories
+                    # Synchronisation des topics de catégories (uniquement celles dont le switch est actif)
                     if self.authorized_vestiaires:
-                        Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(self.authorized_vestiaires),8.0)
+                        # On filtre pour ne garder que les catégories avec une notification active (True par défaut)
+                        abonnements_actifs = [
+                            cat for cat in self.authorized_vestiaires
+                            if self.config.getboolean('Notifications', cat, fallback=True)
+                        ]
+                        Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(abonnements_actifs), 8.0)
                 except Exception as e:
                     print(f"[FCM ERROR] Initialisation : {e}")
         else:
@@ -1113,7 +1110,6 @@ class MyApp(App):
             f"[FCM TOKEN] Synchronisation pour {nom} : "
             f"{fcm_token[:25]}..."
         )
-    
         def _thread_sync():
             url = "https://fcvv-api.onrender.com/users/fcm-token"
             payload = {"nom": nom,"fcm_token": fcm_token}
@@ -1150,26 +1146,21 @@ class MyApp(App):
             from pyobjus import autoclass
             NSUserDefaults = autoclass("NSUserDefaults")
             defaults = NSUserDefaults.standardUserDefaults()
-            
             # 1. Vérification présence notification
             pending = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
             if not pending:
                 print("[iOS FCM] Aucune notification en attente.")
                 return
-    
             print("[iOS FCM] Notification en attente detectee.")
-    
             # 2. Extraire et convertir les NSStrings natifs en str Python
             def _get_str(key):
                 val = defaults.stringForKey_(key)
                 return str(val) if val is not None else ""
-    
             titre = _get_str("FCVV_NOTIFICATION_TITLE")
             message = _get_str("FCVV_NOTIFICATION_BODY")
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
             notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
-    
             print("[iOS FCM] ===== DONNEES NOTIFICATION =====")
             print(f"[iOS FCM] Titre      : {titre}")
             print(f"[iOS FCM] Message    : {message}")
@@ -1177,7 +1168,6 @@ class MyApp(App):
             print(f"[iOS FCM] Match ID   : {match_id}")
             print(f"[iOS FCM] Type       : {notif_type}")
             print("[iOS FCM] ==================================")
-    
             # 3. Traitement de la redirection
             nt = notif_type.strip().lower()
             if nt in ("manual", "home") or not categorie:
@@ -1185,15 +1175,7 @@ class MyApp(App):
                 Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
             else:
                 print(f"[iOS FCM] Redirection -> VESTIAIRE ({categorie})")
-                Clock.schedule_once(
-                    lambda dt: self.executer_redirection_vestiaire(
-                        categorie,
-                        match_id if match_id else None,
-                        notif_type if notif_type else None
-                    ),
-                    0.5
-                )
-    
+                Clock.schedule_once(lambda dt: self.executer_redirection_vestiaire(categorie,match_id if match_id else None,notif_type if notif_type else None),0.5)
             # 4. Nettoyage immédiat de NSUserDefaults
             keys_to_clean = [
                 "FCVV_NOTIFICATION_PENDING",
@@ -1227,12 +1209,7 @@ class MyApp(App):
             if open_page == "home" or notif_type in ("manual", "home"):
                 Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
             elif open_page == "vestiaire" and categorie:
-                Clock.schedule_once(
-                    lambda dt: self.executer_redirection_vestiaire(
-                        categorie, match_id, notif_type
-                    ),
-                    0.5,
-                )
+                Clock.schedule_once(lambda dt: self.executer_redirection_vestiaire(categorie, match_id, notif_type),0.5,)
             if open_page or categorie or notif_type:
                 for key in ("open_page", "categorie", "match_id", "notif_type", "type"):
                     if intent.hasExtra(key):
@@ -1271,13 +1248,12 @@ class MyApp(App):
                     "evenement", "événement", "event",
                     "creation_evenement", "evenement_creation"
                 )
-                else "NOTIFICATIONS"
+                else "CALENDRIER"
             )
             if hasattr(self.root, "switch_screen"):
                 self.root.switch_screen("vestiaire")
             else:
                 self.root.sm.current = "vestiaire"
-    
             screen = self.root.sm.get_screen("vestiaire")
             def charger(dt):
                 screen.charger_categorie(categorie, sous_onglet=sous_onglet)
@@ -1409,7 +1385,6 @@ class MyApp(App):
         import os
         import threading
         from kivy.clock import Clock
-
         self.is_fetching_remote = True
         try:
             data_dir = self.user_data_dir
@@ -1418,7 +1393,6 @@ class MyApp(App):
                 ("config_fcvv.yaml", config_file_Id_fcvv, "fcvv"),
             ]
             is_first_run = not any(os.path.exists(os.path.join(data_dir, f[0])) for f in configs)
-
             # 1. Chargement rapide du cache local existant (Accès mémoire immédiat)
             cached_data = {}
             for filename, _, key in configs:
@@ -1431,23 +1405,19 @@ class MyApp(App):
                         print(f"[CACHE ERROR] {filename}: {e}")
             if cached_data:
                 self.app_config.update(cached_data)
-
             # Gestion sécurisée du certificat SSL
             try:
                 import certifi
                 verify_ssl = certifi.where()
             except ImportError:
                 verify_ssl = True
-
             # 2. Requêtes réseau optimisées
             session = requests.Session()
             tournoi_changed = False
             fcvv_changed = False
             updated_data = {}
-
             # Timeout adaptatif : si le cache existe, on ne bloque pas plus de 3 secondes
             timeout_val = 5 if is_first_run else 3
-
             try:
                 for filename, fid, key in configs:
                     cache_path = os.path.join(data_dir, filename)
@@ -1464,26 +1434,21 @@ class MyApp(App):
                         if response.status_code != 200:
                             print(f"[CONFIG ERROR] HTTP {response.status_code} pour {filename}")
                             continue
-
                         content = response.content
                         if b"<html" in content[:100].lower():
                             print(f"[CONFIG ERROR] HTML recu (page de confirmation Drive) pour {filename}")
                             continue
-
                         # Comparaison SHA256 directe
                         old_content = b""
                         if os.path.exists(cache_path):
                             with open(cache_path, "rb") as f:
                                 old_content = f.read()
-
                         if hashlib.sha256(content).hexdigest() != hashlib.sha256(old_content).hexdigest():
                             # Fichier modifié sur le serveur
                             with open(cache_path, "wb") as f:
                                 f.write(content)
-
                             parsed_yaml = yaml.safe_load(content.decode("utf-8", errors="ignore")) or {}
                             updated_data[key] = parsed_yaml
-
                             if key == "tournoi":
                                 tournoi_changed = True
                             if key == "fcvv":
@@ -1491,7 +1456,6 @@ class MyApp(App):
                             print(f"[CONFIG] {filename} mis a jour avec succes.")
                         else:
                             print(f"[CONFIG] {filename} inchange.")
-
                     except Exception as e:
                         print(f"[CONFIG WARNING] Impossible de joindre Drive pour {filename} ({e})")
             finally:
@@ -1514,7 +1478,6 @@ class MyApp(App):
                         Clock.schedule_once(self._update_home_screen, 0.1)
                 finally:
                     self.is_fetching_remote = False
-
             Clock.schedule_once(finalize, 0)
 
         except Exception as e:
@@ -1690,7 +1653,6 @@ class MyApp(App):
                 print("[FCM] Synchro terminee via NotificationManager")
             except Exception as e:
                 print(f"[FCM ERROR] Erreur lors de la synchro FCM : {e}")
-                
         # On déclenche sur le thread principal
         Clock.schedule_once(do_fcm_work, 0.5)
     

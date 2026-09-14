@@ -37,7 +37,6 @@ class StopPropagationButton(Button):
     def on_touch_down(self, touch):
         if self.disabled or self.opacity == 0:
             return super().on_touch_down(touch)
-
         if self.collide_point(*touch.pos):
             # Signale à la EventCard parente que ce touch appartient
             # à un contrôle enfant et ne doit donc pas ouvrir sa popup.
@@ -47,28 +46,21 @@ class StopPropagationButton(Button):
                     parent._touch_consumed_by_child = True
                     break
                 parent = parent.parent
-
             touch.grab(self)
             self._touch_started_inside = True
-
             # On consomme le touch.
             return True
-
         return super().on_touch_down(touch)
 
     def on_touch_up(self, touch):
         if touch.grab_current is self:
             touch.ungrab(self)
-
             if getattr(self, "_touch_started_inside", False):
                 self._touch_started_inside = False
-
                 if self.collide_point(*touch.pos):
                     self.dispatch("on_release")
-
                 # Très important : le bouton consomme aussi le touch_up.
                 return True
-
         return super().on_touch_up(touch)
 
 class EventCard(BoxLayout):
@@ -206,6 +198,33 @@ class EventCard(BoxLayout):
         container.bind(minimum_height=container.setter("height"))
 
         presents, absents, total_votes = [], [], len(votes)
+        
+        # --- Fonction interne pour trier les votants par timestamp (du plus ancien au plus récent) ---
+        def trier_par_timestamp(liste_noms):
+            def extraire_ts(nom):
+                # Nettoyage si le nom contient déjà des parenthèses ou du formatage
+                nom_pur = nom.split(" (")[0].strip()
+                # On cherche dans votes avec correspondance insensible à la casse
+                d = next((v for k, v in votes.items() if str(k).strip().lower() == nom_pur.lower()), {})
+                if not isinstance(d, dict):
+                    return datetime.min
+                ts_str = d.get("timestamp", "")
+                try:
+                    return datetime.strptime(ts_str, "%d/%m/%Y à %H:%M")
+                except (ValueError, TypeError):
+                    return datetime.min
+            return sorted(liste_noms, key=extraire_ts)
+
+        # --- Fonction interne pour formater l'affichage avec le timestamp ---
+        def formater_avec_timestamp(nom):
+            nom_pur = nom.split(" (")[0].strip()
+            d = next((v for k, v in votes.items() if str(k).strip().lower() == nom_pur.lower()), {})
+            if isinstance(d, dict):
+                ts = d.get("timestamp")
+                if ts:
+                    return f"{nom} ({ts})"
+            return nom
+
         if type_sondage == "multiple":
             details_str = f"Total votants : {total_votes}"
         else:
@@ -213,6 +232,11 @@ class EventCard(BoxLayout):
                 disp = d.get("disponibilite") if isinstance(d, dict) else d
                 if disp == "Présent": presents.append(n)
                 elif disp == "Absent": absents.append(n)
+            
+            # Tri des listes par ordre de vote
+            presents = trier_par_timestamp(presents)
+            absents = trier_par_timestamp(absents)
+
             details_str = f"[color=1a8c38][b]Présents : {len(presents)}[/b][/color]  |  [color=d93838][b]Absents : {len(absents)}[/b][/color]  |  Total : {total_votes}"
 
         lbl_info = Label(
@@ -241,7 +265,6 @@ class EventCard(BoxLayout):
         def format_nom_avec_places(nom, dict_vote):
             """Helper pour formater uniquement 'Nom (X places)' pour Valdahon si renseigné."""
             if isinstance(dict_vote, dict):
-                # Accepte 'nb_places' ET 'nombre_de_places'
                 nb = dict_vote.get("nb_places") if dict_vote.get("nb_places") is not None else dict_vote.get("nombre_de_places")
                 if nb is not None:
                     try:
@@ -256,31 +279,44 @@ class EventCard(BoxLayout):
             if type_sondage == "multiple":
                 opts = data.get("options_sondage", ["1", "2", "3", "4", "5"])
                 t_sond = data.get("titre_sondage_multiple", "Votre Choix")
-                sec_m = {f"Option : {o}": [n for n, d in votes.items() if isinstance(d, dict) and str(d.get("choix_multiple")) == str(o)] for o in opts}
+                sec_m = {
+                    f"Option : {o}": [
+                        formater_avec_timestamp(n) for n in trier_par_timestamp([n for n, d in votes.items() if isinstance(d, dict) and str(d.get("choix_multiple")) == str(o)])
+                    ] for o in opts
+                }
                 self._afficher_popup_resultats_coach(
                     f"Votes - {t_sond}",
                     sec_m,
                     self.match_data
                 )
             else:
-                sec_v = {"Présents": presents, "Absents": absents}
+                # Application du formatage avec timestamp sur les listes Présents et Absents
+                presents_finaux = [formater_avec_timestamp(n) for n in presents]
+                absents_finaux = [formater_avec_timestamp(n) for n in absents]
+                
+                sec_v = {"Présents": presents_finaux, "Absents": absents_finaux}
+                
                 if data.get("sondage_trajet"):
-                    # Calcul des votants Valdahon avec le nombre de places
                     valdahon_list = []
                     total_places_valdahon = 0
                     for n, d in votes.items():
                         if isinstance(d, dict) and d.get("trajet") == "Valdahon":
-                            valdahon_list.append(format_nom_avec_places(n, d))
-                            # Extraction sécurisée du nombre de places
+                            nom_formate = format_nom_avec_places(n, d)
+                            valdahon_list.append(nom_formate)
                             nb = d.get("nb_places") if d.get("nb_places") is not None else d.get("nombre_de_places")
                             if nb is not None:
                                 try: total_places_valdahon += int(nb)
                                 except (ValueError, TypeError): pass
                     
+                    valdahon_list = [formater_avec_timestamp(n) for n in trier_par_timestamp(valdahon_list)]
+                    stade_adverse_list = [formater_avec_timestamp(n) for n in trier_par_timestamp([n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Stade adverse"])]
+                    besoin_voiture_list = [formater_avec_timestamp(n) for n in trier_par_timestamp([n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Besoin voiture"])]
+
                     lbl_valdahon = f"Valdahon ({total_places_valdahon} place{'s' if total_places_valdahon > 1 else ''} dispo)" if total_places_valdahon > 0 else "Valdahon (Départ)"
                     sec_v[lbl_valdahon] = valdahon_list
-                    sec_v["Stade Adverse"] = [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Stade adverse"]
-                    sec_v["Besoin Voiture"] = [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Besoin voiture"]
+                    sec_v["Stade Adverse"] = stade_adverse_list
+                    sec_v["Besoin Voiture"] = besoin_voiture_list
+                    
                 self._afficher_popup_resultats_coach(
                     "Résultats des votes",
                     sec_v,
@@ -541,83 +577,168 @@ class EventCard(BoxLayout):
             _ignorer_verification_enfants=_ignorer_verification_enfants
         )
 
-    def _executer_envoi_vote(self, match_id, categorie, choix, choix_trajet, choix_multiple, second_vote, joueur_concerne, nb_places=None):
+    def _executer_envoi_vote(
+        self,
+        match_id,
+        categorie,
+        choix,
+        choix_trajet,
+        choix_multiple,
+        second_vote,
+        joueur_concerne,
+        nb_places=None
+    ):
         app = App.get_running_app()
-        target_cat = categorie or getattr(app, "categorie_courante", "U14_U15")
-        
-        p_cfg = app.config.get("User", "nom_parent", fallback="").strip() if app and hasattr(app, "config") and app.config.has_section("User") else ""
+        target_cat = (
+            categorie
+            or getattr(app, "categorie_courante", "U14_U15")
+        )
+        p_cfg = (
+            app.config.get("User", "nom_parent", fallback="").strip()
+            if app
+            and hasattr(app, "config")
+            and app.config.has_section("User")
+            else ""
+        )
         nom_parent = (self.nom_parent or "").strip()
-        nom_parent = p_cfg if (not nom_parent or nom_parent.lower() == "anonymous") else nom_parent
-        if not nom_parent: return print("[ERREUR VOTE] Nom du parent introuvable.")
-
+        nom_parent = (
+            p_cfg
+            if (not nom_parent or nom_parent.lower() == "anonymous")
+            else nom_parent
+        )
+        if not nom_parent:
+            return print("[ERREUR VOTE] Nom du parent introuvable.")
         joueur = (joueur_concerne or "").strip()
         payload = {
-            "id_sondage": match_id, 
-            "nom_parent": nom_parent, 
-            "nom_joueur_concerne": joueur, 
-            **{k: v for k, v in [("choix", choix), ("choix_trajet", choix_trajet), ("choix_multiple", choix_multiple), ("second_vote", second_vote), ("nombre_de_places", nb_places)] if v is not None}
+            "id_sondage": match_id,
+            "nom_parent": nom_parent,
+            "nom_joueur_concerne": joueur,
+            **{
+                k: v
+                for k, v in [
+                    ("choix", choix),
+                    ("choix_trajet", choix_trajet),
+                    ("choix_multiple", choix_multiple),
+                    ("second_vote", second_vote),
+                    ("nombre_de_places", nb_places),
+                ]
+                if v is not None
+            }
         }
-
         def envoyer_requete():
             try:
-                print(f"[VOTE] Categorie = {target_cat} | Parent = {nom_parent!r} | Joueur = {joueur!r} | Places = {nb_places}")
-                api_url = getattr(app, "api_url", "https://fcvv-api.onrender.com")
-                res = requests.post(f"{api_url}/voter/{target_cat}", json=payload, headers={"nom_parent": nom_parent, "Content-Type": "application/json"}, timeout=5, verify=(platform != 'win'))
-
-                if res.status_code == 200:
-                    if joueur:
-                        votes = self.match_data.setdefault("votes", {})
-                        norm = lambda s: " ".join(str(s).strip().lower().split())
-                        cle = next((k for k in votes if norm(k) == norm(joueur)), joueur)
-                        vote = votes.setdefault(cle, {})
-                        
-                        # --- CORRECTION 1 : On enregistre sous les deux clés pour compatibilité locale et API ---
-                        for attr, val in [("disponibilite", choix), ("trajet", choix_trajet), ("choix_multiple", choix_multiple), ("nb_places", nb_places), ("nombre_de_places", nb_places)]:
-                            if val is not None: vote[attr] = val
-
-                    Clock.schedule_once(
-                        lambda dt: (
-                            self.mettre_a_jour(self.match_data),
-                            setattr(self, "height", self.minimum_height),
-                        ),
-                        0.05,
+                print(
+                    f"[VOTE] Categorie = {target_cat} | "
+                    f"Parent = {nom_parent!r} | "
+                    f"Joueur = {joueur!r} | "
+                    f"Places = {nb_places}"
+                )
+                api_url = getattr(app,"api_url","https://fcvv-api.onrender.com")
+                headers = {"nom_parent": nom_parent,"Content-Type": "application/json",}
+                # ============================================================
+                # 1. ROUTE EXISTANTE
+                #    NE PAS MODIFIER LE BACKEND
+                # ============================================================
+                res = requests.post(f"{api_url}/voter/{target_cat}",json=payload,headers=headers,timeout=5,verify=(platform != "win"))
+                if res.status_code != 200:
+                    print(
+                        f"[ERREUR VOTE] "
+                        f"{res.status_code} {res.text}"
                     )
-                else: print(f"[ERREUR VOTE] {res.status_code} {res.text}")
-            except Exception as e: print(f"[ERREUR RESEAU VOTE] {e}")
-
-        threading.Thread(target=envoyer_requete, daemon=True).start()
+                    return
+                print("[VOTE] Vote principal enregistre.")
+                # ============================================================
+                # 2. NOUVELLE ROUTE D'HISTORIQUE
+                #
+                #    Cette route sauvegarde définitivement le vote dans :
+                #
+                #    historique_presences/
+                #        categorie/
+                #            evenements/
+                #                event_uid/
+                #                    votes/
+                #                    votes_history/
+                #
+                #    Elle est indépendante de /voter/
+                # ============================================================
+                try:
+                    res_stats = requests.post(
+                        f"{api_url}/stats/historique/vote/{target_cat}",json=payload,headers=headers,timeout=8,verify=(platform != "win"))
+                    if res_stats.status_code == 200:
+                        print("[STATS] Vote sauvegarde definitivement.")
+                    else:
+                        print(
+                            "[ERREUR STATS] "
+                            f"{res_stats.status_code} "
+                            f"{res_stats.text}"
+                        )
+                        # Important :
+                        # Le vote principal est OK, mais son historique
+                        # n'a pas été enregistré.
+                        #
+                        # On pourra éventuellement ajouter ici un système
+                        # de retry si nécessaire.
+                except Exception as e:
+                    print(f"[ERREUR RESEAU STATS] {e}")
+                # ============================================================
+                # 3. MISE À JOUR LOCALE DE LA CARTE
+                #    Ton fonctionnement actuel est conservé.
+                # ============================================================
+                if joueur:
+                    votes = self.match_data.setdefault("votes",{})
+                    norm = lambda s: (
+                        " ".join(
+                            str(s).strip().lower().split()
+                        )
+                    )
+                    cle = next(
+                        (
+                            k
+                            for k in votes
+                            if norm(k) == norm(joueur)
+                        ),
+                        joueur
+                    )
+                    vote = votes.setdefault(cle, {})
+                    for attr, val in [
+                        ("disponibilite", choix),
+                        ("trajet", choix_trajet),
+                        ("choix_multiple", choix_multiple),
+                        ("nb_places", nb_places),
+                        ("nombre_de_places", nb_places),
+                    ]:
+    
+                        if val is not None:
+                            vote[attr] = val
+    
+                Clock.schedule_once(lambda dt: (self.mettre_a_jour(self.match_data),setattr(self,"height",self.minimum_height),),0.05,)
+            except Exception as e:
+                print(f"[ERREUR RESEAU VOTE] {e}")
+        threading.Thread(target=envoyer_requete,daemon=True).start()
 
     def calculer_etat_vote(self):
         data = self.match_data or {}
         s_actif, s_trajet, type_s = bool(data.get("sondage_actif")), bool(data.get("sondage_trajet")), data.get("type_sondage", "classique")
-        
         target_cat = getattr(self, "categorie", None) or data.get("categorie")
         associes = list(dict.fromkeys(str(n).strip() for n in (self.get_joueurs_associes_pour_parent(self.nom_parent, target_cat) or []) if str(n).strip()))
         if not (s_actif or s_trajet) or not associes: return []
-
         norm = lambda s: " ".join(str(s or "").strip().lower().split())
         votes_norm = {norm(k): v for k, v in (data.get("votes", {}) or {}).items()}
         joueurs, coachs = [n for n in associes if not n.upper().startswith("COACH_")], [n for n in associes if n.upper().startswith("COACH_")]
-        
         statuts_colores, complet, total = [], True, len(joueurs) + len(coachs)
 
         for nom in joueurs + coachs:
             vote = votes_norm.get(norm(nom), {})
             v_dict = vote if isinstance(vote, dict) else {}
             dispo = v_dict.get("disponibilite") if v_dict else vote
-            
             st = str(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if (s_actif and (v_dict.get("choix_multiple") if type_s == "multiple" else dispo)) else None
-
             if s_trajet and dispo != "Absent" and v_dict.get("trajet"):
                 tr = "Valdahon" if "Valdahon" in str(v_dict["trajet"]) else ("Direct" if "Stade" in str(v_dict["trajet"]) else "Voiture")
-                
                 # --- CORRECTION 2 : Accepter 'nb_places' ET 'nombre_de_places' envoyés par l'API ---
                 places = v_dict.get("nb_places") if v_dict.get("nb_places") is not None else v_dict.get("nombre_de_places")
-                
                 if tr == "Valdahon" and places is not None:
                     tr = f"Valdahon ({places})"
                 st = f"{st} - {tr}" if st else tr
-
             if nom in joueurs:
                 p_ok = bool(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if s_actif else True
                 if not (p_ok and (dispo == "Absent" or not s_trajet or bool(v_dict.get("trajet")))):
@@ -794,6 +915,21 @@ class EventCard(BoxLayout):
                 self.match_data
             )
 
+        # Fonction utilitaire pour trier une liste de votants par timestamp (du plus ancien au plus récent, ou inversement)
+        def trier_votants(noms_joueurs, votes_dict, reverse=False):
+            def extraire_timestamp(nom):
+                # On extrait les données du vote pour ce joueur
+                # (en gérant le format si les clés de votes sont normalisées ou non)
+                data = votes_dict.get(nom, {})
+                if not isinstance(data, dict):
+                    return datetime.min
+                ts_str = data.get("timestamp", "")
+                try:
+                    return datetime.strptime(ts_str, "%d/%m/%Y à %H:%M")
+                except (ValueError, TypeError):
+                    return datetime.min
+        
+            return sorted(noms_joueurs, key=extraire_timestamp, reverse=reverse)
         type_sondage, sondage_actif, sondage_trajet = self.match_data.get("type_sondage", "classique"), bool(self.match_data.get("sondage_actif")), bool(self.match_data.get("sondage_trajet"))
 
         # SECTION MULTIPLE
@@ -822,8 +958,13 @@ class EventCard(BoxLayout):
                 box_v.add_widget(make_btn(choice, (1,1,1,1), bg, lambda x, c=choice: (self.on_presence_click(self.match_id, choix=c, joueur_concerne=nom_enfant), popup.dismiss()), dp(45)))
             info_box.add_widget(box_v)
 
-            presents = [n for n, d in votes.items() if (d.get("disponibilite") if isinstance(d, dict) else d) == "Présent"]
-            absents = [n for n, d in votes.items() if (d.get("disponibilite") if isinstance(d, dict) else d) == "Absent"]
+            presents_bruts = [n for n, d in votes.items() if (d.get("disponibilite") if isinstance(d, dict) else d) == "Présent"]
+            absents_bruts = [n for n, d in votes.items() if (d.get("disponibilite") if isinstance(d, dict) else d) == "Absent"]
+            
+            # Tri chronologique (du premier au dernier votant, mettez reverse=True pour l'inverse)
+            presents = trier_votants(presents_bruts, votes)
+            absents = trier_votants(absents_bruts, votes)
+            
             info_box.add_widget(make_btn("Voir les votes", (0.15, 0.15, 0.15, 1), (1.0, 0.85, 0.2, 1), lambda x: afficher_popup_votes("Votes - Disponibilité", {"Présents": presents, "Absents": absents})))
 
         # SECTION TRAJET
@@ -876,11 +1017,9 @@ class EventCard(BoxLayout):
         if self.match_data.get("activer_convocation", False):
             j_conv = self.match_data.get("joueurs_convoques", []) or []
             total_convoques = len(j_conv)
-            
             # Affichage du titre avec le total entre parenthèses
             titre_conv = f"[b]--- Joueurs Convoqués ({total_convoques}) ---[/b]"
             info_box.add_widget(make_lbl(titre_conv, (0.1, 0.3, 0.8, 1), 0, "center", dp(35)))
-
             if not j_conv:
                 info_box.add_widget(make_lbl("  • Aucun joueur convoqué", (0.6, 0.6, 0.6, 1), height=dp(25)))
             else:
@@ -889,18 +1028,18 @@ class EventCard(BoxLayout):
                         nom_j = j.get("nom", "").strip()
                         prenom_j = j.get("prenom", "").strip()
                         cat_j = j.get("categorie", "").strip()
-                        txt = f"[{cat_j}] {nom_j} {prenom_j}".strip() if cat_j else f"{nom_j} {prenom_j}".strip()
+                        nom_complet = f"{nom_j} {prenom_j}".strip()
+                        
+                        # Affichage de la catégorie entre parenthèses à droite
+                        txt = f"{nom_complet} ({cat_j})" if cat_j else nom_complet
                     else:
                         txt = str(j).strip()
                     info_box.add_widget(make_lbl(f"  • {escape_markup(txt)}", (0.3, 0.3, 0.3, 1), height=dp(25)))
             info_box.add_widget(BoxLayout(size_hint_y=None, height=dp(10)))
-
         info_scroll.add_widget(info_box)
         content.add_widget(info_scroll)
-
         # Création unique du Popup
         popup = Popup(title="", title_size=0, content=content, size_hint=(0.85, 0.8), separator_height=0, background="", background_color=(0, 0, 0, 0.6))
-
         content.add_widget(make_btn("Fermer", (0.15, 0.15, 0.15, 1), (0.82, 0.82, 0.85, 1), popup.dismiss, dp(45)))
         popup.open()
 
@@ -910,14 +1049,11 @@ class EventCard(BoxLayout):
             for j in (joueurs_associes or []) if j
         ))
         if not (joueurs := [j for j in joueurs if j]): return
-    
         norm = lambda s: " ".join(str(s or "").strip().lower().split())
         votes = {norm(k): v for k, v in (self.match_data.get("votes", {}) or {}).items()}
-    
         def deja_vote(nom):
             v = votes.get(norm(nom))
             return bool(v) if not isinstance(v, dict) else any(v.get(k) not in (None, "") for k in ("disponibilite", "choix_multiple", "trajet"))
-    
         content = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(12))
         with content.canvas.before:
             Color(1, 1, 1, 1)
@@ -925,13 +1061,11 @@ class EventCard(BoxLayout):
         content.bind(pos=lambda _, v: setattr(bg, "pos", v), size=lambda _, v: setattr(bg, "size", v))
         content.add_widget(Label(text="[b]Pour qui souhaitez-vous voter ?[/b]", markup=True, font_size=dp(19),
                                  color=(0.1, 0.1, 0.2, 1), size_hint_y=None, height=dp(45), halign="center", valign="middle"))
-    
         scroll = ScrollView(bar_width=0, size_hint=(1, 1))
         liste = GridLayout(cols=1, spacing=dp(10), padding=dp(5), size_hint_y=None)
         liste.bind(minimum_height=liste.setter("height"))
         scroll.add_widget(liste)
         content.add_widget(scroll)
-    
         popup = ModalView(size_hint=(0.85, 0.65), auto_dismiss=False, background_color=(0, 0, 0, 0.65))
         popup.add_widget(content)
     
@@ -955,8 +1089,6 @@ class EventCard(BoxLayout):
                                     lambda _: popup.dismiss(), col=(0.15, 0.15, 0.15, 1)))
         popup.open()
 
-    
-
     def mettre_a_jour(self, nouveau_match_data=None):
         if nouveau_match_data:
             self.match_data = nouveau_match_data
@@ -966,10 +1098,8 @@ class EventCard(BoxLayout):
             self.ball_icon.opacity = int(est_conv)
             self.ball_icon.size_hint_x = None
             self.ball_icon.width = dp(22) if est_conv else 0
-    
         self.badge_box.clear_widgets()
         statuts = self.calculer_etat_vote()
-    
         for texte, couleur in statuts or []:
             lbl = Label(
                 text=f"[b]{escape_markup(texte)}[/b]",
@@ -983,7 +1113,6 @@ class EventCard(BoxLayout):
             )
             lbl.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
             self.badge_box.add_widget(lbl)
-    
         self.badge_box.size_hint = (None, None)
         self.badge_box.width = dp(120) if statuts else 0
         self.badge_box.height = dp(20) * len(statuts) if statuts else 0
@@ -1025,7 +1154,6 @@ class EventCard(BoxLayout):
             and app.config.has_section("User")
         ):
             self.nom_parent = app.config.get("User", "nom_parent", fallback="").strip()
-    
         target_cat = getattr(self, "categorie", None) or self.match_data.get("categorie")
         joueurs = list(
             dict.fromkeys(
@@ -1034,7 +1162,6 @@ class EventCard(BoxLayout):
                 if (nom := self._obtenir_nom_joueur(j))
             )
         )
-    
         if len(joueurs) > 1:
             Clock.schedule_once(lambda dt: self.ouvrir_popup_selection_votant(joueurs), 0)
         else:
