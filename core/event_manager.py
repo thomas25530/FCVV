@@ -19,31 +19,54 @@ from kivy.graphics import Color, RoundedRectangle
 from kivy.uix.textinput import TextInput
 from kivy.uix.dropdown import DropDown
 
-import os, sys
+import os
 from pathlib import Path
-
 from kivy.app import App
 
+
 def obtenir_dossier_documents():
-    if platform in ("android", "ios"):
-        try:
-            app = App.get_running_app()
-            if app and app.user_data_dir: return app.user_data_dir
-        except Exception: pass
+    if platform == "android":
         try:
             from plyer import storagepath
-            return storagepath.get_documents_dir() or storagepath.get_application_dir() or os.getcwd()
-        except Exception: return os.getcwd()
+            dossier = os.path.join(storagepath.get_downloads_dir(),"FCVV")
+            os.makedirs(dossier, exist_ok=True)
+            return dossier
+        except Exception:
+            pass
+    elif platform == "ios":
+        app = App.get_running_app()
+        return app.user_data_dir
     try:
         from plyer import storagepath
         d = storagepath.get_documents_dir()
-        if d and os.path.isdir(d): return d
-    except Exception: pass
-    d = Path.home() / "Documents"
-    return str(d if d.exists() else Path.home())
+        if d:
+            return d
+    except Exception:
+        pass
+    return os.path.expanduser("~/Documents")
+
+def partager_fichier_android(filepath):
+    from jnius import autoclass, cast
+    PythonActivity = autoclass("org.kivy.android.PythonActivity")
+    Intent = autoclass("android.content.Intent")
+    Uri = autoclass("android.net.Uri")
+    File = autoclass("java.io.File")
+    currentActivity = PythonActivity.mActivity
+    intent = Intent()
+    intent.setAction(Intent.ACTION_SEND)
+    intent.setType("application/pdf")
+    file_obj = File(filepath)
+    uri = Uri.fromFile(file_obj)
+    intent.putExtra(Intent.EXTRA_STREAM, uri)
+    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    chooser = Intent.createChooser(intent,"Partager la convocation")
+    currentActivity.startActivity(chooser)
 
 def generer_pdf_convocation(match_info, tous_les_joueurs=None):
+    import os, sys
     from fpdf import FPDF
+    from kivy.app import App
+    from kivy.utils import platform
     tous_les_joueurs = tous_les_joueurs or []
     txt = lambda v, n=60: str(v or "-").replace("\n", " ").strip()[:n]
     # Licences
@@ -65,6 +88,7 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     for b in (os.path.dirname(__file__), getattr(App.get_running_app(), "directory", ""),
               os.getcwd(), getattr(sys, "_MEIPASS", "")):
         if b: bases.append(os.path.abspath(b))
+
     def asset(nom):
         vus = set()
         for base in bases:
@@ -76,11 +100,13 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
                 if parent == base: break
                 base = parent
         return None
+
     font = asset("fonts/DejaVuSans.ttf")
     bold = asset("fonts/DejaVuSans-Bold.ttf")
     logo = asset("logo.png")
     if not font or not bold:
         raise FileNotFoundError("Polices DejaVu introuvables dans assets/fonts/")
+
     # PDF
     pdf = FPDF("P", "mm", "A4")
     pdf.set_margins(10, 10, 10)
@@ -88,12 +114,14 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     pdf.add_font("DejaVu", "", font)
     pdf.add_font("DejaVu", "B", bold)
     pdf.add_page()
+
     def section(s):
         pdf.ln(3)
         pdf.set_font("DejaVu", "B", 12)
         pdf.set_text_color(45, 106, 79)
         pdf.cell(0, 7, txt(s, 60))
         pdf.ln(7)
+
     # En-tête
     pdf.set_text_color(27, 67, 50)
     pdf.set_font("DejaVu", "B", 17)
@@ -105,6 +133,7 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             pass
     pdf.cell(0, 10, txt(titre, 60).upper(), align="C")
     pdf.ln(17)
+
     # Infos match
     section("Détails du Match")
     infos = [
@@ -113,6 +142,7 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
         ("Coup d'envoi :", match_info.get("heure_coup_envoi"), "Lieu :", match_info.get("lieu"))
     ]
     widths = [34, 50, 34, 52]
+
     for row in infos:
         for i, v in enumerate(row):
             pdf.set_font("DejaVu", "B" if i in (0, 2) else "", 8)
@@ -120,9 +150,11 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             pdf.set_draw_color(225, 228, 230)
             pdf.cell(widths[i], 8, txt(v, 35), border=1, fill=True)
         pdf.ln()
+
     # Entraîneurs
     entraineurs = [e.strip() for e in str(match_info.get("entraineurs", "")).split(",") if e.strip()]
     coachs = []
+
     for e in entraineurs:
         morceaux = e.split()
         if len(morceaux) > 1:
@@ -138,6 +170,7 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     pdf.cell(34, 8, "Entraîneur(s) :", border=1, fill=True)
     pdf.set_font("DejaVu", "", 8)
     pdf.multi_cell(136, 8, txt(", ".join(coachs) or "-", 120), border=1, fill=True)
+
     # Notes
     notes = txt(match_info.get("notes"), 500)
     if notes != "-":
@@ -147,18 +180,23 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
         pdf.ln(5)
         pdf.set_font("DejaVu", "", 8)
         pdf.multi_cell(0, 5, notes)
+
     # Joueurs
     joueurs = match_info.get("joueurs_convoques", [])
+
     if match_info.get("activer_convocation") and joueurs:
         section(f"Joueurs Convoqués ({len(joueurs)})")
         headers = ["#", "Nom", "Prénom", "Catégorie", "N° Licence"]
         widths = [9, 39, 39, 31, 42]
+
         pdf.set_font("DejaVu", "B", 8)
         pdf.set_text_color(255, 255, 255)
         pdf.set_fill_color(45, 106, 79)
+
         for i, h in enumerate(headers):
             pdf.cell(widths[i], 8, h, border=1, align="C", fill=True)
         pdf.ln()
+
         for idx, j in enumerate(joueurs, 1):
             if isinstance(j, dict):
                 nom = txt(j.get("nom"), 40).upper()
@@ -169,29 +207,51 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
                 nom = " ".join(p[:-1]).upper() if len(p) > 1 else (p[0].upper() if p else "-")
                 prenom = p[-1].capitalize() if len(p) > 1 else ""
                 cat = "-"
+
             lic = licences.get(f"{nom} {prenom}".upper(), "-")
             row = [idx, nom, prenom, cat, lic]
+
             pdf.set_text_color(43, 43, 43)
             pdf.set_fill_color(241, 245, 242) if idx % 2 == 0 else pdf.set_fill_color(255, 255, 255)
+
             for i, v in enumerate(row):
                 pdf.cell(widths[i], 7, txt(v, 35), border=1,
                          align="C" if i == 0 else "L", fill=True)
             pdf.ln()
+
     # Sauvegarde
     pdf.output(chemin)
     print(f"PDF cree : {chemin}")
+    print(f"Existe : {os.path.exists(chemin)}")
+    
+    if os.path.exists(chemin):
+        print(f"Taille : {os.path.getsize(chemin)} octets")
+
     # Ouverture / partage
     if platform == "win":
         try:
             os.startfile(chemin)
         except Exception as e:
             print(f"Ouverture PDF impossible : {e}")
-    elif platform in ("android", "ios"):
+    elif platform == "android":
+        try:
+            partager_fichier_android(chemin)
+    
+        except Exception as e:
+            print(f"Partage Android impossible : {e}")
+    
+    elif platform == "ios":
         try:
             from plyer import share
-            share.share(filepath=chemin)
+    
+            share.share(
+                title="Convocation FCVV",
+                filepath=chemin
+            )
+    
         except Exception as e:
-            print(f"Partage PDF impossible : {e}")
+            print(f"Partage iOS impossible : {e}")
+
     return chemin
 
 class DateTextInput(TextInput):

@@ -514,7 +514,14 @@ class LoginScreen(Screen):
         cat_item = next((item for item in vestiaires if str(item.get("categorie")).strip().lower() == str(cat_selectionnee).strip().lower()), {})
         path = os.path.join(getattr(app, "user_data_dir", "."), f"data_{cat_selectionnee}.yaml")
         def afficher_popup_selection(liste_joueurs):
-            noms_joueurs = sorted([f"{j.get('nom', '').upper()} {j.get('prenom', '')}".strip() for j in liste_joueurs if isinstance(j, dict)])
+            noms_joueurs = sorted([
+                f"{j.get('nom', '').upper()} {j.get('prenom', '')}".strip()
+                for j in liste_joueurs
+                if (
+                    isinstance(j, dict)
+                    and str(j.get('poste', '')).strip().lower() != 'dirigeant'
+                )
+            ])
             content = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(10))
             with content.canvas.before:
                 Color(0.95, 0.95, 0.97, 1)

@@ -968,7 +968,10 @@ class MyApp(App):
         except Exception:
             pass
         from kivy.core.window import Window
-        Window.softinput_mode = "below_target"
+        if platform == "ios":
+            Window.softinput_mode = ""
+        else:
+            Window.softinput_mode = "below_target"
         Window.bind(on_keyboard=self.on_back_button)
         Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
         if platform in ("android", "ios"):
