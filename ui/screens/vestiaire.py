@@ -101,14 +101,11 @@ class ModifierStatsPopup(ModalView):
         box_btn = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(40))
         btn_cancel = Button(text="ANNULER",background_normal="",background_color=(0.6, 0.6, 0.6, 1),color=(1, 1, 1, 1),bold=True)
         btn_cancel.bind(on_release=self.dismiss)
-
         btn_save = Button(text="ENREGISTRER",background_normal="",background_color=(34 / 255, 197 / 255, 94 / 255, 1),color=(1, 1, 1, 1),bold=True)
         btn_save.bind(on_release=self.sauvegarder)
-
         box_btn.add_widget(btn_cancel)
         box_btn.add_widget(btn_save)
         content.add_widget(box_btn)
-
         self.add_widget(content)
         content.bind(height=lambda inst, val: setattr(self, 'height', val))
 
@@ -438,6 +435,7 @@ class EchangeBubble(BoxLayout):
     def __init__(self, msg_data, is_me, show_author=True, est_admin=False, can_delete=False, on_delete=None, font_size=15, **kwargs):
         super().__init__(orientation="vertical", size_hint_y=None, padding=[dp(10) if is_me else dp(60), 0, dp(60) if is_me else dp(10), 0], **kwargs)
         self.msg_data = msg_data
+        self.can_delete = can_delete
         self.bind(minimum_height=self.setter("height"))
 
         # Correction des couleurs selon le rôle (séparation propre pour éviter le tuple imbriqué)
@@ -703,7 +701,7 @@ class ChatView(BoxLayout):
                     self.cached_messages = data
                     self.save_cache()
 
-                    is_at_bottom = self.scroll.scroll_y <= 0.05
+                    is_at_bottom = self.scroll.scroll_y <= 0.15
                     Clock.schedule_once(
                         lambda dt: self.render_messages(
                             scroll_trigger=is_at_bottom
@@ -744,14 +742,10 @@ class ChatView(BoxLayout):
                 else "PARENT"
             )
             mon_nom = self._get_user()
-            threading.Thread(
-                target=self._send_message_thread,
-                args=(mon_nom, text, user_role),
-                daemon=True,
-            ).start()
+            threading.Thread(target=self._send_message_thread,args=(mon_nom, text, user_role),daemon=True,).start()
             self.input_field.text = ""
-            self.input_field.height = dp(40)
-            self.input_box.height = dp(50)
+            #self.input_field.height = dp(40)
+            #self.input_box.height = dp(50)
 
     def _send_message_thread(self, mon_nom, text, user_role):
         try:
@@ -840,7 +834,12 @@ class EchangeView(BoxLayout):
         # Zone de saisie
         self.input_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10), padding=dp(5))
         self.input_field = TextInput(hint_text="Écrire un message...", multiline=True, size_hint_y=None, height=dp(40), font_size=f"{fs + 2}sp", padding=[dp(10), dp(8)])
-        self.input_field.bind(minimum_height=lambda inst, h: (setattr(inst, "height", max(dp(40), min(h, dp(220)))), setattr(self.input_box, "height", inst.height + dp(10))))
+        def debug_height(inst, h):
+            inst.height = max(dp(40), min(h, dp(220)))
+            self.input_box.height = inst.height + dp(10)
+        
+        self.input_field.bind(minimum_height=debug_height)
+
         
         self.send_btn = Button(text="Envoyer", size_hint_x=0.25, font_size=f"{fs}sp", bold=True, on_release=self.send_message)
         self.input_box.add_widget(self.input_field)
@@ -860,7 +859,7 @@ class EchangeView(BoxLayout):
         def adjust(_):
             self.scroll.scroll_y = 1 if self.msg_container.height <= self.scroll.height else 0
     
-        for delay in (0.05, 0.15):
+        for delay in (0.05, 0.15, 0.30, 0.50):
             Clock.schedule_once(adjust, delay)
     # =============================================================
     # RENDU DES MESSAGES
@@ -928,7 +927,7 @@ class EchangeView(BoxLayout):
                 if new_hash != self.last_hash:
                     self.last_hash, self.cached_messages = new_hash, data
                     self.save_cache()
-                    is_at_bottom = self.scroll.scroll_y <= 0.05
+                    is_at_bottom = self.scroll.scroll_y <= 0.15
                     Clock.schedule_once(lambda dt: self.render_messages(scroll_trigger=is_at_bottom))
         except Exception as e:
             print(f"Erreur fetch echange: {e}")
@@ -958,9 +957,9 @@ class EchangeView(BoxLayout):
     def send_message(self, *args):
         if not (text := self.input_field.text.strip()):
             return
-        threading.Thread(target=self._send_message_thread, args=(self._get_user(), text), daemon=True).start()
+    
+        threading.Thread(target=self._send_message_thread,args=(self._get_user(), text),daemon=True).start()
         self.input_field.text = ""
-        self.input_field.height, self.input_box.height = dp(40), dp(50)
     
     def _send_message_thread(self, mon_nom, text):
         try:
@@ -1542,7 +1541,7 @@ class VestiaireScreen(Screen):
                     role_avant = app.get_role_for_cat(cat)
                 except Exception as e:
                     role_avant = f"ERREUR: {e}"
-                r = requests.get(url,params=params,headers=headers,timeout=10,verify=not is_windows)
+                r = requests.get(url, params=params, headers=headers, timeout=10, verify=not is_windows)
                 if r.status_code != 200:
                     print(f"[ROLE TRACE] STOP : API retourne HTTP {r.status_code}")
                     return
@@ -1552,7 +1551,7 @@ class VestiaireScreen(Screen):
                     print(f"[ROLE TRACE] ERREUR JSON = {e}")
                     return
                 role_api = str(data.get("role", "")).strip().upper()
-                if role_api not in ("ATTENTE","PARENT","ADMIN","EXCLU"):
+                if role_api not in ("ATTENTE", "PARENT", "ADMIN", "EXCLU"):
                     print(f"[ROLE TRACE] STOP : role inconnu '{role_api}'")
                     return
                 # --------------------------------------------------
@@ -1565,7 +1564,7 @@ class VestiaireScreen(Screen):
                 )
                 if str(role_local).strip().upper() != role_api:
                     try:
-                        resultat_write = app.set_vestiaire_role(cat,role_api)
+                        resultat_write = app.set_vestiaire_role(cat, role_api)
                         print(
                             f"[ROLE TRACE] <<< RETOUR set_vestiaire_role = "
                             f"{resultat_write}"
@@ -1605,7 +1604,7 @@ class VestiaireScreen(Screen):
                                 f"{os.path.getsize(ini_path)} octets"
                             )
                             config_test = configparser.ConfigParser()
-                            config_test.read(ini_path,encoding="utf-8")
+                            config_test.read(ini_path, encoding="utf-8")
                             print(
                                 f"[ROLE TRACE] sections fichier = "
                                 f"{config_test.sections()}"
@@ -1617,7 +1616,7 @@ class VestiaireScreen(Screen):
                                 )
                                 key = cat.lower().replace(" ", "_")
                                 print(f"[ROLE TRACE] recherche cle = '{key}'")
-                                valeur_fichier = config_test.get("Roles",key,fallback="ABSENT")
+                                valeur_fichier = config_test.get("Roles", key, fallback="ABSENT")
                                 print(
                                     f"[ROLE TRACE] VALEUR PHYSIQUE DU FICHIER "
                                     f"= '{valeur_fichier}'"
@@ -1635,7 +1634,7 @@ class VestiaireScreen(Screen):
                     # RAFRAICHISSEMENT UI
                     # --------------------------------------------------
                     print("[ROLE TRACE] programmation update_ui()")
-                    Clock.schedule_once(lambda dt: self.update_ui(),0)
+                    Clock.schedule_once(lambda dt: self.update_ui(), 0)
                 else:
                     print(
                         f"[ROLE TRACE] {cat} : role deja a jour "
@@ -1644,14 +1643,21 @@ class VestiaireScreen(Screen):
                 print(f"[ROLE TRACE] FIN categorie = {cat}")
     
             except Exception as e:
-                print( f"[ROLE TRACE] ERREUR GENERALE pour {cat} : {e}")
+                print(f"[ROLE TRACE] ERREUR GENERALE pour {cat} : {e}")
                 import traceback
                 traceback.print_exc()
+
         # ----------------------------------------------------------
         # Une requête par catégorie autorisée
         # ----------------------------------------------------------
         for cat in app.authorized_vestiaires:
-            threading.Thread(target=faire_requete,args=(cat,),daemon=True).start()
+            threading.Thread(target=faire_requete, args=(cat,), daemon=True).start()
+
+        # ----------------------------------------------------------
+        # Synchronisation FCM globale via l'App
+        # ----------------------------------------------------------
+        print("[ROLE TRACE] Lancement de la synchro FCM globale via l'App")
+        app.gerer_abonnements_fcm(app.authorized_vestiaires)
     
     def on_enter(self, *args):
         self.invalidate_stats()
@@ -2075,70 +2081,42 @@ class VestiaireScreen(Screen):
     
     def envoyer_update_performance(self, categorie, payload):
         """Envoie les performances mises à jour vers FastAPI puis Firestore."""
-    
         app = App.get_running_app()
-    
-        # ---------------------------------------------------------
-        # Récupération robuste du nom du parent connecté
-        # ---------------------------------------------------------
         nom_parent = ""
-    
         if app and hasattr(app, "config"):
             try:
-                nom_parent = app.config.get(
-                    "User",
-                    "nom_parent",
-                    fallback=""
-                )
+                nom_parent = app.config.get("User","nom_parent",fallback="")
             except Exception:
                 nom_parent = ""
-    
         # Fallback sur les attributs existants de l'application
         if not nom_parent and app:
             nom_parent = getattr(app, "nom_parent", "") or ""
-    
         if not nom_parent:
             nom_parent = getattr(self, "nom_parent_actuel", "") or ""
-    
         nom_parent = str(nom_parent).strip()
-    
-        # ---------------------------------------------------------
-        # Vérifications avant l'appel API
-        # ---------------------------------------------------------
         categorie = str(categorie or "").strip()
-    
         if not categorie:
             print(
-                "[PERF API ERROR] Catégorie/équipe absente. "
-                "Sauvegarde annulée."
+                "[PERF API ERROR] Categorie/equipe absente. "
+                "Sauvegarde annulee."
             )
             return
-    
         if not nom_parent:
             print(
                 "[PERF API ERROR] nom_parent absent. "
-                "Impossible d'identifier l'utilisateur connecté."
+                "Impossible d'identifier l'utilisateur connecte."
             )
             return
-    
         if not isinstance(payload, dict):
             print(
                 f"[PERF API ERROR] Payload invalide : "
                 f"{type(payload).__name__}"
             )
             return
-    
         # ---------------------------------------------------------
         # Copie du payload pour éviter toute modification concurrente
         # ---------------------------------------------------------
         payload = dict(payload)
-    
-        print(
-            f"[PERF API] Préparation sauvegarde : "
-            f"nom_parent={nom_parent!r}, "
-            f"categorie={categorie!r}, "
-            f"payload={payload}"
-        )
     
         def task():
             url = (
@@ -2146,62 +2124,36 @@ class VestiaireScreen(Screen):
                 f"stats/performance/{categorie}"
             )
     
-            headers = {
-                "nom_parent": nom_parent,
-                "Content-Type": "application/json",
-            }
-    
+            headers = {"nom_parent": nom_parent,"Content-Type": "application/json",}
             try:
                 is_windows = (platform == "win")
-    
+                print(f"[PERF API] POST {url}")
+                res = requests.post(url,json=payload,headers=headers,timeout=10,verify=not is_windows)
                 print(
-                    f"[PERF API] POST {url}"
-                )
-    
-                res = requests.post(
-                    url,
-                    json=payload,
-                    headers=headers,
-                    timeout=10,
-                    verify=not is_windows
-                )
-    
-                print(
-                    f"[PERF API] Réponse serveur : "
+                    f"[PERF API] Reponse serveur : "
                     f"{res.status_code} - {res.text}"
                 )
-    
                 if res.status_code == 200:
                     print(
                         "[PERF API SUCCESS] "
-                        "Performances enregistrées dans Firestore."
+                        "Performances enregistrees dans Firestore."
                     )
                 else:
                     print(
                         f"[PERF API ERROR] "
                         f"{res.status_code} - {res.text}"
                     )
-    
             except requests.exceptions.Timeout:
                 print(
                     "[PERF API ERROR] Timeout lors de la connexion "
                     "au serveur FastAPI."
                 )
-    
             except requests.exceptions.RequestException as e:
-                print(
-                    f"[PERF API REQUEST EXCEPTION] {e}"
-                )
-    
+                print(f"[PERF API REQUEST EXCEPTION] {e}")
             except Exception as e:
-                print(
-                    f"[PERF API EXCEPTION] {e}"
-                )
+                print(f"[PERF API EXCEPTION] {e}")
     
-        threading.Thread(
-            target=task,
-            daemon=True
-        ).start()
+        threading.Thread(target=task,daemon=True).start()
     
     def render_content(self, data):
         self.scroll_content.clear_widgets()
@@ -2417,10 +2369,12 @@ class VestiaireScreen(Screen):
             tot_e = tot_e or 0
             tot_m = tot_m or 0
             total_evenements = tot_e + tot_m
+            
             stats_dict = {
                 str(j.get("nom", "")).strip().lower(): j
                 for j in stats.get("joueurs", [])
             }
+
             joueurs_stats = []
             for j_eq in data.get("tous_les_joueurs", []):
                 nom = str(j_eq.get("nom", "")).strip()
@@ -2430,31 +2384,68 @@ class VestiaireScreen(Screen):
                     or nom
                     or "Inconnu"
                 )
-                # Recherche des statistiques existantes
+                
+                # ID potentiel du joueur pour la correspondance
+                j_id = j_eq.get("id") or nom_complet.lower().replace(" ", "_")
+
+                # Recherche des statistiques existantes dans stats_dict (par nom complet, nom simple ou ID)
                 joueur_stats = (
                     stats_dict.get(nom_complet.lower())
                     or stats_dict.get(nom.lower())
-                    or {}
+                    or next((s for s in stats.get("joueurs", []) if s.get("joueur_id") == j_id), None)
                 )
-                # Copie pour ne pas modifier stats_data
-                joueur = dict(joueur_stats)
-                joueur["nom"] = joueur.get("nom") or nom_complet
-                # Si le joueur n'a pas voté, il est à 0.
-                joueur["entrainements"] = (
-                    joueur.get("entrainements", 0) or 0
-                )
-                joueur["matchs"] = (
-                    joueur.get("matchs", 0) or 0
-                )
+
+                # <--- LA SOLUTION : Si le joueur n'a aucune stat renvoyée par l'API, on crée une structure de base vide --->
+                if not joueur_stats:
+                    joueur_stats = {
+                        "id": j_id,
+                        "nom": nom_complet,
+                        "entrainements": 0,
+                        "matchs": 0,
+                        "buts": 0,
+                        "passes_decisives": 0,
+                        "titularisations": 0,
+                        "minutes_jouees": 0,
+                        "cartons_jaunes": 0,
+                        "cartons_rouges": 0
+                    }
+
+                # BASE OFFICIELLE : On part de j_eq pour ne perdre aucun joueur (même sans parent)
+                joueur = dict(j_eq)
+                
+                # On met à jour avec les stats trouvées ou créées par défaut
+                joueur.update(joueur_stats)
+                
+                # S'assurer que le nom et l'équipe/catégorie sont toujours présents
+                joueur["nom"] = nom_complet
+                
+                # C'EST ICI QU'ON FORCE LA CATEGORIE GLOBALE SI ELLE EST ABSENTE
+                categorie_globale = data.get("categorie") or "Principal"
+                if not joueur.get("equipe"):
+                    joueur["equipe"] = categorie_globale
+                if not joueur.get("categorie"):
+                    joueur["categorie"] = categorie_globale
+
+                # Si le joueur n'a pas de stats de présence, on initialise à 0
+                joueur["entrainements"] = joueur.get("entrainements", 0) or 0
+                joueur["matchs"] = joueur.get("matchs", 0) or 0
+                
+                # S'assurer que les performances numériques existent
+                for champ in ["buts", "passes_decisives", "titularisations", "minutes_jouees", "cartons_jaunes", "cartons_rouges"]:
+                    joueur[champ] = joueur.get(champ, 0) or 0
+
                 joueur["entrainements_total"] = tot_e
                 joueur["matchs_total"] = tot_m
                 joueur["total_present"] = (joueur["entrainements"] + joueur["matchs"])
                 joueur["total_evenements"] = total_evenements
+                
                 if total_evenements > 0:
                     joueur["taux_assiduite"] = (joueur["total_present"] / total_evenements)
                 else:
                     joueur["taux_assiduite"] = 0
+                    
                 joueurs_stats.append(joueur)
+                
             layout.add_widget(SectionTitle(text="STATISTIQUES DE PRÉSENCE"))
             resume = Label(
                 text=(

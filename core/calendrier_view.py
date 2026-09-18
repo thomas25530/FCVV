@@ -10,6 +10,7 @@ from kivy.graphics import Color, Line, RoundedRectangle, Rectangle
 from kivy.metrics import dp
 from kivy.parser import parse_color
 from kivy.utils import escape_markup
+from kivy.uix.anchorlayout import AnchorLayout
 
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -20,6 +21,8 @@ from kivy.uix.label import Label
 from kivy.uix.modalview import ModalView
 from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
+from kivy.graphics import Color, RoundedRectangle, Line, PushMatrix, PopMatrix, Rotate
+from kivy.uix.floatlayout import FloatLayout
 
 from kivy.uix.widget import Widget
 
@@ -75,24 +78,19 @@ class EventCard(BoxLayout):
         self.categorie, self.on_presence_click_callback = categorie, on_presence_click
         self.active, self._check_events = True, []
         self._touch_consumed_by_child = False
-
         raw_imgs = self.match_data.get("images", self.match_data.get("flyer", []))
         raw_list = [raw_imgs] if isinstance(raw_imgs, str) else (list(raw_imgs) if isinstance(raw_imgs, list) else [])
         self.image_list = list(dict.fromkeys([src for src in raw_list if src]))
-
         self.bind(minimum_height=self.setter("height"))
-
         app = App.get_running_app()
         cfg = app.config if (app and hasattr(app, "config") and app.config.has_section("User")) else None
         try: self.user_font_size = cfg.getint("User", "font_size_factor") if cfg else 18
         except Exception: self.user_font_size = 18
         self.nom_parent = cfg.get("User", "nom_parent", fallback="").strip() if cfg else ""
-
         with self.canvas.before:
             Color(1, 1, 1, 1)
             self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(10)])
         self.bind(pos=self._update_rect, size=self._update_rect)
-
         # Helper pour instancier rapidement les Labels répétitifs
         def make_lbl(txt, color, size_offset, height=None, halign="center"):
             lbl = Label(
@@ -107,98 +105,150 @@ class EventCard(BoxLayout):
             if height:
                 lbl.height = height
             else:
-                lbl.bind(
-                    width=lambda s, w: setattr(s, "text_size", (w, None)),
-                    texture_size=lambda s, t: setattr(s, "height", max(dp(20), t[1])),
-                )
+                lbl.bind(width=lambda s, w: setattr(s, "text_size", (w, None)),texture_size=lambda s, t: setattr(s, "height", max(dp(20), t[1])),)
             return lbl
 
         columns_layout = BoxLayout(orientation="horizontal", spacing=dp(15), size_hint_y=None)
         columns_layout.bind(minimum_height=columns_layout.setter("height"))
-
         date_box = BoxLayout(orientation="vertical", size_hint_x=0.25, spacing=dp(1), size_hint_y=None)
         date_box.bind(minimum_height=date_box.setter("height"))
-
         evt_type = str(self.match_data.get("type", "EVENEMENT")).upper()
         raw_date = str(self.match_data.get("date", ""))
         heure_key, prefixe = ("heure_rdv", "RDV") if evt_type == "MATCH" else ("heure", "à")
         heure_str = str(self.match_data.get(heure_key, self.match_data.get("heure" if heure_key == "heure_rdv" else "heure_rdv", "N/C")))
-
         parsed_dt = next((dt for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y") for dt in [try_parse(raw_date, fmt)] if dt), None)
         jours_fr, mois_fr = ["LUN", "MAR", "MER", "JEU", "VEN", "SAM", "DIM"], ["", "JAN", "FEV", "MAR", "AVR", "MAI", "JUIN", "JUIL", "AOUT", "SEP", "OCT", "NOV", "DEC"]
         js = jours_fr[parsed_dt.weekday()] if parsed_dt else "EVENEMENT"
         num = str(parsed_dt.day) if parsed_dt else raw_date
         m = mois_fr[parsed_dt.month] if parsed_dt else ""
-
         for lbl in [make_lbl(f"[b]{escape_markup(js)}[/b]", (0.7,0.7,0.7,1), -6, dp(18)),
                     make_lbl(f"[b]{escape_markup(num)}[/b]", (0.1,0.3,0.8,1), 4, dp(28)),
                     make_lbl(f"[b]{escape_markup(m)}[/b]", (0.3,0.3,0.3,1), -5, dp(18)),
                     make_lbl(f"{prefixe} {escape_markup(heure_str)}", (0.5,0.5,0.5,1), -6, dp(20))]:
             date_box.add_widget(lbl)
-
         with columns_layout.canvas.after:
             Color(0.65, 0.65, 0.65, 1)
             self.v_line = Line(points=[], width=1)
         columns_layout.bind(pos=self._update_line, size=self._update_line)
-
-        title_box = BoxLayout(orientation="vertical", size_hint_x=0.75, spacing=dp(2), padding=[dp(12), 0, 0, 0], size_hint_y=None)
+        # --------------------------------------------------
+        # COLONNE DROITE
+        # --------------------------------------------------
+        title_box = BoxLayout(orientation="vertical",size_hint_x=0.75,spacing=dp(6),padding=[dp(12), 0, 0, 0],size_hint_y=None,)
         title_box.bind(minimum_height=title_box.setter("height"))
-
-        titre_evt = str(self.match_data.get("titre", "")) or (str(self.match_data.get("adversaire", "")) if evt_type == "MATCH" else "Événement")
-        adversaire_evt, lieu_evt = str(self.match_data.get("adversaire", "")), str(self.match_data.get("lieu", ""))
-
-        self.titre_layout = BoxLayout(orientation="horizontal", size_hint_y=None, spacing=dp(5),height=dp(28),)
-        self.titre_layout.bind(minimum_height=self.titre_layout.setter("height"))
-
-        self.lbl_title = make_lbl(f"[b]{escape_markup(titre_evt)}[/b]", (0.1, 0.1, 0.3, 1), 0, halign="left")
-        self.lbl_title.size_hint_x = 1
+        titre_evt = (
+            str(self.match_data.get("titre", ""))
+            or (
+                str(self.match_data.get("adversaire", ""))
+                if evt_type == "MATCH"
+                else "Événement"
+            )
+        )
+        adversaire_evt = str(self.match_data.get("adversaire", ""))
+        lieu_evt = str(self.match_data.get("lieu", ""))
+        # --------------------------------------------------
+        # TITRE PLEINE LARGEUR
+        # --------------------------------------------------
+        self.lbl_title = Label(text=f"[b]{escape_markup(titre_evt)}[/b]",markup=True,color=(0.1, 0.1, 0.3, 1),font_size=f"{self.user_font_size + 1}sp",halign="left",valign="middle",size_hint_y=None,size_hint_x=1,)
+        def _resize_title(instance, width):
+            instance.text_size = (width, None)
+        def _update_title_height(instance, texture_size):
+            instance.height = max(dp(30), texture_size[1])
         
-        self.ball_icon = Image(source="assets/icons/ball.png", size_hint=(None, None), size=(dp(22), dp(22)), pos_hint={"center_y": 0.5}, opacity=0)
-        self.badge_box = BoxLayout(orientation="vertical", size_hint_x=None, width=0, spacing=dp(2), size_hint_y=None, pos_hint={"top": 1})
-        self.badge_box.bind(minimum_height=self.badge_box.setter("height"))
-
-        for w in [self.lbl_title, self.ball_icon, self.badge_box]: self.titre_layout.add_widget(w)
-        title_box.add_widget(self.titre_layout)
-
+        self.lbl_title.bind(width=_resize_title,texture_size=_update_title_height)
+        title_box.add_widget(self.lbl_title)
+        # --------------------------------------------------
+        # DETAILS + VOTES SUR UNE SECONDE LIGNE
+        # --------------------------------------------------
+        details_row = BoxLayout(orientation="horizontal",spacing=dp(15),size_hint_y=None,)
+        details_row.bind(minimum_height=details_row.setter("height"))
+        # --------------------------------------------------
+        # PARTIE TEXTE
+        # --------------------------------------------------
+        details_box = BoxLayout(orientation="vertical",spacing=dp(2),size_hint_x=0.75,size_hint_y=None,)
+        details_box.bind(minimum_height=details_box.setter("height"))
         if evt_type == "MATCH" and adversaire_evt:
-            title_box.add_widget(make_lbl(f"Adversaire : {escape_markup(adversaire_evt)}", (0.3, 0.3, 0.3, 1), -4, halign="left"))
-
-        sub_text = f"Lieu : {lieu_evt}" if lieu_evt else "Cliquez pour voir les détails et voter"
-        title_box.add_widget(make_lbl(escape_markup(sub_text), (0.5, 0.5, 0.5, 1), -5, halign="left"))
-
+            details_box.add_widget(make_lbl(f"Adversaire : {escape_markup(adversaire_evt)}",(0.3, 0.3, 0.3, 1),-4,halign="left"))
+        sub_text = (
+            f"Lieu : {lieu_evt}"
+            if lieu_evt
+            else "Cliquez pour voir les détails et voter"
+        )
+        details_box.add_widget(make_lbl(escape_markup(sub_text),(0.5, 0.5, 0.5, 1),-5,halign="left"))
+        details_row.add_widget(details_box)
+        # --------------------------------------------------
+        # PARTIE DROITE (BALLON + BADGES)
+        # --------------------------------------------------
+        self.right_info_box = BoxLayout(orientation="vertical",spacing=dp(4),size_hint_x=0.25,size_hint_y=None,)
+        self.right_info_box.size_hint_min_x = dp(120)
+        self.right_info_box.bind(minimum_height=self.right_info_box.setter("height"))
+        self.ball_icon = Image(source="assets/icons/ball.png",size_hint=(None, None),size=(dp(24), dp(24)),opacity=0,pos_hint={"center_x": 0.5})
+        self.badge_box = BoxLayout(orientation="vertical",spacing=dp(2),size_hint=(1, None))
+        self.badge_box.size_hint_x = 1
+        self.badge_box.bind(minimum_height=self.badge_box.setter("height"))
+        self.right_info_box.add_widget(self.ball_icon)
+        self.right_info_box.add_widget(self.badge_box)
+        details_row.add_widget(self.right_info_box)
+        title_box.add_widget(details_row)
         columns_layout.add_widget(date_box)
         columns_layout.add_widget(title_box)
         self.add_widget(columns_layout)
-
         # --- SECTION COACH : Affichage direct des résultats & votants au niveau de la carte ---
         cat_match = getattr(self, "categorie", None) or self.match_data.get("categorie")
         user_role = app.get_role_for_cat(cat_match) if (app and hasattr(app, "get_role_for_cat")) else "PARENT"
-
         if user_role in ["ADMIN"]:
             coach_section = self._build_coach_votes_summary()
             if coach_section:
                 self.add_widget(coach_section)
-
         if self.image_list and (media_zone := self._build_media_zone()):
             self.add_widget(media_zone)
-        
         self.mettre_a_jour(self.match_data)
+        
+    def recuperer_votes_presence(self):
+        votes = self.match_data.get("votes", {}) or {}
+        presents = []
+        absents = []
+        for nom, d in votes.items():
+            disp = d.get("disponibilite") if isinstance(d, dict) else d
+            if disp == "Présent":
+                presents.append(nom)
+            elif disp == "Absent":
+                absents.append(nom)
+        return presents, absents
 
+    def mettre_a_jour_resume_coach(self):
+        if not hasattr(self, "lbl_coach_resume"):
+            return
+        votes = self.match_data.get("votes", {}) or {}
+        type_sondage = self.match_data.get("type_sondage", "classique")
+        if type_sondage == "multiple":
+            self.lbl_coach_resume.text = (f"Total votants : {len(votes)}")
+            return
+        presents = []
+        absents = []
+        for _, d in votes.items():
+            disp = d.get("disponibilite") if isinstance(d, dict) else d
+            if disp == "Présent":
+                presents.append(1)
+            elif disp == "Absent":
+                absents.append(1)
+        self.lbl_coach_resume.text = (
+            f"[color=1a8c38][b]Présents : {len(presents)}[/b][/color]"
+            f"  |  "
+            f"[color=d93838][b]Absents : {len(absents)}[/b][/color]"
+            f"  |  Total : {len(votes)}"
+        )
+    
     def _build_coach_votes_summary(self):
         """Construit un bloc visible sur la carte montrant le résumé des votants et un bouton d'accès rapide."""
         data = self.match_data or {}
         votes = data.get("votes", {}) or {}
         type_sondage = data.get("type_sondage", "classique")
         sondage_actif = bool(data.get("sondage_actif"))
-
         if not sondage_actif and not votes:
             return None
-
         container = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(58), spacing=dp(6), padding=[0, dp(5), 0, 0])
         container.bind(minimum_height=container.setter("height"))
-
         presents, absents, total_votes = [], [], len(votes)
-        
         # --- Fonction interne pour trier les votants par timestamp (du plus ancien au plus récent) ---
         def trier_par_timestamp(liste_noms):
             def extraire_ts(nom):
@@ -222,7 +272,7 @@ class EventCard(BoxLayout):
             if isinstance(d, dict):
                 ts = d.get("timestamp")
                 if ts:
-                    return f"{nom} ({ts})"
+                    return f"{nom}\n[color=888888]{ts}[/color]"
             return nom
 
         if type_sondage == "multiple":
@@ -236,21 +286,10 @@ class EventCard(BoxLayout):
             # Tri des listes par ordre de vote
             presents = trier_par_timestamp(presents)
             absents = trier_par_timestamp(absents)
-
             details_str = f"[color=1a8c38][b]Présents : {len(presents)}[/b][/color]  |  [color=d93838][b]Absents : {len(absents)}[/b][/color]  |  Total : {total_votes}"
-
-        lbl_info = Label(
-            text=details_str,
-            markup=True,
-            font_size=f"{self.user_font_size - 4}sp",
-            size_hint_y=None,
-            height=dp(20),
-            halign="left",
-            valign="center",
-        )
-        lbl_info.bind(size=lambda s, z: setattr(s, "text_size", z))
-        container.add_widget(lbl_info)
-
+        self.lbl_coach_resume = Label(text=details_str,markup=True,font_size=f"{self.user_font_size - 4}sp",size_hint_y=None,height=dp(20),halign="left",valign="center",)
+        self.lbl_coach_resume.bind(size=lambda s, z: setattr(s, "text_size", z))
+        container.add_widget(self.lbl_coach_resume)
         btn_resultats = StopPropagationButton(
             text="Résultats & Votants",
             size_hint_y=None,
@@ -284,60 +323,85 @@ class EventCard(BoxLayout):
                         formater_avec_timestamp(n) for n in trier_par_timestamp([n for n, d in votes.items() if isinstance(d, dict) and str(d.get("choix_multiple")) == str(o)])
                     ] for o in opts
                 }
-                self._afficher_popup_resultats_coach(
-                    f"Votes - {t_sond}",
-                    sec_m,
-                    self.match_data
-                )
+                self._afficher_popup_resultats_coach(f"Votes - {t_sond}",sec_m,self.match_data)
             else:
-                # Application du formatage avec timestamp sur les listes Présents et Absents
-                presents_finaux = [formater_avec_timestamp(n) for n in presents]
-                absents_finaux = [formater_avec_timestamp(n) for n in absents]
-                
-                sec_v = {"Présents": presents_finaux, "Absents": absents_finaux}
-                
+                votes = self.match_data.get("votes", {}) or {}
+                presents, absents = self.recuperer_votes_presence()
+                presents = trier_par_timestamp(presents)
+                absents = trier_par_timestamp(absents)
+                presents_finaux = [
+                    formater_avec_timestamp(n)
+                    for n in presents
+                ]
+                absents_finaux = [
+                    formater_avec_timestamp(n)
+                    for n in absents
+                ]
+                sec_v = {"Présents": presents_finaux,"Absents": absents_finaux}
                 if data.get("sondage_trajet"):
                     valdahon_list = []
                     total_places_valdahon = 0
                     for n, d in votes.items():
-                        if isinstance(d, dict) and d.get("trajet") == "Valdahon":
+                        if (isinstance(d, dict) and d.get("trajet") == "Valdahon"):
                             nom_formate = format_nom_avec_places(n, d)
                             valdahon_list.append(nom_formate)
-                            nb = d.get("nb_places") if d.get("nb_places") is not None else d.get("nombre_de_places")
+                            nb = (
+                                d.get("nb_places")
+                                if d.get("nb_places") is not None
+                                else d.get("nombre_de_places")
+                            )
                             if nb is not None:
-                                try: total_places_valdahon += int(nb)
-                                except (ValueError, TypeError): pass
-                    
-                    valdahon_list = [formater_avec_timestamp(n) for n in trier_par_timestamp(valdahon_list)]
-                    stade_adverse_list = [formater_avec_timestamp(n) for n in trier_par_timestamp([n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Stade adverse"])]
-                    besoin_voiture_list = [formater_avec_timestamp(n) for n in trier_par_timestamp([n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Besoin voiture"])]
-
-                    lbl_valdahon = f"Valdahon ({total_places_valdahon} place{'s' if total_places_valdahon > 1 else ''} dispo)" if total_places_valdahon > 0 else "Valdahon (Départ)"
+                                try:
+                                    total_places_valdahon += int(nb)
+                                except (ValueError, TypeError):
+                                    pass
+                    valdahon_list = [
+                        formater_avec_timestamp(n)
+                        for n in trier_par_timestamp(valdahon_list)
+                    ]
+                    stade_adverse_list = [
+                        formater_avec_timestamp(n)
+                        for n in trier_par_timestamp([
+                            n for n, d in votes.items()
+                            if (
+                                isinstance(d, dict)
+                                and d.get("trajet") == "Stade adverse"
+                            )
+                        ])
+                    ]
+                    besoin_voiture_list = [
+                        formater_avec_timestamp(n)
+                        for n in trier_par_timestamp([
+                            n for n, d in votes.items()
+                            if (
+                                isinstance(d, dict)
+                                and d.get("trajet") == "Besoin voiture"
+                            )
+                        ])
+                    ]
+                    lbl_valdahon = (
+                        f"Valdahon ({total_places_valdahon} place{'s' if total_places_valdahon > 1 else ''} dispo)"
+                        if total_places_valdahon > 0
+                        else "Valdahon (Départ)"
+                    )
                     sec_v[lbl_valdahon] = valdahon_list
                     sec_v["Stade Adverse"] = stade_adverse_list
                     sec_v["Besoin Voiture"] = besoin_voiture_list
-                    
-                self._afficher_popup_resultats_coach(
-                    "Résultats des votes",
-                    sec_v,
-                    self.match_data
-                )
+            
+                self._afficher_popup_resultats_coach("Résultats des votes",sec_v,self.match_data)
 
         btn_resultats.bind(on_release=ouvrir_resultats)
         container.add_widget(btn_resultats)
-
         return container
 
     def _afficher_popup_resultats_coach(self, titre_votes, sections_dict, match_info=None):
         """Ouvre la popup des résultats détaillés des votants pour le Coach."""
         match_info = match_info or {}
-        
         pop_cnt = BoxLayout(orientation="vertical", padding=dp(20), spacing=dp(10))
         with pop_cnt.canvas.before:
             Color(1, 1, 1, 1)
             pop_cnt.bg_rect = RoundedRectangle(pos=pop_cnt.pos, size=pop_cnt.size, radius=[dp(10)])
         pop_cnt.bind(pos=lambda s, v: setattr(s.bg_rect, "pos", v), size=lambda s, v: setattr(s.bg_rect, "size", v))
-
         # Titre général
         lbl_titre = Label(
             text="[b]Résultats des votes[/b]", markup=True, color=(0.1, 0.3, 0.8, 1),
@@ -346,11 +410,9 @@ class EventCard(BoxLayout):
         )
         lbl_titre.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
         pop_cnt.add_widget(lbl_titre)
-
         sc_v = ScrollView(bar_width=0, size_hint=(1, 1))
         box_r = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(5), padding=dp(5))
         box_r.bind(minimum_height=box_r.setter("height"))
-
         type_sondage = str(match_info.get("type_sondage", "")).lower().strip()
         sondage_trajet = bool(match_info.get("sondage_trajet", False))
         sondage_classique = bool(match_info.get("sondage_classique", False))
@@ -413,19 +475,21 @@ class EventCard(BoxLayout):
 
             for item in (lst or ["Aucun"]):
                 lbl_item = Label(
-                    text=f"  • {escape_markup(str(item))}" if lst else "  • Aucun", markup=True,
+                    text=f"  • {item}",
+                    markup=True,
                     color=(0.2, 0.2, 0.2, 1) if lst else (0.6, 0.6, 0.6, 1),
-                    font_size=f"{self.user_font_size - 2}sp", size_hint_y=None, height=dp(24),
-                    halign="left", valign="middle"
+                    font_size=f"{self.user_font_size - 2}sp",
+                    size_hint_y=None,
+                    halign="left",
+                    valign="top"
                 )
+                
                 lbl_item.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
+                lbl_item.bind(texture_size=lambda s, v: setattr(s,"height",v[1] + dp(6)))
                 box_r.add_widget(lbl_item)
-
             box_r.add_widget(BoxLayout(size_hint_y=None, height=dp(8)))
-
         sc_v.add_widget(box_r)
         pop_cnt.add_widget(sc_v)
-
         sub_pop = ModalView(size_hint=(0.85, 0.75), auto_dismiss=True, background_color=(0, 0, 0, 0.6))
         btn_fermer = Button(
             text="Fermer", size_hint_y=None, height=dp(42), background_normal="",
@@ -434,7 +498,6 @@ class EventCard(BoxLayout):
         )
         btn_fermer.bind(on_release=lambda x: sub_pop.dismiss())
         pop_cnt.add_widget(btn_fermer)
-
         sub_pop.add_widget(pop_cnt)
         sub_pop.open()
 
@@ -589,10 +652,7 @@ class EventCard(BoxLayout):
         nb_places=None
     ):
         app = App.get_running_app()
-        target_cat = (
-            categorie
-            or getattr(app, "categorie_courante", "U14_U15")
-        )
+        target_cat = (categorie or getattr(app, "categorie_courante", "U14_U15"))
         p_cfg = (
             app.config.get("User", "nom_parent", fallback="").strip()
             if app
@@ -647,20 +707,7 @@ class EventCard(BoxLayout):
                     )
                     return
                 print("[VOTE] Vote principal enregistre.")
-                # ============================================================
-                # 2. NOUVELLE ROUTE D'HISTORIQUE
-                #
-                #    Cette route sauvegarde définitivement le vote dans :
-                #
-                #    historique_presences/
-                #        categorie/
-                #            evenements/
-                #                event_uid/
-                #                    votes/
-                #                    votes_history/
-                #
-                #    Elle est indépendante de /voter/
-                # ============================================================
+
                 try:
                     res_stats = requests.post(
                         f"{api_url}/stats/historique/vote/{target_cat}",json=payload,headers=headers,timeout=8,verify=(platform != "win"))
@@ -672,12 +719,7 @@ class EventCard(BoxLayout):
                             f"{res_stats.status_code} "
                             f"{res_stats.text}"
                         )
-                        # Important :
-                        # Le vote principal est OK, mais son historique
-                        # n'a pas été enregistré.
-                        #
-                        # On pourra éventuellement ajouter ici un système
-                        # de retry si nécessaire.
+
                 except Exception as e:
                     print(f"[ERREUR RESEAU STATS] {e}")
                 # ============================================================
@@ -710,6 +752,14 @@ class EventCard(BoxLayout):
     
                         if val is not None:
                             vote[attr] = val
+                    
+                    cache = getattr(app, "_cache_data", {})
+
+                    if target_cat in cache:
+                        for evt in cache[target_cat].get("evenements", []):
+                            if str(evt.get("id")) == str(match_id):
+                                evt["votes"] = self.match_data["votes"]
+                                break
     
                 Clock.schedule_once(lambda dt: (self.mettre_a_jour(self.match_data),setattr(self,"height",self.minimum_height),),0.05,)
             except Exception as e:
@@ -892,6 +942,7 @@ class EventCard(BoxLayout):
             ("Convocation sur place", "heure_sur_place"),
             ("Heure du coup d'envoi", "heure_coup_envoi"),
             ("Lieu", "lieu"),
+            ("Entraîneur(s)", "entraineurs"),
             ("Notes", "notes")
         ]
 
@@ -909,11 +960,7 @@ class EventCard(BoxLayout):
 
 
         def afficher_popup_votes(titre_votes, sections_dict):
-            self._afficher_popup_resultats_coach(
-                "Résultats des votes",
-                sections_dict,
-                self.match_data
-            )
+            self._afficher_popup_resultats_coach("Résultats des votes",sections_dict,self.match_data)
 
         # Fonction utilitaire pour trier une liste de votants par timestamp (du plus ancien au plus récent, ou inversement)
         def trier_votants(noms_joueurs, votes_dict, reverse=False):
@@ -1027,14 +1074,14 @@ class EventCard(BoxLayout):
                     if isinstance(j, dict):
                         nom_j = j.get("nom", "").strip()
                         prenom_j = j.get("prenom", "").strip()
-                        cat_j = j.get("categorie", "").strip()
+                        cat_j = (j.get("categorie_joueur") or j.get("categorie") or "").strip()
                         nom_complet = f"{nom_j} {prenom_j}".strip()
                         
                         # Affichage de la catégorie entre parenthèses à droite
                         txt = f"{nom_complet} ({cat_j})" if cat_j else nom_complet
                     else:
                         txt = str(j).strip()
-                    info_box.add_widget(make_lbl(f"  • {escape_markup(txt)}", (0.3, 0.3, 0.3, 1), height=dp(25)))
+                    info_box.add_widget(make_lbl(f"  • {escape_markup(txt)}", (0.3, 0.3, 0.3, 1)))
             info_box.add_widget(BoxLayout(size_hint_y=None, height=dp(10)))
         info_scroll.add_widget(info_box)
         content.add_widget(info_scroll)
@@ -1092,7 +1139,6 @@ class EventCard(BoxLayout):
     def mettre_a_jour(self, nouveau_match_data=None):
         if nouveau_match_data:
             self.match_data = nouveau_match_data
-    
         est_conv = self._est_convoque()
         if getattr(self, "ball_icon", None):
             self.ball_icon.opacity = int(est_conv)
@@ -1106,18 +1152,21 @@ class EventCard(BoxLayout):
                 markup=True,
                 color=couleur,
                 font_size=f"{self.user_font_size - 9}sp",
-                size_hint=(1, None),
-                height=dp(20),
-                halign="right",
-                valign="middle",
+                size_hint_y=None,
+                size_hint_x=1,
+                halign="center",
+                valign="top",
             )
-            lbl.bind(width=lambda s, w: setattr(s, "text_size", (w, None)))
+            lbl.bind(size=lambda s, *_: setattr(s,"text_size",(s.width, None)))
+            lbl.bind(texture_size=lambda s, t: setattr(s,"height",max(dp(18), t[1])))
             self.badge_box.add_widget(lbl)
-        self.badge_box.size_hint = (None, None)
-        self.badge_box.width = dp(120) if statuts else 0
+
+        self.badge_box.size_hint = (1, None)
+        #self.badge_box.width = dp(120) if statuts else 0
         self.badge_box.height = dp(20) * len(statuts) if statuts else 0
         self.badge_box.opacity = 1 if statuts else 0
         self.lbl_title.size_hint_x = 1
+        self.mettre_a_jour_resume_coach()
 
     def _update_rect(self, instance, value):
         self.bg_rect.pos = instance.pos

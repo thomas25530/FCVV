@@ -41,6 +41,7 @@ fcvv_release.keystore
 5_release/
 fcvv_api/
 publication/
+recipes/
 res/
 src/
 *.apk

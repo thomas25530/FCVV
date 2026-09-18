@@ -41,22 +41,32 @@ class AndroidNotificationManager(NotificationManager):
         except Exception as e:
             print(f"[FCM ERROR] init_service : {e}")
 
-    def subscribe_to_topic(self, topic):
+    def subscribe_to_topic(self, topic, retry=0):
         try:
-            if self.token_task is not None:
-                if self.token_task.isComplete():
-                    if self.token_task.isSuccessful():
-                        token = self.token_task.getResult()
-                        print(f"[FCM] Token OK : {str(token)[:25]}...")
-                    else:
-                        print("[FCM WARNING] Token indisponible")
-                else:
-                    print("[FCM] Token en cours de creation...")
-            print(f"[FCM] Demande d'abonnement au topic : {topic}")
-            task = self.FirebaseMessaging.getInstance().subscribeToTopic(topic)
-            print(f"[FCM] Requete envoyee pour : {topic}")
+            # Token pas encore prêt
+            if self.token_task is None:
+                self.token_task = self.FirebaseMessaging.getInstance().getToken()
+    
+            if not self.token_task.isComplete():
+                print(f"[FCM WAIT] Token non disponible pour abonnement {topic}")
+                if retry < 5:
+                    Clock.schedule_once(lambda dt: self.subscribe_to_topic(topic, retry + 1), 2)
+                return
+            if not self.token_task.isSuccessful():
+                print("[FCM ERROR] Token generation failed")
+                self.token_task = self.FirebaseMessaging.getInstance().getToken()
+                if retry < 5:
+                    Clock.schedule_once(lambda dt: self.subscribe_to_topic(topic, retry + 1), 2)
+                return
+            
+            # Appel direct sans OnCompleteListener (plus d'erreur de class loader)
+            print(f"[FCM OK] Demande d'abonnement envoyee : {topic}")
+            self.FirebaseMessaging.getInstance().subscribeToTopic(topic)
+            
         except Exception as e:
             print(f"[FCM ERROR] subscribe_to_topic : {e}")
+            if retry < 5:
+                Clock.schedule_once(lambda dt: self.subscribe_to_topic(topic, retry + 1), 2)
 
     def unsubscribe_from_topic(self, topic):
         try:
@@ -103,7 +113,6 @@ class IOSNotificationManager(NotificationManager):
         try:
             print("[FCM DEBUG] Chargement Firebase iOS...")
             self.FIRApp = autoclass("FIRApp")
-            # Firebase configuré dans main.m ou AppDelegate
             if not self.FIRApp.defaultApp():
                 print("[FCM iOS] FIRApp absent, tentative de configuration...")
                 self.FIRApp.configure()
@@ -127,7 +136,6 @@ class IOSNotificationManager(NotificationManager):
             print("[FCM iOS] En attente du token FCM (APNs necessaire)...")
 
     def _get_token(self):
-        """Récupération synchrone et sécurisée du token FCM."""
         if not self.FIRMessaging:
             return None
         for name in ("FCMToken", "fcmToken"):
@@ -156,29 +164,25 @@ class IOSNotificationManager(NotificationManager):
             if self.token_wait_count >= self.max_token_wait:
                 print("[FCM iOS] Timeout attente token FCM.")
                 self.waiting_for_token = False
-                return False  # Arrête le timer
-            return True       # Recommence au prochain tick
+                return False
+            return True
         print(f"[FCM iOS] Token obtenu : {token[:12]}...")
         self.waiting_for_token = False
-        # Inscription aux topics en attente
         for topic in list(self.pending_topics):
             self._do_subscribe(topic) 
         self.pending_topics.clear()
-        return False  # Arrête le timer
+        return False
 
     def apns_token_received(self):
         print("[FCM iOS] APNs recu, demarrage de l'attente FCM...")
         self._start_waiting_for_token()
 
     def _do_subscribe(self, topic):
-        """Méthode interne d'abonnement gérant les différentes signatures SDK."""
         try:
             print(f"[FCM iOS] Abonnement topic : {topic}")
-            # Signature récente (Firebase iOS SDK 8+)
             if hasattr(self.FIRMessaging, "subscribeToTopic_completionHandler_"):
                 self.FIRMessaging.subscribeToTopic_completionHandler_(topic, None)
             else:
-                # Ancienne signature
                 self.FIRMessaging.subscribeToTopic_(topic)
             return True
         except Exception as e:
@@ -205,20 +209,12 @@ class IOSNotificationManager(NotificationManager):
             print(f"[FCM iOS] Erreur desabonnement topic '{topic}' : {e!r}")
 
     def request_permissions(self):
-        """Les permissions APNs sont gérées nativement côté iOS/Objective-C."""
-    
         print("[FCM iOS] request_permissions() appelee")
-    
         if not self.UNCenter:
             print("[FCM iOS] UNUserNotificationCenter absent")
             return
-    
         try:
-            print(
-                "[FCM iOS] Permissions APNs deja gerees "
-                "par le code natif Objective-C"
-            )
-    
+            print("[FCM iOS] Permissions APNs deja gerees par le code natif Objective-C")
         except Exception as e:
             print(f"[FCM iOS] Erreur lors de request_permissions : {e!r}")
             
@@ -236,7 +232,6 @@ class IOSNotificationManager(NotificationManager):
         if token:
             print(f"[FCM iOS] Token disponible : {token[:25]}...")
             return token
-
         print("[FCM iOS] Token FCM indisponible pour le moment.")
         return None
 

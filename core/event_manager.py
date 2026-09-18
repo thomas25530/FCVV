@@ -23,13 +23,13 @@ import os
 from pathlib import Path
 from kivy.app import App
 
-
 def obtenir_dossier_documents():
     if platform == "android":
         try:
             from plyer import storagepath
             dossier = os.path.join(storagepath.get_downloads_dir(),"FCVV")
             os.makedirs(dossier, exist_ok=True)
+            print("DOSSIER PDF =", dossier)
             return dossier
         except Exception:
             pass
@@ -45,28 +45,13 @@ def obtenir_dossier_documents():
         pass
     return os.path.expanduser("~/Documents")
 
-def partager_fichier_android(filepath):
-    from jnius import autoclass, cast
-    PythonActivity = autoclass("org.kivy.android.PythonActivity")
-    Intent = autoclass("android.content.Intent")
-    Uri = autoclass("android.net.Uri")
-    File = autoclass("java.io.File")
-    currentActivity = PythonActivity.mActivity
-    intent = Intent()
-    intent.setAction(Intent.ACTION_SEND)
-    intent.setType("application/pdf")
-    file_obj = File(filepath)
-    uri = Uri.fromFile(file_obj)
-    intent.putExtra(Intent.EXTRA_STREAM, uri)
-    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    chooser = Intent.createChooser(intent,"Partager la convocation")
-    currentActivity.startActivity(chooser)
-
 def generer_pdf_convocation(match_info, tous_les_joueurs=None):
-    import os, sys
+    import os
+    import sys
     from fpdf import FPDF
     from kivy.app import App
     from kivy.utils import platform
+
     tous_les_joueurs = tous_les_joueurs or []
     txt = lambda v, n=60: str(v or "-").replace("\n", " ").strip()[:n]
     # Licences
@@ -201,7 +186,7 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             if isinstance(j, dict):
                 nom = txt(j.get("nom"), 40).upper()
                 prenom = txt(j.get("prenom"), 25).capitalize()
-                cat = txt(j.get("categorie"), 18).upper()
+                cat = txt(j.get("categorie_joueur") or j.get("categorie"),18).upper()
             else:
                 p = txt(j, 60).split()
                 nom = " ".join(p[:-1]).upper() if len(p) > 1 else (p[0].upper() if p else "-")
@@ -222,36 +207,22 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     # Sauvegarde
     pdf.output(chemin)
     print(f"PDF cree : {chemin}")
-    print(f"Existe : {os.path.exists(chemin)}")
-    
-    if os.path.exists(chemin):
-        print(f"Taille : {os.path.getsize(chemin)} octets")
 
-    # Ouverture / partage
+    # Ouverture selon la plateforme (sans le partage Android bloquant)
     if platform == "win":
         try:
             os.startfile(chemin)
         except Exception as e:
             print(f"Ouverture PDF impossible : {e}")
     elif platform == "android":
-        try:
-            partager_fichier_android(chemin)
-    
-        except Exception as e:
-            print(f"Partage Android impossible : {e}")
-    
+        print(f"PDF enregistre dans le stockage. Retrouvez-le dans l'explorateur de fichiers : {chemin}")
     elif platform == "ios":
         try:
             from plyer import share
-    
-            share.share(
-                title="Convocation FCVV",
-                filepath=chemin
-            )
-    
+            share.share(title="Convocation FCVV", filepath=chemin)
         except Exception as e:
             print(f"Partage iOS impossible : {e}")
-
+            
     return chemin
 
 class DateTextInput(TextInput):
@@ -421,7 +392,7 @@ class EventManager:
                     btn_select_dir = Button(
                         text="> Choisir",
                         size_hint_x=None,
-                        width=dp(90),
+                        width=dp(150),
                         background_normal="",
                         background_color=(0.2, 0.6, 0.3, 1),
                         color=(1, 1, 1, 1),
@@ -462,7 +433,15 @@ class EventManager:
                 box_exporter_pdf = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
                 chk_exporter_pdf = CheckBox(active=False, size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
                 box_exporter_pdf.add_widget(chk_exporter_pdf)
-                box_exporter_pdf.add_widget(Label(text="Générer et exporter en PDF dans Documents", halign="left", color=(0.2, 0.2, 0.25, 1)))
+                
+                if platform == "android":
+                    texte_export_pdf = "Générer le PDF dans Download/FCVV"
+                elif platform == "ios":
+                    texte_export_pdf = "Générer et partager le PDF"
+                else:
+                    texte_export_pdf = "Générer le PDF dans Documents"
+                
+                box_exporter_pdf.add_widget(Label(text=texte_export_pdf,halign="left",color=(0.2, 0.2, 0.25, 1)))
                 form_box.add_widget(box_exporter_pdf)
     
                 form_box.add_widget(Label(text="[b]Convocations[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
@@ -695,14 +674,16 @@ class EventManager:
                                 if cb.active:
                                     nom = getattr(cb, "nom_joueur", "").strip().upper()
                                     prenom = getattr(cb, "prenom_joueur", "").strip()
-                                    cat = getattr(cb, "categorie", "").strip().upper()
+                                    cat_equipe = screen_instance.current_cat
+                                    cat_joueur = getattr(cb, "categorie", "").strip().upper()
                                     est_manuel = getattr(cb, "est_manuel", False)
                 
-                                    if est_manuel or cat:
+                                    if est_manuel or cat_equipe:
                                         joueurs_convoques.append({
                                             "nom": nom,
                                             "prenom": prenom,
-                                            "categorie": cat,
+                                            "categorie": cat_equipe,
+                                            "categorie_joueur": cat_joueur,
                                             "est_manuel": est_manuel
                                         })
                                     else:

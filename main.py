@@ -659,7 +659,8 @@ class MyApp(App):
         self.app_config = {}
         self.is_fetching_remote = False
         self.images_currently_downloading = set()
-        self.last_config_hash = ""
+        self.last_config_hash = None
+        self.home_initialized = False
         self.authorized_vestiaires = []
         self.cache_images_dir = os.path.join(self.user_data_dir, "cache_images")
         self.notifier = None
@@ -1236,37 +1237,70 @@ class MyApp(App):
         except Exception as e:
             print(f"[FCM REDIRECT ERROR] Home : {e}")
     
-    def executer_redirection_vestiaire(self, categorie, match_id=None, notif_type=None):
+    def executer_redirection_vestiaire(self,categorie,match_id=None,notif_type=None):
         try:
             if not self.root or not hasattr(self.root, "sm"):
                 print("[FCM REDIRECT] ScreenManager introuvable")
                 return
+    
+            # ==================================================
+            # FORCER L'ABONNEMENT AU TOPIC DE LA CATEGORIE
+            # ==================================================
+            try:
+                if self.notifier and categorie:
+                    role = self.recuperer_role_fcm(categorie)
+    
+                    if role in ("PARENT", "ADMIN"):
+                        print(
+                            f"[FCM REDIRECT] Abonnement force : "
+                            f"{categorie}"
+                        )
+                        self.notifier.subscribe_to_topic(categorie)
+                        current_user = self.get_current_user_name()
+                        if current_user:
+                            user_clean = (current_user.replace(" ", "_").lower())
+                            self.notifier.subscribe_to_topic(f"{categorie}_exclure_{user_clean}")
+            except Exception as e:
+                print(f"[FCM REDIRECT] Erreur abonnement : {e}")
+                
             nt = (notif_type or "").strip().lower()
             sous_onglet = (
                 "CHAT" if nt == "echange"
                 else "MESSAGES" if nt in (
-                    "chat", "message", "messages", "nouveau_message"
+                    "chat",
+                    "message",
+                    "messages",
+                    "nouveau_message"
                 )
                 else "CALENDRIER" if nt in (
-                    "evenement", "événement", "event",
-                    "creation_evenement", "evenement_creation"
+                    "evenement",
+                    "événement",
+                    "event",
+                    "creation_evenement",
+                    "evenement_creation"
                 )
                 else "CALENDRIER"
             )
+    
             if hasattr(self.root, "switch_screen"):
                 self.root.switch_screen("vestiaire")
             else:
                 self.root.sm.current = "vestiaire"
             screen = self.root.sm.get_screen("vestiaire")
             def charger(dt):
-                screen.charger_categorie(categorie, sous_onglet=sous_onglet)
+                screen.charger_categorie(categorie,sous_onglet=sous_onglet)
             Clock.schedule_once(charger, 0.2)
             if match_id and hasattr(screen, "ouvrir_match"):
                 Clock.schedule_once(
                     lambda dt: (
-                        print(f"[FCM TRACE] >>> ouvrir_match {match_id!r}"),
+                        print(
+                            f"[FCM TRACE] >>> ouvrir_match "
+                            f"{match_id!r}"
+                        ),
                         screen.ouvrir_match(match_id),
-                        print("[FCM TRACE] <<< ouvrir_match")
+                        print(
+                            "[FCM TRACE] <<< ouvrir_match"
+                        )
                     ),
                     0.5,
                 )
@@ -1388,6 +1422,7 @@ class MyApp(App):
         import os
         import threading
         from kivy.clock import Clock
+        from kivy.utils import platform
         self.is_fetching_remote = True
         try:
             data_dir = self.user_data_dir
@@ -1408,12 +1443,18 @@ class MyApp(App):
                         print(f"[CACHE ERROR] {filename}: {e}")
             if cached_data:
                 self.app_config.update(cached_data)
+            
+            if getattr(self, "last_config_hash", None) is None:
+                news_data = (self.app_config.get("fcvv", {}).get("appli", {}).get("news", []))
+                self.last_config_hash = hashlib.md5(str(news_data).encode()).hexdigest()
+                print(
+                    f"[UI] Hash initial initialise: "
+                    f"{self.last_config_hash[:8]}"
+                )
             # Gestion sécurisée du certificat SSL
-            try:
-                import certifi
-                verify_ssl = certifi.where()
-            except ImportError:
-                verify_ssl = True
+
+            is_windows = (platform == 'win')
+
             # 2. Requêtes réseau optimisées
             session = requests.Session()
             tournoi_changed = False
@@ -1432,7 +1473,7 @@ class MyApp(App):
                             url, 
                             headers={"User-Agent": "Mozilla/5.0"}, 
                             timeout=timeout_val, 
-                            verify=verify_ssl
+                            verify=not is_windows
                         )
                         if response.status_code != 200:
                             print(f"[CONFIG ERROR] HTTP {response.status_code} pour {filename}")
@@ -1533,14 +1574,22 @@ class MyApp(App):
             print(f"[PRELOAD ERROR] : {e}")
 
     def _update_home_screen(self, dt):
-        if not self.root or not hasattr(self.root, 'sm') or not self.root.sm.has_screen('home'): return
+        if not self.root or not hasattr(self.root, 'sm') or not self.root.sm.has_screen('home'):
+            return
         home = self.root.sm.get_screen('home')
         news_data = self.app_config.get("fcvv", {}).get("appli", {}).get("news", [])
         current_hash = hashlib.md5(str(news_data).encode()).hexdigest()
+        if not self.home_initialized:
+            self.home_initialized = True
+            self.last_config_hash = current_hash
+            print("[UI] Initialisation ecran accueil")
+            Clock.schedule_once(lambda dt: home.update_ui_from_config(force=True),0.1)
+            return
+    
         if current_hash != self.last_config_hash:
             print(f"[UI] Changement detecte ! Nouveau hash: {current_hash[:8]}")
             self.last_config_hash = current_hash
-            Clock.schedule_once(lambda dt: home.update_ui_from_config(force=True), 0.1)
+            Clock.schedule_once(lambda dt: home.update_ui_from_config(force=True),0.1)
         else:
             print("[UI] Aucun changement dans les donnees, rafraichissement ignore.")
     

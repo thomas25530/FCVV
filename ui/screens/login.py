@@ -761,12 +761,12 @@ class LoginScreen(Screen):
             def finaliser_connexion_locale():
                 app.config.set('User', 'nom_parent', nom)
                 # La demande reste ATTENTE jusqu'à validation
-                app.add_authorized_vestiaire(
-                    cat,
-                    role_initial,
-                    saisie_hash,
-                    save=True
-                )
+                app.add_authorized_vestiaire(cat,role_initial,saisie_hash,save=True)
+                if not app.config.has_section("Notifications"):
+                    app.config.add_section("Notifications")
+                if not app.config.has_option("Notifications",cat):
+                    app.config.set("Notifications",cat,"1")
+                app.config.write()
                 app.gerer_abonnements_fcm(app.authorized_vestiaires)
                 
                 # --- AJOUT : Reconstruire le menu latéral ---
