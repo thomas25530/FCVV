@@ -110,7 +110,7 @@ class EventCard(BoxLayout):
 
         columns_layout = BoxLayout(orientation="horizontal", spacing=dp(15), size_hint_y=None)
         columns_layout.bind(minimum_height=columns_layout.setter("height"))
-        date_box = BoxLayout(orientation="vertical", size_hint_x=0.25, spacing=dp(1), size_hint_y=None)
+        date_box = BoxLayout(orientation="vertical", size_hint_x=0.2, spacing=dp(1), size_hint_y=None)
         date_box.bind(minimum_height=date_box.setter("height"))
         evt_type = str(self.match_data.get("type", "EVENEMENT")).upper()
         raw_date = str(self.match_data.get("date", ""))
@@ -133,7 +133,7 @@ class EventCard(BoxLayout):
         # --------------------------------------------------
         # COLONNE DROITE
         # --------------------------------------------------
-        title_box = BoxLayout(orientation="vertical",size_hint_x=0.75,spacing=dp(6),padding=[dp(12), 0, 0, 0],size_hint_y=None,)
+        title_box = BoxLayout(orientation="vertical",size_hint_x=0.8,spacing=dp(6),padding=[dp(12), 0, 0, 0],size_hint_y=None,)
         title_box.bind(minimum_height=title_box.setter("height"))
         titre_evt = (
             str(self.match_data.get("titre", ""))
