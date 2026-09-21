@@ -91,12 +91,16 @@ class ModifierStatsPopup(ModalView):
         self.field_min = StatChampSaisie("Minutes jouées", self.joueur.get("minutes_jouees", 0))
         self.field_cj = StatChampSaisie("Cartons jaunes", self.joueur.get("cartons_jaunes", 0))
         self.field_cr = StatChampSaisie("Cartons rouges", self.joueur.get("cartons_rouges", 0))
+        self.field_lavage = StatChampSaisie("Lavage maillot",self.joueur.get("lavage_maillot", 0))
+        self.field_collation = StatChampSaisie("Collation",self.joueur.get("collation", 0))
         content.add_widget(self.field_buts)
         content.add_widget(self.field_passes)
         content.add_widget(self.field_titu)
         content.add_widget(self.field_min)
         content.add_widget(self.field_cj)
         content.add_widget(self.field_cr)
+        content.add_widget(self.field_lavage)
+        content.add_widget(self.field_collation)
         # Boutons de validation / annulation
         box_btn = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(40))
         btn_cancel = Button(text="ANNULER",background_normal="",background_color=(0.6, 0.6, 0.6, 1),color=(1, 1, 1, 1),bold=True)
@@ -121,7 +125,9 @@ class ModifierStatsPopup(ModalView):
             "titularisations": self.field_titu.get_value(),
             "minutes_jouees": self.field_min.get_value(),
             "cartons_jaunes": self.field_cj.get_value(),
-            "cartons_rouges": self.field_cr.get_value()
+            "cartons_rouges": self.field_cr.get_value(),
+            "lavage_maillot": self.field_lavage.get_value(),
+            "collation": self.field_collation.get_value()
         }
         # Mise à jour locale du dictionnaire joueur
         self.joueur.update(payload)
@@ -193,12 +199,18 @@ class JoueurStatsPopup(ModalView):
         self.box_min = StatBoxBlue("Minutes Jouees", f"{self.joueur.get('minutes_jouees', 0)}'")
         self.box_cj = StatBoxBlue("Cartons Jaunes", self.joueur.get("cartons_jaunes", 0))
         self.box_cr = StatBoxBlue("Cartons Rouges", self.joueur.get("cartons_rouges", 0))
+        self.box_lavage = StatBoxBlue("Lavage Maillot",self.joueur.get("lavage_maillot", 0))
+        self.box_collation = StatBoxBlue("Collation",self.joueur.get("collation", 0))
         self.grid_stats.add_widget(self.box_buts)
         self.grid_stats.add_widget(self.box_passes)
         self.grid_stats.add_widget(self.box_titu)
         self.grid_stats.add_widget(self.box_min)
         self.grid_stats.add_widget(self.box_cj)
         self.grid_stats.add_widget(self.box_cr)
+        self.grid_stats.add_widget(self.box_lavage)
+        self.grid_stats.add_widget(self.box_collation)
+        
+        
         content.add_widget(self.grid_stats)
         # BLOC ASSIDUITÉ
         box_assiduite = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(4), size_hint_y=None)
@@ -250,6 +262,9 @@ class JoueurStatsPopup(ModalView):
         self.box_min.update_valeur(f"{payload['minutes_jouees']}'")
         self.box_cj.update_valeur(payload["cartons_jaunes"])
         self.box_cr.update_valeur(payload["cartons_rouges"])
+        self.box_lavage.update_valeur(payload["lavage_maillot"])
+        self.box_collation.update_valeur(payload["collation"])
+        
         if not self.app_reference:
             print(
                 "[PERF API ERROR] "
@@ -2407,7 +2422,9 @@ class VestiaireScreen(Screen):
                         "titularisations": 0,
                         "minutes_jouees": 0,
                         "cartons_jaunes": 0,
-                        "cartons_rouges": 0
+                        "cartons_rouges": 0,
+                        "lavage_maillot": 0,
+                        "collation": 0
                     }
 
                 # BASE OFFICIELLE : On part de j_eq pour ne perdre aucun joueur (même sans parent)
@@ -2431,7 +2448,7 @@ class VestiaireScreen(Screen):
                 joueur["matchs"] = joueur.get("matchs", 0) or 0
                 
                 # S'assurer que les performances numériques existent
-                for champ in ["buts", "passes_decisives", "titularisations", "minutes_jouees", "cartons_jaunes", "cartons_rouges"]:
+                for champ in ["buts", "passes_decisives", "titularisations", "minutes_jouees", "cartons_jaunes", "cartons_rouges","lavage_maillot","collation"]:
                     joueur[champ] = joueur.get(champ, 0) or 0
 
                 joueur["entrainements_total"] = tot_e
