@@ -1,0 +1,44 @@
+name: Create Apple Signing Certificate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create-certificate:
+    runs-on: macos-14
+
+    steps:
+      - name: Generate private key and CSR
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/apple"
+
+          openssl genrsa \
+            -out "$RUNNER_TEMP/apple/fcvv_distribution.key" \
+            2048
+
+          openssl req \
+            -new \
+            -key "$RUNNER_TEMP/apple/fcvv_distribution.key" \
+            -out "$RUNNER_TEMP/apple/fcvv_distribution.csr" \
+            -subj "/emailAddress=tournoivercel@icloud.com/CN=FCVV Distribution/O=FCVV/C=FR"
+
+          echo "CSR généré."
+
+      - name: Upload CSR
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcvv-distribution-csr
+          path: ${{ runner.temp }}/apple/fcvv_distribution.csr
+          retention-days: 1
+
+      - name: Export private key as base64
+        run: |
+          set -euo pipefail
+
+          base64 -i "$RUNNER_TEMP/apple/fcvv_distribution.key" \
+            -o "$RUNNER_TEMP/apple/private-key.base64"
+
+          echo "La clé privée a été générée."
+          echo "Elle n'est PAS publiée comme artifact."
