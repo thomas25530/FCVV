@@ -1,0 +1,35 @@
+name: Generate Apple Distribution CSR
+
+on:
+  workflow_dispatch:
+
+jobs:
+  generate-csr:
+    runs-on: macos-14
+
+    steps:
+      - name: Generate private key and CSR
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/apple"
+
+          openssl genrsa \
+            -out "$RUNNER_TEMP/apple/fcvv_distribution.key" \
+            2048
+
+          openssl req \
+            -new \
+            -key "$RUNNER_TEMP/apple/fcvv_distribution.key" \
+            -out "$RUNNER_TEMP/apple/fcvv_distribution.csr" \
+            -subj "/emailAddress=tournoivercel@icloud.com/CN=FCVV Distribution/O=FCVV/C=FR"
+
+          echo "CSR généré :"
+          ls -lh "$RUNNER_TEMP/apple/fcvv_distribution.csr"
+
+      - name: Upload CSR only
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcvv-distribution-csr
+          path: ${{ runner.temp }}/apple/fcvv_distribution.csr
+          retention-days: 1
