@@ -1941,79 +1941,78 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          PROJECT_FILE=$(
-            find "$GITHUB_WORKSPACE" \
+      
+          PROJECT_FILE="$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcodeproj"
+      
+          if [ ! -d "$PROJECT_FILE" ]; then
+            echo "ERREUR : projet Xcode introuvable : $PROJECT_FILE"
+            echo "Projets Xcode trouvés :"
+            find "$GITHUB_WORKSPACE/fcvv-ios" \
               -maxdepth 3 \
               -name "*.xcodeproj" \
               -type d \
-              -print \
-              -quit
-          )
-
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : .xcodeproj introuvable."
+              -print
             exit 1
           fi
-
+      
           echo "PROJECT_FILE=$PROJECT_FILE"
-
+      
           ruby - "$PROJECT_FILE" \
             "$APPLE_TEAM_ID" \
             "$APP_BUNDLE_ID" \
             "$PROVISIONING_PROFILE_NAME" <<'RUBY'
-
+      
           require 'xcodeproj'
-
+      
           project_path = ARGV[0]
           team_id = ARGV[1]
           bundle_id = ARGV[2]
           profile_name = ARGV[3]
-
+      
           project = Xcodeproj::Project.open(project_path)
-
+      
           target = project.targets.find do |t|
             t.name == 'fcvv'
           end
-
-          raise 'Target fcvv introuvable' unless target
-
+      
+          raise 'Target fcvv introuvable dans fcvv.xcodeproj' unless target
+      
           target.build_configurations.each do |config|
-
+      
             # Bundle ID
             config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] =
               bundle_id
-
+      
             # Team Apple
             config.build_settings['DEVELOPMENT_TEAM'] =
               team_id
-
-            # Signature manuelle uniquement pour Release
+      
+            # Signature manuelle pour Release
             if config.name == 'Release'
-
+      
               config.build_settings['CODE_SIGN_STYLE'] =
                 'Manual'
-
+      
               config.build_settings['CODE_SIGN_IDENTITY'] =
                 'Apple Distribution'
-
+      
               config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] =
                 profile_name
-
+      
               config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
                 'fcvv.entitlements'
-
+      
             end
-
+      
           end
-
+      
           project.save
-
+      
           puts "Configuration Release de signature terminée."
           RUBY
-
+      
           echo "===== SIGNATURE RELEASE ====="
-
+      
           xcodebuild \
             -workspace "$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcworkspace" \
             -scheme fcvv \
