@@ -2414,7 +2414,6 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_NAME}" \
-            CODE_SIGN_ENTITLEMENTS="fcvv.entitlements" \
             COMPILER_INDEX_STORE_ENABLE=NO
       
           if [ ! -d "$ARCHIVE_PATH" ]; then
