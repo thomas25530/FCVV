@@ -1802,6 +1802,41 @@ jobs:
             /tmp/fcvv-build-settings.txt \
             || true
 
+      
+      # ============================================================
+      # 13bis. DEBUG CERTIFICATE
+      # ============================================================
+      - name: Debug Apple Distribution certificate
+        shell: bash
+        env:
+          P12_BASE64: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+      
+          P12_FILE="$RUNNER_TEMP/fcvv-distribution.p12"
+      
+          echo "Décodage du certificat..."
+      
+          printf '%s' "$P12_BASE64" | base64 --decode > "$P12_FILE"
+      
+          echo "Taille du fichier décodé :"
+          ls -lh "$P12_FILE"
+      
+          echo "Vérification PKCS#12 avec OpenSSL..."
+      
+          openssl pkcs12 \
+            -info \
+            -in "$P12_FILE" \
+            -noout \
+            -passin env:P12_PASSWORD
+      
+          echo "============================================================"
+          echo "CERTIFICAT PKCS#12 VALIDE SUR LE RUNNER"
+          echo "============================================================"
+      
+      
+      
       # ============================================================
       # 13bis. IMPORT APPLE DISTRIBUTION CERTIFICATE
       # ============================================================
