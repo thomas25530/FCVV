@@ -195,15 +195,19 @@ class ImagePreview(ModalView):
         # ----------------------------
         # CLOSE BUTTON
         # ----------------------------
+        # ----------------------------
+        # CLOSE BUTTON
+        # ----------------------------
         close_btn = Button(
             text="[b]X[/b]",
             markup=True,
             size_hint=(None, None),
-            size=(dp(60), dp(60)),
-            pos_hint={'top': 0.99, 'right': 0.99},
+            size=(dp(50), dp(50)),  # Bouton un peu plus large/haut pour un meilleur confort tactile
+            pos_hint={'top': 0.94, 'right': 0.95},  # Descendu de 0.99 à 0.94 et légèrement décalé du bord droit (0.99 -> 0.95)
             background_normal='',
-            background_color=(0, 0, 0, 0.7),
-            font_size='24sp'
+            background_color=(0.2, 0.2, 0.2, 0.85),  # Fond gris foncé un peu plus opaque pour mieux contraster
+            color=(1, 1, 1, 1),  # Texte en blanc pur pour une visibilité maximale
+            font_size='22sp'
         )
         close_btn.bind(on_release=lambda x: self.dismiss())
         layout.add_widget(close_btn)

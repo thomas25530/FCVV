@@ -526,6 +526,13 @@ class EchangeBubble(BoxLayout):
 
 class ChatView(BoxLayout):
     def __init__(self, categorie, screen_instance=None, **kwargs):
+        # On augmente le padding du bas à dp(80) pour surélever largement le tout au-dessus des boutons système Android
+        if "padding" not in kwargs:
+            kwargs["padding"] = [0, 0, 0, dp(80)]
+        else:
+            p = kwargs["padding"]
+            kwargs["padding"] = [p[0], p[1], p[2], dp(80) if len(p) > 3 else dp(80)]
+            
         super().__init__(orientation="vertical", spacing=dp(5), **kwargs)
         self.categorie, self.cached_messages, self.limit = categorie, [], 25
         self.last_hash = None
@@ -554,12 +561,14 @@ class ChatView(BoxLayout):
         self.scroll.add_widget(self.msg_container)
         self.add_widget(self.scroll)
         if not self.is_admin_only or self.user_role == "ADMIN":
+            # On garde l'input_box à sa taille normale d'origine avec un espacement ajusté
             self.input_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10), padding=dp(5))
             self.input_field = TextInput(hint_text="Message...",multiline=True,size_hint_y=None,height=dp(40),font_size=f"{fs + 2}sp",padding=[dp(10), dp(8)],)
 
             def ajuster_hauteur(instance, min_height):
                 nouvelle_hauteur = max(dp(40), min(min_height, dp(220)))
                 instance.height = nouvelle_hauteur
+                # On ajuste la boîte pour laisser de la marge en bas
                 self.input_box.height = nouvelle_hauteur + dp(10)
 
             self.input_field.bind(minimum_height=ajuster_hauteur)
@@ -827,6 +836,13 @@ class ChatView(BoxLayout):
 
 class EchangeView(BoxLayout):
     def __init__(self, categorie, screen_instance=None, **kwargs):
+        # Augmentation du padding bas à dp(80) pour surélever l'ensemble au-dessus des boutons Android
+        if "padding" not in kwargs:
+            kwargs["padding"] = [0, 0, 0, dp(80)]
+        else:
+            p = kwargs["padding"]
+            kwargs["padding"] = [p[0], p[1], p[2], dp(80) if len(p) > 3 else dp(80)]
+
         super().__init__(orientation="vertical", spacing=dp(5), **kwargs)
         self.categorie, self.cached_messages, self.limit, self.last_hash, self.opacity = categorie, [], 25, None, 0
         
@@ -855,7 +871,6 @@ class EchangeView(BoxLayout):
         
         self.input_field.bind(minimum_height=debug_height)
 
-        
         self.send_btn = Button(text="Envoyer", size_hint_x=0.25, font_size=f"{fs}sp", bold=True, on_release=self.send_message)
         self.input_box.add_widget(self.input_field)
         self.input_box.add_widget(self.send_btn)
@@ -1327,12 +1342,12 @@ class VestiaireScreen(Screen):
         # Création du Bouton Flottant (FAB) sécurisé avec la classe FloatingButton
         self.fab_button = FloatingButton(
             text="+",
-            font_size=sp(42),  # Augmenté de 32 à 42 pour grossir le "+"
+            font_size=sp(70),  # Augmenté de 32 à 42 pour grossir le "+"
             bold=True,
             color=(0, 0, 0, 1),
             size_hint=(None, None),
-            size=(dp(75), dp(75)),  # Taille augmentée à 75dp x 75dp
-            pos_hint={"right": 0.93, "y": 0.04},
+            size=(dp(100), dp(100)),  # Taille augmentée à 75dp x 75dp
+            pos_hint={"right": 0.93, "y": 0.12},
             background_normal="",
             background_color=(0, 0, 0, 0),
         )
@@ -2270,6 +2285,7 @@ class VestiaireScreen(Screen):
                         if fin < total:
                             self._populate_event = (Clock.schedule_once(lambda dt: add_batch(fin),0))
                         else:
+                            layout.add_widget(Widget(size_hint_y=None, height=dp(80)))
                             self._populate_event = None
                     self._populate_event = (Clock.schedule_once(lambda dt: add_batch(0),0))
                 stream_calendrier(contenu_a_afficher,batch_size=4)
@@ -2328,6 +2344,9 @@ class VestiaireScreen(Screen):
                     Clock.schedule_once(lambda dt, c=card, lbl=lbl_notif: update_card_height(c, c.width, lbl), 0.1)
                     layout.add_widget(card)
 
+            # 🔥 AJOUT DE L'ESPACE DE SÉCURITÉ EN FIN DE LISTE NOTIFICATIONS
+            layout.add_widget(Widget(size_hint_y=None, height=dp(80)))
+
         elif self.current_sub_tab == "SAISON":
             layout.add_widget(SectionTitle("CALENDRIER & CLASSEMENT"))
             if not (calendrier_saison := data.get("calendrier_saison", {})):
@@ -2340,6 +2359,9 @@ class VestiaireScreen(Screen):
                             btn = Button(text=label, size_hint_y=None, height=dp(50), font_size=f"{fs*0.8}sp")
                             btn.bind(on_release=lambda _, u=url: webbrowser.open(u))
                             layout.add_widget(btn)
+
+            # 🔥 AJOUT DE L'ESPACE DE SÉCURITÉ EN FIN DE LISTE SAISON
+            layout.add_widget(Widget(size_hint_y=None, height=dp(80)))
 
         elif self.current_sub_tab == "EQUIPE":
             layout.add_widget(SectionTitle("EFFECTIF COMPLET"))
@@ -2357,7 +2379,15 @@ class VestiaireScreen(Screen):
                         fin = min(index_actuel + batch_size, total)
                         for idx in range(index_actuel, fin):
                             layout.add_widget(JoueurCardItem(joueur_data=joueurs_list[idx], index=idx + 1, callback_clic=self.ouvrir_details_joueur))
-                        self._populate_event = Clock.schedule_once(lambda dt: add_batch(fin), 0) if fin < total else None
+                        
+                        if fin < total:
+                            self._populate_event = Clock.schedule_once(lambda dt: add_batch(fin), 0)
+                        else:
+                            # 🔥 FIN DU CHARGEMENT DE TOUS LES JOUEURS : On ajoute l'espace de sécurité en bas
+                            from kivy.uix.widget import Widget
+                            layout.add_widget(Widget(size_hint_y=None, height=dp(80)))
+                            self._populate_event = None
+
                     self._populate_event = Clock.schedule_once(lambda dt: add_batch(0), 0)
                 stream_joueurs(joueurs)
 
@@ -2495,6 +2525,9 @@ class VestiaireScreen(Screen):
             layout.add_widget(StatsTableRow(joueur={},fs=fs,header=True))
             for joueur in sorted_joueurs:
                 layout.add_widget(StatsTableRow(joueur=joueur,fs=fs,header=False))
+            
+            layout.add_widget(Widget(size_hint_y=None, height=dp(80)))
+            
             layout.opacity = 1
             # Le ScrollView PRINCIPAL de la page gère maintenant
             # le défilement de toute la liste.
@@ -2567,7 +2600,14 @@ class VestiaireScreen(Screen):
                         fin = min(index_actuel + batch_size, total)
                         for idx in range(index_actuel, fin):
                             layout.add_widget(create_membre_card(membres[idx], idx + 1))
-                        self._populate_event = Clock.schedule_once(lambda dt: add_batch(fin), 0) if fin < total else None
+                        
+                        if fin < total:
+                            self._populate_event = Clock.schedule_once(lambda dt: add_batch(fin), 0)
+                        else:
+                            # 🔥 FIN DU CHARGEMENT DE TOUS LES MEMBRES : On ajoute l'espace de sécurité en bas
+                            layout.add_widget(Widget(size_hint_y=None, height=dp(80)))
+                            self._populate_event = None
+
                     self._populate_event = Clock.schedule_once(lambda dt: add_batch(0), 0)
                 stream_membres(membres_list, batch_size=5)
 

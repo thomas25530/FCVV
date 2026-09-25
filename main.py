@@ -278,22 +278,26 @@ class RootLayout(FloatLayout):
         self.menu_open = False
         # --- 1. L'INTERFACE PRINCIPALE ---
         self.main_ui = BoxLayout(orientation="vertical", size_hint=(1, 1))
+        
         # Top Bar
         if is_mobile:
-            self.top_bar = BoxLayout(size_hint_y=None, height = int(Window.height * 0.08))
+            # On augmente le padding du haut pour descendre davantage le contenu sous l'encoche
+            self.top_bar = BoxLayout(size_hint_y=None, height=int(Window.height * 0.10), padding=[dp(10), dp(22), dp(10), 0])
         else:
-            self.top_bar = BoxLayout(size_hint_y=None, height = 50)
+            self.top_bar = BoxLayout(size_hint_y=None, height=50)
+            
         with self.top_bar.canvas.before:
             Color(*get_color_from_hex(YELLOW))
             self.rect = Rectangle(pos=self.top_bar.pos, size=self.top_bar.size)
         self.top_bar.bind(pos=self.update_rects, size=self.update_rects)
-        # Bouton Menu
+        
+        # Bouton Menu (Ajustement de center_y pour le descendre un peu si nécessaire)
         if is_mobile:
             self.menu_btn = IconButton(
                 source="assets/icons/menu.png",
                 size_hint=(None, None),
-                size=(int(Window.height * 0.06), int(Window.height * 0.06)),
-                pos_hint={'center_y': 0.5}
+                size=(int(Window.height * 0.045), int(Window.height * 0.045)),
+                pos_hint={'center_y': 0.42}  # Descendu légèrement en dessous du centre exact (0.5 -> 0.42)
             )
         else:
             self.menu_btn = IconButton(
@@ -305,11 +309,12 @@ class RootLayout(FloatLayout):
         self.menu_btn.bind(on_release=self.open_menu)
         self.top_bar.add_widget(self.menu_btn)
         self.top_bar.add_widget(Widget(size_hint_x=None, width=10))
+        
         # Titre
         self.title_label = Label(
             text=_("home"),
             color=(0.1, 0.1, 0.4, 1),
-            font_size='24sp',
+            font_size='22sp' if is_mobile else '24sp',
             bold=True,
             size_hint_x=1,
             halign='left',
@@ -321,34 +326,38 @@ class RootLayout(FloatLayout):
         self.title_label.bind(size=lambda inst, val: setattr(inst, 'text_size', (inst.width, None)))
         self.top_bar.add_widget(self.title_label)
         self.top_bar.add_widget(Widget()) 
+        
         # Label MAJ
         self.maj_label = Label(
             text="", 
             color=(0.1, 0.1, 0.4, 1),
             font_size='11sp',
             size_hint_x=None,
-            width=0,            # Force la largeur à 0
-            size_hint_y=None,   # Ajouté : ne prend pas de place verticale
-            height=0,           # Ajouté : force la hauteur à 0
+            width=0,            
+            size_hint_y=None,   
+            height=0,           
             halign='center',
             valign='middle',
             markup=True,
-            opacity=0,          # Invisible
-            disabled=True       # Désactivé
+            opacity=0,          
+            disabled=True       
         )
-        # Dans le __init__, modifiez le bind du maj_label ainsi :
         self.maj_label.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], val[1])))
         self.top_bar.add_widget(self.maj_label)
+        
         # Bouton Reload
         if is_mobile:
-            reload_size = int(Window.height * 0.06)
+            reload_size = int(Window.height * 0.045)
+            reload_pos_y = 0.42  # Descendu au même niveau que le menu
         else:
             reload_size = 40
+            reload_pos_y = 0.5
+            
         self.btn_reload = IconButton(
             source="assets/icons/reload.png",
             size_hint=(None, None),
             size=(reload_size, reload_size),
-            pos_hint={'center_y': 0.5},
+            pos_hint={'center_y': reload_pos_y},
             opacity=0,
             disabled=True
         )
@@ -356,6 +365,7 @@ class RootLayout(FloatLayout):
         self.top_bar.add_widget(self.btn_reload)
         self.top_bar.add_widget(Widget(size_hint_x=None, width=10))
         self.main_ui.add_widget(self.top_bar)
+        
         # Screen Manager
         # Dictionnaire pour le Lazy Loading
         self.screen_map = {
@@ -576,7 +586,7 @@ class RootLayout(FloatLayout):
             row_vestiaire = MenuRow(icon_source="assets/icons/vestiaire.png", text="Mon Vestiaire")
             row_vestiaire.bind(on_release=lambda x: self.switch_screen("vestiaire"))
             self.menu_panel.add_widget(row_vestiaire)
-        self.menu_panel.add_widget(Widget(size_hint_y=1)) 
+        self.menu_panel.add_widget(Widget(size_hint_y=None, height=dp(90)))
         self.menu_built = True
 
     def _update_menu_rect(self, instance, value):

@@ -17,6 +17,7 @@ from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.graphics import Rotate, PushMatrix, PopMatrix
+from kivy.uix.widget import Widget
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -94,11 +95,6 @@ class PartenairesScreen(Screen):
         widget.reload()
         Animation(opacity=1, duration=0.3).start(widget)
 
-    def _apply_img(self, widget, path):
-        widget.source = path
-        widget.reload()
-        Animation(opacity=1, duration=0.3).start(widget)
-
     def update_ui(self):
         app = App.get_running_app()
         # 1. Récupération du facteur de taille
@@ -142,6 +138,8 @@ class PartenairesScreen(Screen):
             img = ImageButton(link=p.get('lien', ''), size_hint_y=None, height=dp(150), fit_mode="contain")
             self.content_layout.add_widget(img)
             self.download_and_set_image(p.get('logo', ''), img)
+            
+        self.content_layout.add_widget(Widget(size_hint_y=None, height=dp(60)))
 
     def set_tab(self, tab):
         self.current_tab = tab

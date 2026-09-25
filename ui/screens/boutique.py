@@ -19,6 +19,7 @@ from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.uix.popup import Popup
 from kivy.uix.spinner import SpinnerOption
+from kivy.uix.widget import Widget
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -206,6 +207,9 @@ class BoutiqueScreen(Screen):
         elif len(product_list) > 0:
             self.lbl_counter.text = f"{len(product_list)} / {len(product_list)} produits affichés"
             self.products_container.add_widget(self.lbl_counter)
+        
+        # Ajout d'un espacement invisible de sécurité tout en bas pour les boutons tactiles Android
+        self.products_container.add_widget(Widget(size_hint_y=None, height=dp(50)))
 
     def load_more(self, *args):
         old_text = self.btn_more.text

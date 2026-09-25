@@ -1388,6 +1388,8 @@ class SoireesScreen(Screen):
         def render_batch(dt):
             for _ in range(6):
                 if self._row_idx >= len(rows_to_create):
+                    # 🔥 AJOUT DE L'ESPACE DE SÉCURITÉ À LA FIN DU RENDU MATCHS
+                    container.add_widget(Widget(size_hint_y=None, height=dp(60)))
                     return False
                 r = rows_to_create[self._row_idx]
                 base_h = 55 if any('\n' in str(v) for v in r['vals']) else 45
@@ -1524,6 +1526,7 @@ class SoireesScreen(Screen):
                 container.add_widget(row)
             container.add_widget(BoxLayout(size_hint_y=None, height=dp(15)))
         
+        container.add_widget(Widget(size_hint_y=None, height=dp(60)))
         Clock.schedule_once(lambda dt: self._force_layout_refresh(container), 0.1)
     
     def _update_rect_generic(self, instance, value):

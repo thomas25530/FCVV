@@ -13,6 +13,8 @@ from kivy.metrics import dp
 from kivy.animation import Animation
 from kivy.properties import NumericProperty
 from kivy.effects.scroll import ScrollEffect
+from kivy.uix.widget import Widget
+from kivy.utils import platform
 
 class LoadingSpinner(Image):
     angle = NumericProperty(0)
@@ -222,3 +224,8 @@ class PresentationScreen(Screen):
                     pdf_btn.target_url = doc.get("url", "")
                     pdf_btn.bind(on_release=self._on_pdf_released)
                     self.content_layout.add_widget(pdf_btn)
+
+        # --- ESPACE DE SÉCURITÉ ANDROID / DEBUG ---
+        is_desktop_debug = True  # Mettez False une fois le debug terminé
+        if platform == 'android' or is_desktop_debug:
+            self.content_layout.add_widget(Widget(size_hint_y=None, height=dp(50)))

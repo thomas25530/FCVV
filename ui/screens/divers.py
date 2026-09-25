@@ -10,6 +10,7 @@ from kivy.app import App
 from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.metrics import dp
 from kivy.effects.scroll import ScrollEffect
+from kivy.utils import platform
 
 class StageCard(BoxLayout):
     """Carte d'information pour les stages, basée sur le layout NewsCard."""
@@ -222,7 +223,6 @@ class DiversScreen(Screen):
             
             # Si aucun document ou aucun document valide
             if valid_docs_count == 0:
-                # Utilise la fonction de traduction si la clé existe, sinon le texte explicite
                 msg_text = tr("no_docs") if tr("no_docs") != "no_docs" else "Aucun document disponible pour le moment."
                 
                 self.content_layout.add_widget(Label(
@@ -232,3 +232,9 @@ class DiversScreen(Screen):
                     font_size=f"{user_size}sp",
                     color=(1, 1, 1, 1)
                 ))
+
+        # --- ESPACE DE SÉCURITÉ ANDROID / DEBUG ---
+        is_desktop_debug = True  # Mettez False une fois le debug terminé
+        if platform == 'android' or is_desktop_debug:
+            from kivy.uix.widget import Widget
+            self.content_layout.add_widget(Widget(size_hint_y=None, height=dp(50)))
