@@ -14,6 +14,7 @@ jobs:
       FIREBASE_VERSION: "10.29.0"
       APP_BUNDLE_ID: "org.fcvv.fcvv"
       APP_VERSION: "1.1.0"
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
     steps:
       # ============================================================
@@ -906,7 +907,7 @@ jobs:
           <plist version="1.0">
           <dict>
               <key>aps-environment</key>
-              <string>development</string>
+              <string>production</string>
           </dict>
           </plist>
           EOF
@@ -1802,6 +1803,193 @@ jobs:
             || true
 
       # ============================================================
+      # 13bis. IMPORT APPLE DISTRIBUTION CERTIFICATE
+      # ============================================================
+      - name: Import Apple Distribution certificate
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.APPLE_DISTRIBUTION_P12_BASE64 }}
+          p12-password: ${{ secrets.APPLE_DISTRIBUTION_P12_PASSWORD }}
+      
+      # ============================================================
+      # 13ter. INSTALL PROVISIONING PROFILE
+      # ============================================================
+      - name: Install App Store provisioning profile
+        shell: bash
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          mkdir -p "$PROFILE_DIR"
+
+          echo "$PROVISIONING_PROFILE_BASE64" \
+            | base64 --decode \
+            > "$PROFILE_DIR/FCVV_AppStore_Distribution.mobileprovision"
+
+          if [ ! -s "$PROFILE_DIR/FCVV_AppStore_Distribution.mobileprovision" ]; then
+            echo "ERREUR : provisioning profile vide."
+            exit 1
+          fi
+
+          echo "Provisioning profile installé."
+
+          # --------------------------------------------------------
+          # Extraction des informations du profil
+          # --------------------------------------------------------
+
+          security cms \
+            -D \
+            -i "$PROFILE_DIR/FCVV_AppStore_Distribution.mobileprovision" \
+            > "$RUNNER_TEMP/fcvv-profile.plist"
+
+          PROFILE_NAME=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Name" \
+              "$RUNNER_TEMP/fcvv-profile.plist"
+          )
+
+          PROFILE_UUID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :UUID" \
+              "$RUNNER_TEMP/fcvv-profile.plist"
+          )
+
+          PROFILE_APP_ID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:application-identifier" \
+              "$RUNNER_TEMP/fcvv-profile.plist"
+          )
+          
+          
+          PROFILE_APS_ENVIRONMENT=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:aps-environment" \
+              "$RUNNER_TEMP/fcvv-profile.plist" \
+              2>/dev/null || true
+          )
+          
+          echo "Profile APNs Environment = $PROFILE_APS_ENVIRONMENT"
+          
+          if [ "$PROFILE_APS_ENVIRONMENT" != "production" ]; then
+            echo "ERREUR : le provisioning profile n'est pas configuré pour APNs production."
+            exit 1
+          fi
+
+          echo "Profile Name = $PROFILE_NAME"
+          echo "Profile UUID = $PROFILE_UUID"
+          echo "Profile App ID = $PROFILE_APP_ID"
+
+          if [ "$PROFILE_NAME" != "FCVV AppStore Distribution" ]; then
+            echo "ERREUR : nom du provisioning profile inattendu."
+            exit 1
+          fi
+
+          if [ "$PROFILE_APP_ID" != "${APPLE_TEAM_ID}.${APP_BUNDLE_ID}" ]; then
+            echo "ERREUR : App ID du provisioning profile incorrect."
+            exit 1
+          fi
+
+          echo "PROVISIONING_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROVISIONING_PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+          echo "Provisioning profile validé."
+      
+      # ============================================================
+      # 13quater. CONFIGURE RELEASE CODE SIGNING
+      # ============================================================
+      - name: Configure Release code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJECT_FILE=$(
+            find "$GITHUB_WORKSPACE" \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : .xcodeproj introuvable."
+            exit 1
+          fi
+
+          echo "PROJECT_FILE=$PROJECT_FILE"
+
+          ruby - "$PROJECT_FILE" \
+            "$APPLE_TEAM_ID" \
+            "$APP_BUNDLE_ID" \
+            "$PROVISIONING_PROFILE_NAME" <<'RUBY'
+
+          require 'xcodeproj'
+
+          project_path = ARGV[0]
+          team_id = ARGV[1]
+          bundle_id = ARGV[2]
+          profile_name = ARGV[3]
+
+          project = Xcodeproj::Project.open(project_path)
+
+          target = project.targets.find do |t|
+            t.name == 'fcvv'
+          end
+
+          raise 'Target fcvv introuvable' unless target
+
+          target.build_configurations.each do |config|
+
+            # Bundle ID
+            config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] =
+              bundle_id
+
+            # Team Apple
+            config.build_settings['DEVELOPMENT_TEAM'] =
+              team_id
+
+            # Signature manuelle uniquement pour Release
+            if config.name == 'Release'
+
+              config.build_settings['CODE_SIGN_STYLE'] =
+                'Manual'
+
+              config.build_settings['CODE_SIGN_IDENTITY'] =
+                'Apple Distribution'
+
+              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] =
+                profile_name
+
+              config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
+                'fcvv.entitlements'
+
+            end
+
+          end
+
+          project.save
+
+          puts "Configuration Release de signature terminée."
+          RUBY
+
+          echo "===== SIGNATURE RELEASE ====="
+
+          xcodebuild \
+            -workspace "$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcworkspace" \
+            -scheme fcvv \
+            -configuration Release \
+            -showBuildSettings \
+            | grep -E \
+              'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_ENTITLEMENTS' \
+              || true
+      
+      
+      
+      
+      # ============================================================
       # 14. BUILD SIMULATOR
       # ============================================================
       - name: Build simulator
@@ -2151,3 +2339,260 @@ jobs:
           path: fcvv.zip
           if-no-files-found: error
           retention-days: 14
+          
+      # ============================================================
+      # 18. ARCHIVE DEVICE / IPHONEOS
+      # ============================================================
+      - name: Archive signed iOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          WORKSPACE_PATH="$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcworkspace"
+          ARCHIVE_PATH="$GITHUB_WORKSPACE/build/FCVV.xcarchive"
+
+          rm -rf "$GITHUB_WORKSPACE/build"
+          mkdir -p "$GITHUB_WORKSPACE/build"
+
+          echo "============================================================"
+          echo "              ARCHIVE IPHONEOS FCVV"
+          echo "============================================================"
+
+          xcodebuild archive \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            PRODUCT_BUNDLE_IDENTIFIER="${APP_BUNDLE_ID}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            MARKETING_VERSION="${APP_VERSION}" \
+            DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_NAME}" \
+            CODE_SIGN_ENTITLEMENTS="fcvv.entitlements" \
+            COMPILER_INDEX_STORE_ENABLE=NO
+
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERREUR : archive absente."
+            exit 1
+          fi
+
+          echo "Archive créée : $ARCHIVE_PATH"
+
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
+          
+      
+      # ============================================================
+      # 19. EXPORT IPA
+      # ============================================================
+      - name: Export signed IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EXPORT_DIR="$GITHUB_WORKSPACE/build/export"
+          EXPORT_OPTIONS="$GITHUB_WORKSPACE/build/ExportOptions.plist"
+
+          rm -rf "$EXPORT_DIR"
+          mkdir -p "$EXPORT_DIR"
+
+          cat > "$EXPORT_OPTIONS" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+
+              <key>destination</key>
+              <string>export</string>
+
+              <key>signingStyle</key>
+              <string>manual</string>
+
+              <key>teamID</key>
+              <string>${APPLE_TEAM_ID}</string>
+
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>${APP_BUNDLE_ID}</key>
+                  <string>${PROVISIONING_PROFILE_NAME}</string>
+              </dict>
+
+              <key>compileBitcode</key>
+              <false/>
+
+              <key>uploadSymbols</key>
+              <true/>
+
+              <key>stripSwiftSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          plutil -lint "$EXPORT_OPTIONS"
+
+          echo "===== EXPORT OPTIONS ====="
+          cat "$EXPORT_OPTIONS"
+
+          echo "============================================================"
+          echo "                    EXPORT IPA"
+          echo "============================================================"
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "$EXPORT_OPTIONS"
+
+          IPA_PATH=$(
+            find "$EXPORT_DIR" \
+              -maxdepth 1 \
+              -name "*.ipa" \
+              -type f \
+              -print \
+              -quit
+          )
+
+          if [ -z "$IPA_PATH" ]; then
+            echo "ERREUR : aucun .ipa généré."
+
+            find "$EXPORT_DIR" \
+              -maxdepth 2 \
+              -type f \
+              -print
+
+            exit 1
+          fi
+
+          echo "IPA = $IPA_PATH"
+
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+
+          cp "$IPA_PATH" \
+            "$GITHUB_WORKSPACE/artifacts/FCVV-${APP_VERSION}-${GITHUB_RUN_NUMBER}.ipa"
+
+          FINAL_IPA="$GITHUB_WORKSPACE/artifacts/FCVV-${APP_VERSION}-${GITHUB_RUN_NUMBER}.ipa"
+
+          echo "FINAL_IPA=$FINAL_IPA" >> "$GITHUB_ENV"
+
+          echo "============================================================"
+          echo "              IPA CRÉÉ AVEC SUCCÈS"
+          echo "============================================================"
+
+          ls -lh "$FINAL_IPA"
+      
+      
+      # ============================================================
+      # 20. VERIFY IPA
+      # ============================================================
+      - name: Verify signed IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "===== IPA ====="
+          ls -lh "$FINAL_IPA"
+
+          unzip -q -o \
+            "$FINAL_IPA" \
+            -d "$RUNNER_TEMP/fcvv-ipa-check"
+
+          APP_PATH=$(
+            find "$RUNNER_TEMP/fcvv-ipa-check/Payload" \
+              -maxdepth 1 \
+              -name "*.app" \
+              -type d \
+              -print \
+              -quit
+          )
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : .app absente de l'IPA."
+            exit 1
+          fi
+
+          echo "APP_PATH=$APP_PATH"
+
+          echo "===== BUNDLE ID ====="
+
+          BUNDLE_ID=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleIdentifier" \
+              "$APP_PATH/Info.plist"
+          )
+
+          echo "$BUNDLE_ID"
+
+          if [ "$BUNDLE_ID" != "$APP_BUNDLE_ID" ]; then
+            echo "ERREUR : Bundle ID incorrect."
+            exit 1
+          fi
+
+          echo "===== VERSION ====="
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleShortVersionString" \
+            "$APP_PATH/Info.plist"
+
+          echo "===== BUILD ====="
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleVersion" \
+            "$APP_PATH/Info.plist"
+
+          echo "===== CODE SIGNATURE ====="
+
+          codesign \
+            -dvvv \
+            "$APP_PATH" \
+            2>&1 | grep -E \
+              'Identifier=|Authority=|TeamIdentifier=' \
+              || true
+
+          echo "===== ENTITLEMENTS ====="
+
+          codesign \
+            -d \
+            --entitlements :- \
+            "$APP_PATH" \
+            2>/dev/null \
+            | plutil -p - \
+            || true
+
+          echo "IPA signé vérifié."
+      
+      
+      # ============================================================
+      # 21. UPLOAD SIGNED IPA ARTIFACT
+      # ============================================================
+      - name: Upload signed IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcvv-ipa-${{ github.run_number }}
+          path: artifacts/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+      
+      # ============================================================
+      # 22. UPLOAD TESTFLIGHT
+      # ============================================================
+      - name: Upload IPA to TestFlight
+        uses: apple-actions/upload-testflight-build@v5
+        with:
+          app-path: ${{ env.FINAL_IPA }}
+          issuer-id: ${{ secrets.APPLE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPLE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          wait-for-processing: true
+          uses-non-exempt-encryption: false
+      
+      
+      
+      
+      
