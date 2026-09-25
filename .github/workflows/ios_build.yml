@@ -2383,17 +2383,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+      
           WORKSPACE_PATH="$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcworkspace"
           ARCHIVE_PATH="$GITHUB_WORKSPACE/build/FCVV.xcarchive"
-
+      
           rm -rf "$GITHUB_WORKSPACE/build"
           mkdir -p "$GITHUB_WORKSPACE/build"
-
+      
           echo "============================================================"
           echo "              ARCHIVE IPHONEOS FCVV"
           echo "============================================================"
-
+      
+          echo "===== IDENTITÉS DE SIGNATURE ====="
+          security find-identity -v -p codesigning signing_temp.keychain || true
+      
+          echo "===== ARCHIVE ====="
+      
           xcodebuild archive \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
@@ -2411,14 +2416,14 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_NAME}" \
             CODE_SIGN_ENTITLEMENTS="fcvv.entitlements" \
             COMPILER_INDEX_STORE_ENABLE=NO
-
+      
           if [ ! -d "$ARCHIVE_PATH" ]; then
             echo "ERREUR : archive absente."
             exit 1
           fi
-
+      
           echo "Archive créée : $ARCHIVE_PATH"
-
+      
           echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
           
       
