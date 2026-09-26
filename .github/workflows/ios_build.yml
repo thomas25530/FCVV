@@ -1101,39 +1101,35 @@ jobs:
 
           cat > "$PROJ_DIR/Podfile" <<EOF
           platform :ios, '13.0'
-          
-          use_frameworks!
+
           use_modular_headers!
           
-          project '$PROJ_NAME'
+          project 'fcvv.xcodeproj'
           
           target 'fcvv' do
             pod 'FirebaseCore', '10.29.0'
             pod 'FirebaseMessaging', '10.29.0'
           end
           
-          # ============================================================
-          # IMPORTANT :
-          # Les Pods/Firebase ne doivent jamais recevoir le provisioning
-          # profile de l'application.
-          # ============================================================
           post_install do |installer|
           
             installer.pods_project.targets.each do |target|
           
               target.build_configurations.each do |config|
           
-                # Supprime toute configuration de provisioning profile
-                # héritée ou injectée précédemment.
+                # Les Pods ne doivent jamais utiliser
+                # le provisioning profile de l'application.
                 config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
                 config.build_settings.delete('PROVISIONING_PROFILE')
           
-                # Les frameworks Pods ne sont pas signés avec le profile
-                # de l'application.
+                # Pas de signature manuelle pour les Pods.
                 config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
           
-                # Ne pas imposer le Team Apple aux Pods.
                 config.build_settings.delete('DEVELOPMENT_TEAM')
+                config.build_settings.delete('CODE_SIGN_IDENTITY')
+          
+                config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+                config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
           
               end
           
@@ -2555,8 +2551,6 @@ jobs:
             CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
             MARKETING_VERSION="${APP_VERSION}" \
             DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             CLANG_ENABLE_MODULES=YES \
             COMPILER_INDEX_STORE_ENABLE=NO
 
@@ -2600,7 +2594,7 @@ jobs:
           <plist version="1.0">
           <dict>
               <key>method</key>
-              <string>app-store</string>
+              <string>app-store-connect</string>
 
               <key>destination</key>
               <string>export</string>
