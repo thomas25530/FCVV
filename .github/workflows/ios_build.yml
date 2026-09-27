@@ -2781,7 +2781,7 @@ jobs:
           issuer-id: ${{ secrets.APPLE_ISSUER_ID }}
           api-key-id: ${{ secrets.APPLE_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
-          wait-for-processing: false
+          wait-for-processing: true
           uses-non-exempt-encryption: false
       
       
