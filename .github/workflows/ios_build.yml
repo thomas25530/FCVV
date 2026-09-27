@@ -2182,16 +2182,22 @@ jobs:
           # --------------------------------------------------------
           DEVICE_ID=$(
             xcrun simctl list devices available \
-              | grep -m 1 'iPhone 15 (' \
-              | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/'
+              | awk -F '[()]' '/iPhone 15/ {
+                  for (i = 1; i <= NF; i++) {
+                    if ($i ~ /^[A-F0-9-]{36}$/) {
+                      print $i
+                      exit
+                    }
+                  }
+                }'
           )
-      
+          
           if [ -z "$DEVICE_ID" ]; then
-            echo "ERREUR : iPhone 15 indisponible."
-      
+            echo "ERREUR : aucun iPhone 15 disponible."
+          
             echo "===== DEVICES DISPONIBLES ====="
             xcrun simctl list devices available
-      
+          
             exit 1
           fi
       
@@ -2296,7 +2302,10 @@ jobs:
             CLANG_ENABLE_MODULES=YES \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
       
           # --------------------------------------------------------
           # 10. Recherche de l'application
