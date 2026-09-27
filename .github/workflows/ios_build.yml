@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-26
 
     env:
       IOS_DEPLOYMENT_TARGET: "13.0"
@@ -22,6 +22,13 @@ jobs:
       # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
+        
+      - name: Select Xcode 26
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app
+          sudo xcodebuild -license accept
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
 
       # ============================================================
       # 2. PYTHON
@@ -65,15 +72,15 @@ jobs:
       # ============================================================
       # 4. CACHE KIVY-IOS
       # ============================================================
-      - name: Cache kivy-ios
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v5-python310-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.py') }}
-          restore-keys: |
-            ${{ runner.os }}-kivy-ios-v5-python310-
-            ${{ runner.os }}-kivy-ios-v5-
+      #- name: Cache kivy-ios
+      #  uses: actions/cache@v4
+      #  with:
+      #    path: |
+      #      ~/.kivy-ios
+      #    key: ${{ runner.os }}-kivy-ios-v5-python310-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.py') }}
+      #    restore-keys: |
+      #      ${{ runner.os }}-kivy-ios-v5-python310-
+      #      ${{ runner.os }}-kivy-ios-v5-
 
       # ============================================================
       # 5. BUILD KIVY-IOS RECIPES
@@ -83,18 +90,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          toolchain build \
-            python3 \
-            kivy \
-            openssl \
-            pillow
-
-          toolchain pip install \
-            pyyaml \
-            requests \
-            urllib3 \
-            fpdf2 \
-            fonttools
+          toolchain build python3 kivy openssl pillow pyyaml
+          toolchain pip install requests urllib3
+            
 
       # ============================================================
       # 6. PREPARE IOS SOURCES
@@ -139,6 +137,13 @@ jobs:
 
           echo "Sources iOS préparées."
 
+      
+      - name: Check native binaries
+        run: |
+          find . -type f \( -name "*.dylib" -o -name "*.so" \) -print | sort
+      
+      
+      
       # ============================================================
       # 7. CREATE XCODE PROJECT
       # ============================================================
