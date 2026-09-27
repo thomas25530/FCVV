@@ -2772,8 +2772,22 @@ jobs:
           retention-days: 14
       
       # ============================================================
-      # 22. UPLOAD TESTFLIGHT
+      # 22. INSTALL TRANSPORTER
       # ============================================================
+      - name: Install Transporter
+        run: |
+          curl -fsSL \
+            "https://itunesconnect.apple.com/WebObjects/iTunesConnect.woa/ra/resources/download/public/Transporter__OSX/bin/" \
+            -o /tmp/itmstransporter.pkg
+      
+          sudo installer \
+            -pkg /tmp/itmstransporter.pkg \
+            -target /
+      
+          /usr/local/itms/bin/iTMSTransporter -help
+      
+      # ============================================================
+      # 23. UPLOAD TESTFLIGHT
       # ============================================================
       - name: Upload IPA to TestFlight
         uses: apple-actions/upload-testflight-build@v5
@@ -2782,7 +2796,8 @@ jobs:
           issuer-id: ${{ secrets.APPLE_ISSUER_ID }}
           api-key-id: ${{ secrets.APPLE_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
-          wait-for-processing: true
+          backend: transporter
+          wait-for-processing: false
           uses-non-exempt-encryption: false
       
       
