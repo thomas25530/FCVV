@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-26
 
     env:
-      IOS_DEPLOYMENT_TARGET: "13.0"
+      IOS_DEPLOYMENT_TARGET: "15.0"
       FIREBASE_VERSION: "10.29.0"
       APP_BUNDLE_ID: "org.fcvv.fcvv"
       APP_VERSION: "1.1.0"
@@ -2143,6 +2143,97 @@ jobs:
           fi
 
       
+      - name: Diagnose Firebase Swift linker
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROJ_DIR="$GITHUB_WORKSPACE/fcvv-ios"
+
+          echo "============================================================"
+          echo "XCODE"
+          echo "============================================================"
+
+          xcodebuild -version
+          swift --version
+          xcrun --find swift
+          xcrun --find clang
+
+          echo "============================================================"
+          echo "SDK"
+          echo "============================================================"
+
+          xcrun --sdk iphonesimulator --show-sdk-version
+          xcrun --sdk iphonesimulator --show-sdk-path
+
+          echo "============================================================"
+          echo "FIREBASE PODS"
+          echo "============================================================"
+
+          find "$PROJ_DIR/Pods" \
+            -maxdepth 3 \
+            -type f \
+            \( -name "*.podspec" -o -name "*.xcconfig" \) \
+            -print \
+            | sort
+
+          echo "============================================================"
+          echo "FIREBASE VERSIONS"
+          echo "============================================================"
+
+          grep -R \
+            -n \
+            "FirebaseCore" \
+            "$PROJ_DIR/Podfile.lock" \
+            || true
+
+          grep -R \
+            -n \
+            "FirebaseMessaging" \
+            "$PROJ_DIR/Podfile.lock" \
+            || true
+
+          echo "============================================================"
+          echo "SUSPICIOUS SWIFT / METAL REFERENCES"
+          echo "============================================================"
+
+          grep -R \
+            -n \
+            "MobileAsset.MetalToolchain\|swiftCompatibility\|UIUtilities\|SwiftUICore" \
+            "$PROJ_DIR" \
+            --include="project.pbxproj" \
+            --include="*.xcconfig" \
+            --include="Podfile" \
+            --include="Podfile.lock" \
+            || true
+
+          echo "============================================================"
+          echo "FIREBASECOREINTERNAL"
+          echo "============================================================"
+
+          find "$PROJ_DIR/Pods" \
+            -iname "*FirebaseCoreInternal*" \
+            -print
+
+          echo "============================================================"
+          echo "LINK FLAGS"
+          echo "============================================================"
+
+          xcodebuild \
+            -workspace "$PROJ_DIR/fcvv.xcworkspace" \
+            -scheme fcvv \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -showBuildSettings \
+            > "$RUNNER_TEMP/fcvv-settings.txt"
+
+          grep -E \
+            "LIBRARY_SEARCH_PATHS|FRAMEWORK_SEARCH_PATHS|OTHER_LDFLAGS|SWIFT_VERSION|SWIFT_OBJC_INTERFACE_HEADER_NAME|CLANG_ENABLE_MODULES" \
+            "$RUNNER_TEMP/fcvv-settings.txt" \
+            || true
+
+      
+      
       # ============================================================
       # 14. BUILD SIMULATOR
       # ============================================================
@@ -2285,6 +2376,10 @@ jobs:
             exit 1
           fi
       
+          
+          
+          
+          
           # --------------------------------------------------------
           # 9. Build Xcode
           # --------------------------------------------------------
