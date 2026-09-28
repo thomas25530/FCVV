@@ -1130,7 +1130,6 @@ jobs:
                   '$(inherited)',
                   '$(SDKROOT)/usr/lib/swift'
                 ]
-                config.build_settings['SWIFT_VERSION'] = '5.0'
                 
                 # Les Pods ne doivent jamais utiliser
                 # le provisioning profile de l'application.
@@ -2417,7 +2416,6 @@ jobs:
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             CLANG_ENABLE_MODULES=YES \
-            SWIFT_VERSION=5.0 \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
