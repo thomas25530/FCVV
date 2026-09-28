@@ -39,6 +39,10 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
           xcrun --sdk iphoneos --show-sdk-path
 
+      - name: Install Metal Toolchain
+        run: |
+          xcodebuild -downloadComponent MetalToolchain
+
       # ============================================================
       # 2. PYTHON
       # ============================================================
