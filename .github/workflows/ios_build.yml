@@ -2281,8 +2281,15 @@ jobs:
           WORKSPACE_PATH="$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcworkspace"
           ARCHIVE_PATH="$GITHUB_WORKSPACE/build/FCVV.xcarchive"
 
+          # 🧹 AJOUTER CE NETTOYAGE POUR ÉVITER LES CONFLITS DE SIMULATEUR
+          echo "===== NETTOYAGE DES CACHES ET DÉRIVÉS ====="
+          rm -rf ~/Library/Developer/Xcode/DerivedData/*
           rm -rf "$GITHUB_WORKSPACE/build"
           mkdir -p "$GITHUB_WORKSPACE/build"
+
+          cd "$GITHUB_WORKSPACE/fcvv-ios"
+          # Forcer CocoaPods à régénérer proprement les liens pour iOS device
+          pod install
 
           echo "============================================================"
           echo "              ARCHIVE IPHONEOS FCVV"
@@ -2313,7 +2320,6 @@ jobs:
               'TARGET_NAME|PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_ENTITLEMENTS|CLANG_ENABLE_MODULES' \
               || true
 
-          echo "===== ARCHIVE ====="
           echo "===== ARCHIVE ====="
 
           xcodebuild archive \
