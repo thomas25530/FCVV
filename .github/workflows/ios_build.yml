@@ -1134,9 +1134,7 @@ jobs:
 
 
           cat > "$PROJ_DIR/Podfile" <<'EOF'
-		  
           platform :ios, '15.0'
-
           use_frameworks! :linkage => :static
           
           project 'fcvv.xcodeproj'
@@ -1183,35 +1181,23 @@ jobs:
             end
           
           end
-		  
           EOF
-
           echo "===== PODFILE ====="
           cat "$PROJ_DIR/Podfile"
-
           # ========================================================
           # 7. Nettoyage CocoaPods
           # ========================================================
-
           echo "===== Nettoyage CocoaPods ====="
-
           cd "$PROJ_DIR"
-
           pod deintegrate || true
-
           rm -rf Pods
           rm -f Podfile.lock
-
           # ========================================================
           # 8. Installation CocoaPods
           # ========================================================
-
           echo "===== pod install ====="
-
           pod install --repo-update
-		  
-		  echo "===== Vérification LIBRARY_SEARCH_PATHS ====="
-
+          echo "===== Vérification LIBRARY_SEARCH_PATHS ====="
           grep -R "LIBRARY_SEARCH_PATHS" \
             "$PROJ_DIR/Pods/Target Support Files/Pods-fcvv" \
             || true
