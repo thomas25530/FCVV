@@ -1133,6 +1133,7 @@ jobs:
 
 
           cat > "$PROJ_DIR/Podfile" <<'EOF'
+		  
           platform :ios, '15.0'
 
           use_frameworks! :linkage => :static
@@ -1146,17 +1147,28 @@ jobs:
           
           post_install do |installer|
           
+            default_toolchain =
+              '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain'
+          
+            default_swift_lib =
+              "#{default_toolchain}/usr/lib/swift/$(PLATFORM_NAME)"
+          
             installer.pods_project.targets.each do |target|
           
               target.build_configurations.each do |config|
-                
-                # Les Pods ne doivent jamais utiliser
-                # le provisioning profile de l'application.
-                
+          
+                # Toujours chercher les bibliothèques Swift
+                # dans le toolchain XcodeDefault.
+                config.build_settings['LIBRARY_SEARCH_PATHS'] = [
+                  '$(inherited)',
+                  default_swift_lib,
+                  '/usr/lib/swift'
+                ]
+          
+                # Pas de signature pour les Pods.
                 config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
                 config.build_settings.delete('PROVISIONING_PROFILE')
           
-                # Pas de signature manuelle pour les Pods.
                 config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
           
                 config.build_settings.delete('DEVELOPMENT_TEAM')
@@ -1170,6 +1182,7 @@ jobs:
             end
           
           end
+		  
           EOF
 
           echo "===== PODFILE ====="
@@ -1195,6 +1208,21 @@ jobs:
           echo "===== pod install ====="
 
           pod install --repo-update
+		  
+		  echo "===== Vérification LIBRARY_SEARCH_PATHS ====="
+
+          grep -R "LIBRARY_SEARCH_PATHS" \
+            "$PROJ_DIR/Pods/Target Support Files/Pods-fcvv" \
+            || true
+          
+          echo "===== Recherche swiftCompatibility56 ====="
+          
+          find \
+            "/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain" \
+            -name "libswiftCompatibility56*" \
+            -o \
+            -name "libswiftCompatibilityPacks*" \
+            || true
 
           grep -A 3 "FirebaseCore (" Podfile.lock
           grep -A 3 "FirebaseMessaging (" Podfile.lock
@@ -2295,7 +2323,29 @@ jobs:
             || true
             
       
-      # ============================================================
+      
+	  - name: Check Swift libraries
+        shell: bash
+        run: |
+          set -euxo pipefail
+      
+          echo "=== SWIFT ==="
+          xcrun swift --version
+      
+          echo "=== SWIFT TOOLCHAIN ==="
+          xcrun --find swift
+      
+          echo "=== SWIFT LIBRARIES ==="
+          find /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift \
+            -maxdepth 2 \
+            -type f \
+            | grep -E 'swiftCompatibility|libswiftCore' \
+            | head -50
+	  
+	  
+	  
+	  
+	  # ============================================================
       # 18. ARCHIVE DEVICE / IPHONEOS
       # ============================================================
       - name: Archive signed iOS app
