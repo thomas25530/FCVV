@@ -1112,8 +1112,8 @@ jobs:
           project 'fcvv.xcodeproj'
           
           target 'fcvv' do
-            pod 'FirebaseCore'
-            pod 'FirebaseMessaging'
+            pod 'FirebaseCore', '10.29.0'
+            pod 'FirebaseMessaging', '10.29.0'
           end
           
           post_install do |installer|
@@ -1170,6 +1170,9 @@ jobs:
           echo "===== pod install ====="
 
           pod install --repo-update
+
+          grep -A 3 "FirebaseCore (" Podfile.lock
+          grep -A 3 "FirebaseMessaging (" Podfile.lock
 
           # ========================================================
           # 9. Vérification Pods
