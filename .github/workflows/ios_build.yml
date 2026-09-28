@@ -1708,11 +1708,6 @@ jobs:
       
           if [ ! -d "$PROJECT_FILE" ]; then
             echo "ERREUR : projet Xcode introuvable : $PROJECT_FILE"
-            find "$GITHUB_WORKSPACE/fcvv-ios" \
-              -maxdepth 3 \
-              -name "*.xcodeproj" \
-              -type d \
-              -print
             exit 1
           fi
       
@@ -1723,10 +1718,6 @@ jobs:
       
           echo "PROJECT_FILE=$PROJECT_FILE"
           echo "WORKSPACE_PATH=$WORKSPACE_PATH"
-      
-          # ==========================================================
-          # CONFIGURATION DU TARGET APPLICATION UNIQUEMENT
-          # ==========================================================
       
           ruby - "$PROJECT_FILE" \
             "$APPLE_TEAM_ID" \
@@ -1742,81 +1733,83 @@ jobs:
       
           project = Xcodeproj::Project.open(project_path)
       
-          # ==========================================================
-          # TARGET APPLICATION
-          # ==========================================================
+          target = project.targets.find { |t| t.name == 'fcvv' }
       
-          target = project.targets.find do |t|
-            t.name == 'fcvv'
-          end
-      
-          raise 'Target fcvv introuvable dans fcvv.xcodeproj' unless target
+          raise 'Target fcvv introuvable' unless target
       
           puts "Target application trouvé : #{target.name}"
       
           target.build_configurations.each do |config|
       
-            puts "===== Configuration #{config.name} ====="
+            puts ""
+            puts "============================================================"
+            puts "CONFIGURATION : #{config.name}"
+            puts "============================================================"
       
-            # --------------------------------------------------------
-            # Bundle ID de l'application
-            # --------------------------------------------------------
-      
+            # Bundle ID
             config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] =
               bundle_id
       
-            # --------------------------------------------------------
-            # Apple Developer Team
-            # --------------------------------------------------------
-      
+            # Team
             config.build_settings['DEVELOPMENT_TEAM'] =
               team_id
       
-            # --------------------------------------------------------
-            # Objective-C modules
-            #
-            # Nécessaire pour :
-            # @import UIKit;
-            # @import FirebaseCore;
-            # @import FirebaseMessaging;
-            # @import UserNotifications;
-            # --------------------------------------------------------
-      
+            # Modules
             config.build_settings['CLANG_ENABLE_MODULES'] =
               'YES'
       
-            # --------------------------------------------------------
-            # Release uniquement
-            # --------------------------------------------------------
-      
             if config.name == 'Release'
       
-              # Signature manuelle UNIQUEMENT pour l'application.
+              puts "Configuration Release : signature Distribution"
+      
+              # --------------------------------------------------------
+              # SIGNATURE MANUELLE DISTRIBUTION
+              # --------------------------------------------------------
+      
               config.build_settings['CODE_SIGN_STYLE'] =
                 'Manual'
       
               config.build_settings['CODE_SIGN_IDENTITY'] =
                 'Apple Distribution'
       
-              # IMPORTANT :
-              # Ce provisioning profile appartient uniquement
-              # à l'application fcvv.
+              config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] =
+                'Apple Distribution'
+      
               config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] =
                 profile_name
       
-              # Entitlements de l'application.
+              config.build_settings['PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]'] =
+                profile_name
+      
               config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
                 'fcvv.entitlements'
       
+              puts "CODE_SIGN_STYLE = #{config.build_settings['CODE_SIGN_STYLE']}"
+              puts "CODE_SIGN_IDENTITY = #{config.build_settings['CODE_SIGN_IDENTITY']}"
+              puts "CODE_SIGN_IDENTITY[sdk=iphoneos*] = #{config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]']}"
+              puts "PROVISIONING_PROFILE_SPECIFIER = #{config.build_settings['PROVISIONING_PROFILE_SPECIFIER']}"
+              puts "PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*] = #{config.build_settings['PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]']}"
+              puts "DEVELOPMENT_TEAM = #{config.build_settings['DEVELOPMENT_TEAM']}"
+              puts "PRODUCT_BUNDLE_IDENTIFIER = #{config.build_settings['PRODUCT_BUNDLE_IDENTIFIER']}"
+      
             else
       
-              # Debug : pas de provisioning profile manuel.
+              puts "Configuration #{config.name} : suppression du provisioning manuel"
+      
+              config.build_settings.delete(
+                'PROVISIONING_PROFILE'
+              )
+      
               config.build_settings.delete(
                 'PROVISIONING_PROFILE_SPECIFIER'
               )
       
               config.build_settings.delete(
-                'PROVISIONING_PROFILE'
+                'PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]'
+              )
+      
+              config.build_settings.delete(
+                'CODE_SIGN_IDENTITY[sdk=iphoneos*]'
               )
       
             end
@@ -1825,8 +1818,23 @@ jobs:
       
           project.save
       
-          puts "Configuration Release de l'application terminée."
+          puts ""
+          puts "============================================================"
+          puts "CONFIGURATION RELEASE TERMINÉE"
+          puts "============================================================"
+      
           RUBY
+      
+          echo ""
+          echo "============================================================"
+          echo "     VERIFICATION DU PROJECT.PBXPROJ"
+          echo "============================================================"
+      
+          grep -n \
+            -E \
+            'CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER' \
+            "$PROJECT_FILE/project.pbxproj" \
+            || true
       
           # ==========================================================
           # VERIFICATION
@@ -2065,10 +2073,94 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+      
           EXPORT_DIR="$GITHUB_WORKSPACE/build/export"
           EXPORT_OPTIONS="$GITHUB_WORKSPACE/build/ExportOptions.plist"
+      
           rm -rf "$EXPORT_DIR"
           mkdir -p "$EXPORT_DIR"
+      
+          # --------------------------------------------------------
+          # Vérification de l'archive avant export
+          # --------------------------------------------------------
+          echo "============================================================"
+          echo "             VERIFICATION ARCHIVE"
+          echo "============================================================"
+      
+          if [ ! -d "$ARCHIVE_PATH" ]; then
+            echo "ERREUR : archive introuvable : $ARCHIVE_PATH"
+            exit 1
+          fi
+      
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
+      
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERREUR : application introuvable dans l'archive :"
+            echo "$APP_PATH"
+            find "$ARCHIVE_PATH" -maxdepth 5 -type d -name "*.app" -print || true
+            exit 1
+          fi
+      
+          echo "Archive : $ARCHIVE_PATH"
+          echo "Application : $APP_PATH"
+      
+          echo ""
+          echo "===== CODE SIGNATURE DE L'ARCHIVE ====="
+          codesign -dvvv "$APP_PATH" 2>&1 | \
+            grep -E \
+              'Identifier=|Authority=|TeamIdentifier=|Signature=' \
+              || true
+      
+          echo ""
+          echo "===== ENTITLEMENTS DE L'ARCHIVE ====="
+          codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true
+      
+          # --------------------------------------------------------
+          # Vérification du provisioning profile embarqué
+          # --------------------------------------------------------
+          if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
+      
+            echo ""
+            echo "===== PROVISIONING PROFILE DE L'ARCHIVE ====="
+      
+            PROFILE_PLIST="$RUNNER_TEMP/archive-profile.plist"
+      
+            security cms \
+              -D \
+              -i "$APP_PATH/embedded.mobileprovision" \
+              -o "$PROFILE_PLIST"
+      
+            echo "Profile Name :"
+            /usr/libexec/PlistBuddy \
+              -c 'Print :Name' \
+              "$PROFILE_PLIST" \
+              || true
+      
+            echo "Application Identifier :"
+            /usr/libexec/PlistBuddy \
+              -c 'Print :Entitlements:application-identifier' \
+              "$PROFILE_PLIST" \
+              || true
+      
+            echo "Team Identifier :"
+            /usr/libexec/PlistBuddy \
+              -c 'Print :Entitlements:com.apple.developer.team-identifier' \
+              "$PROFILE_PLIST" \
+              || true
+      
+            echo "Expiration :"
+            /usr/libexec/PlistBuddy \
+              -c 'Print :ExpirationDate' \
+              "$PROFILE_PLIST" \
+              || true
+      
+          else
+            echo "ATTENTION : aucun embedded.mobileprovision trouvé."
+          fi
+      
+          # --------------------------------------------------------
+          # Création ExportOptions.plist
+          # --------------------------------------------------------
           cat > "$EXPORT_OPTIONS" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -2076,37 +2168,132 @@ jobs:
           <dict>
               <key>method</key>
               <string>app-store-connect</string>
+      
               <key>destination</key>
               <string>export</string>
+      
               <key>signingStyle</key>
               <string>manual</string>
+      
               <key>teamID</key>
               <string>${APPLE_TEAM_ID}</string>
+      
               <key>provisioningProfiles</key>
               <dict>
                   <key>${APP_BUNDLE_ID}</key>
                   <string>${PROVISIONING_PROFILE_NAME}</string>
               </dict>
-              <key>compileBitcode</key>
-              <false/>
+      
               <key>uploadSymbols</key>
               <true/>
+      
               <key>stripSwiftSymbols</key>
               <true/>
           </dict>
           </plist>
           EOF
+      
+          # --------------------------------------------------------
+          # Validation plist
+          # --------------------------------------------------------
+          echo ""
+          echo "===== VALIDATION EXPORT OPTIONS ====="
+      
           plutil -lint "$EXPORT_OPTIONS"
+      
+          echo ""
           echo "===== EXPORT OPTIONS ====="
           cat "$EXPORT_OPTIONS"
+      
+          echo ""
           echo "============================================================"
           echo "                    EXPORT IPA"
           echo "============================================================"
+      
+          # --------------------------------------------------------
+          # Export
+          # --------------------------------------------------------
+          set +e
+      
           xcodebuild \
             -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
-            -exportOptionsPlist "$EXPORT_OPTIONS"
+            -exportOptionsPlist "$EXPORT_OPTIONS" \
+            2>&1 | tee "$GITHUB_WORKSPACE/build/export.log"
+      
+          EXPORT_STATUS=${PIPESTATUS[0]}
+      
+          set -e
+      
+          # --------------------------------------------------------
+          # En cas d'échec : diagnostic distribution logs
+          # --------------------------------------------------------
+          if [ "$EXPORT_STATUS" -ne 0 ]; then
+      
+            echo ""
+            echo "============================================================"
+            echo "              EXPORT IPA EN ECHEC"
+            echo "============================================================"
+      
+            echo ""
+            echo "===== LOG XCODEBUILD ====="
+            cat "$GITHUB_WORKSPACE/build/export.log" || true
+      
+            echo ""
+            echo "===== DISTRIBUTION LOGS ====="
+      
+            find "$RUNNER_TEMP" \
+              -type d \
+              -name "*.xcdistributionlogs" \
+              -print \
+              2>/dev/null || true
+      
+            DISTRIBUTION_LOG=$(
+              find "$RUNNER_TEMP" \
+                -type d \
+                -name "*.xcdistributionlogs" \
+                -print \
+                2>/dev/null | \
+                tail -n 1
+            )
+      
+            if [ -n "$DISTRIBUTION_LOG" ] && [ -d "$DISTRIBUTION_LOG" ]; then
+      
+              echo ""
+              echo "Distribution log trouvé :"
+              echo "$DISTRIBUTION_LOG"
+      
+              echo ""
+              echo "===== ERREURS DISTRIBUTION ====="
+      
+              grep -RniE \
+                'error|failed|failure|invalid|provision|signing|certificate|codesign|copy' \
+                "$DISTRIBUTION_LOG" \
+                2>/dev/null \
+                | head -n 200 \
+                || true
+      
+              echo ""
+              echo "===== FICHIERS DISTRIBUTION ====="
+      
+              find "$DISTRIBUTION_LOG" \
+                -maxdepth 3 \
+                -type f \
+                -print \
+                2>/dev/null \
+                || true
+      
+            else
+              echo "Aucun .xcdistributionlogs trouvé dans RUNNER_TEMP."
+            fi
+      
+            exit "$EXPORT_STATUS"
+          fi
+      
+          # --------------------------------------------------------
+          # Recherche IPA
+          # --------------------------------------------------------
           IPA_PATH=$(
             find "$EXPORT_DIR" \
               -maxdepth 1 \
@@ -2115,23 +2302,39 @@ jobs:
               -print \
               -quit
           )
+      
           if [ -z "$IPA_PATH" ]; then
             echo "ERREUR : aucun .ipa généré."
+      
+            echo "Contenu de $EXPORT_DIR :"
             find "$EXPORT_DIR" \
-              -maxdepth 2 \
+              -maxdepth 3 \
               -type f \
-              -print
+              -print \
+              || true
+      
             exit 1
           fi
+      
+          echo ""
           echo "IPA = $IPA_PATH"
+      
+          # --------------------------------------------------------
+          # Copie finale
+          # --------------------------------------------------------
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
-          cp "$IPA_PATH" \
-            "$GITHUB_WORKSPACE/artifacts/FCVV-${APP_VERSION}-${GITHUB_RUN_NUMBER}.ipa"
+      
           FINAL_IPA="$GITHUB_WORKSPACE/artifacts/FCVV-${APP_VERSION}-${GITHUB_RUN_NUMBER}.ipa"
+      
+          cp "$IPA_PATH" "$FINAL_IPA"
+      
           echo "FINAL_IPA=$FINAL_IPA" >> "$GITHUB_ENV"
+      
+          echo ""
           echo "============================================================"
           echo "              IPA CRÉÉ AVEC SUCCÈS"
           echo "============================================================"
+      
           ls -lh "$FINAL_IPA"
       
       
