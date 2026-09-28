@@ -2377,30 +2377,6 @@ jobs:
           fi
       
           
-          
-          # --------------------------------------------------------
-          # 9.1 Configuration Swift pour le linker
-          # --------------------------------------------------------
-          echo "============================================================"
-          echo "              CONFIGURATION SWIFT LINKER"
-          echo "============================================================"
-          
-          TOOLCHAIN_SWIFT_LIB="/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator"
-          SDK_SWIFT_LIB="/Applications/Xcode_26.6.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk/usr/lib/swift"
-          
-          echo "TOOLCHAIN_SWIFT_LIB=$TOOLCHAIN_SWIFT_LIB"
-          echo "SDK_SWIFT_LIB=$SDK_SWIFT_LIB"
-          
-          if [ ! -d "$TOOLCHAIN_SWIFT_LIB" ]; then
-            echo "ERREUR : bibliothèque Swift toolchain introuvable."
-            exit 1
-          fi
-          
-          if [ ! -d "$SDK_SWIFT_LIB" ]; then
-            echo "ERREUR : bibliothèque Swift SDK introuvable."
-            exit 1
-          fi
-          
           # --------------------------------------------------------
           # 9. Build Xcode
           # --------------------------------------------------------
@@ -2416,9 +2392,10 @@ jobs:
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
             CLANG_ENABLE_MODULES=YES \
+            SWIFT_VERSION=5.0 \
             COMPILER_INDEX_STORE_ENABLE=NO \
             ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
-            LIBRARY_SEARCH_PATHS="\$(inherited) \"$TOOLCHAIN_SWIFT_LIB\" \"$SDK_SWIFT_LIB\"" \
+            LIBRARY_SEARCH_PATHS="\$(inherited) \$(TOOLCHAIN_DIR)/usr/lib/swift/iphonesimulator \$(SDKROOT)/usr/lib/swift" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
