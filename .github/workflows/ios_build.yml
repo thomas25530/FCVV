@@ -1108,7 +1108,7 @@ jobs:
           echo "===== Création du Podfile ====="
 
 
-          cat > "$PROJ_DIR/Podfile" <<EOF
+          cat > "$PROJ_DIR/Podfile" <<'EOF'
           platform :ios, '15.0'
 
           use_frameworks! :linkage => :static
@@ -1150,6 +1150,12 @@ jobs:
           
               end
           
+            end
+            installer.aggregate_targets.each do |target|
+              target.xcconfigs.each do |_, config|
+                config.attributes['LIBRARY_SEARCH_PATHS'] =
+                  '$(inherited) $(SDKROOT)/usr/lib/swift'
+              end
             end
           
           end
