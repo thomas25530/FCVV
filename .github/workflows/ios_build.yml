@@ -15,7 +15,7 @@ jobs:
       APP_VERSION: "1.1.0"
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
     steps:
       # ============================================================
@@ -32,16 +32,27 @@ jobs:
           xcodebuild -version
           xcode-select -p
 
-          echo "TOOLCHAINS=$TOOLCHAINS"
           xcrun --find clang
           xcrun --find swift
 
           xcrun --sdk iphoneos --show-sdk-version
           xcrun --sdk iphoneos --show-sdk-path
 
-      - name: Install Metal Toolchain
+      - name: Install and verify Metal Toolchain
+        shell: bash
         run: |
+          set -euxo pipefail
+      
+          echo "=== XCODE ==="
+          xcodebuild -version
+          xcode-select -p
+      
+          echo "=== INSTALL METAL TOOLCHAIN ==="
           xcodebuild -downloadComponent MetalToolchain
+      
+          echo "=== VERIFY METAL ==="
+          xcrun --find metal
+          xcrun metal --version
 
       # ============================================================
       # 2. PYTHON
@@ -2593,8 +2604,3 @@ jobs:
           backend: transporter
           wait-for-processing: false
           uses-non-exempt-encryption: false
-      
-      
-      
-      
-      
