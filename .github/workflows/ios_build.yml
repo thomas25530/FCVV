@@ -974,8 +974,7 @@ jobs:
                 # dans le toolchain XcodeDefault.
                 config.build_settings['LIBRARY_SEARCH_PATHS'] = [
                   '$(inherited)',
-                  default_swift_lib,
-                  '/usr/lib/swift'
+                  default_swift_lib
                 ]
           
                 # Pas de signature pour les Pods.
@@ -1103,35 +1102,92 @@ jobs:
           echo "===== Correction des build settings ====="
           ruby - "$PROJECT_FILE" <<'RUBY'
           require 'xcodeproj'
+          
           project_path = ARGV[0]
+          
           project =
             Xcodeproj::Project.open(project_path)
+          
           target =
             project.targets.find { |t| t.name == 'fcvv' }
+          
           raise 'Target fcvv introuvable' unless target
+          
           puts "Target fcvv trouvé."
+          
+          # ============================================================
+          # CHEMIN SWIFT XCODE 26.6
+          # ============================================================
+          
+          swift_toolchain =
+            '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)'
+          
+          puts "Swift toolchain = #{swift_toolchain}"
+          
           target.build_configurations.each do |config|
+          
             settings = config.build_settings
+          
             puts "===== #{config.name} ====="
+          
+            # ==========================================================
+            # LIBRARY_SEARCH_PATHS
+            # ==========================================================
+          
+            library_paths = settings['LIBRARY_SEARCH_PATHS']
+          
+            library_paths =
+              if library_paths.nil?
+                []
+              elsif library_paths.is_a?(Array)
+                library_paths
+              else
+                [library_paths.to_s]
+              end
+          
+            library_paths.unshift('$(inherited)') unless
+              library_paths.include?('$(inherited)')
+          
+            library_paths << swift_toolchain unless
+              library_paths.include?(swift_toolchain)
+          
+            settings['LIBRARY_SEARCH_PATHS'] = library_paths
+          
+            puts "LIBRARY_SEARCH_PATHS = #{library_paths.inspect}"
+          
+            # ==========================================================
+            # AUTRES SETTINGS AVEC $(inherited)
+            # ==========================================================
+          
             %w[
               GCC_PREPROCESSOR_DEFINITIONS
               HEADER_SEARCH_PATHS
               OTHER_LDFLAGS
             ].each do |key|
+          
               value = settings[key]
+          
               next if value.nil?
+          
               values =
                 value.is_a?(Array) ? value : [value.to_s]
+          
               unless values.any? do |v|
                 v.to_s.include?('$(inherited)')
               end
+          
                 values.unshift('$(inherited)')
                 settings[key] = values
-                puts "Ajout $(inherited) à #{key} pour #{config.name}"
+          
+                puts "Ajout $(inherited) à #{key}"
               end
+          
             end
+          
           end
+          
           project.save
+          
           puts "Build settings corrigés."
           RUBY
           # ========================================================
