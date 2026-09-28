@@ -2099,94 +2099,148 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-      
+
+          # ==========================================================
+          # IMPORTANT :
+          # Utiliser uniquement les outils système Apple pour
+          # le processus d'export Xcode.
+          # ==========================================================
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+
+          echo "============================================================"
+          echo "              ENVIRONNEMENT EXPORT XCODE"
+          echo "============================================================"
+
+          echo "PATH=$PATH"
+
+          echo ""
+          echo "===== RSYNC UTILISÉ ====="
+          command -v rsync
+          rsync --version | head -n 5
+
+          echo ""
+          echo "===== RSYNC APPLE EXPLICITE ====="
+          /usr/bin/rsync --version | head -n 5
+
+          echo ""
+          echo "===== XCODEBUILD ====="
+          command -v xcodebuild
+          xcodebuild -version
+
+          echo ""
+          echo "===== TYPE RSYNC ====="
+          type -a rsync || true
+
+          # ==========================================================
+          # Variables
+          # ==========================================================
           EXPORT_DIR="$GITHUB_WORKSPACE/build/export"
           EXPORT_OPTIONS="$GITHUB_WORKSPACE/build/ExportOptions.plist"
-      
+
           rm -rf "$EXPORT_DIR"
           mkdir -p "$EXPORT_DIR"
-      
-          # --------------------------------------------------------
-          # Vérification de l'archive avant export
-          # --------------------------------------------------------
+
+          # ==========================================================
+          # Vérification de l'archive
+          # ==========================================================
+          echo ""
           echo "============================================================"
           echo "             VERIFICATION ARCHIVE"
           echo "============================================================"
-      
+
           if [ ! -d "$ARCHIVE_PATH" ]; then
             echo "ERREUR : archive introuvable : $ARCHIVE_PATH"
             exit 1
           fi
-      
+
           APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
-      
+
           if [ ! -d "$APP_PATH" ]; then
             echo "ERREUR : application introuvable dans l'archive :"
             echo "$APP_PATH"
-            find "$ARCHIVE_PATH" -maxdepth 5 -type d -name "*.app" -print || true
+
+            find "$ARCHIVE_PATH" \
+              -maxdepth 5 \
+              -type d \
+              -name "*.app" \
+              -print || true
+
             exit 1
           fi
-      
+
           echo "Archive : $ARCHIVE_PATH"
           echo "Application : $APP_PATH"
-      
+
+          # ==========================================================
+          # Signature
+          # ==========================================================
           echo ""
           echo "===== CODE SIGNATURE DE L'ARCHIVE ====="
+
           codesign -dvvv "$APP_PATH" 2>&1 | \
             grep -E \
               'Identifier=|Authority=|TeamIdentifier=|Signature=' \
               || true
-      
+
+          # ==========================================================
+          # Entitlements
+          # ==========================================================
           echo ""
           echo "===== ENTITLEMENTS DE L'ARCHIVE ====="
+
           codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true
-      
-          # --------------------------------------------------------
-          # Vérification du provisioning profile embarqué
-          # --------------------------------------------------------
+
+          # ==========================================================
+          # Provisioning profile
+          # ==========================================================
           if [ -f "$APP_PATH/embedded.mobileprovision" ]; then
-      
+
             echo ""
             echo "===== PROVISIONING PROFILE DE L'ARCHIVE ====="
-      
+
             PROFILE_PLIST="$RUNNER_TEMP/archive-profile.plist"
-      
+
             security cms \
               -D \
               -i "$APP_PATH/embedded.mobileprovision" \
               -o "$PROFILE_PLIST"
-      
+
             echo "Profile Name :"
             /usr/libexec/PlistBuddy \
               -c 'Print :Name' \
               "$PROFILE_PLIST" \
               || true
-      
+
             echo "Application Identifier :"
             /usr/libexec/PlistBuddy \
               -c 'Print :Entitlements:application-identifier' \
               "$PROFILE_PLIST" \
               || true
-      
+
             echo "Team Identifier :"
             /usr/libexec/PlistBuddy \
               -c 'Print :Entitlements:com.apple.developer.team-identifier' \
               "$PROFILE_PLIST" \
               || true
-      
+
             echo "Expiration :"
             /usr/libexec/PlistBuddy \
               -c 'Print :ExpirationDate' \
               "$PROFILE_PLIST" \
               || true
-      
+
           else
             echo "ATTENTION : aucun embedded.mobileprovision trouvé."
           fi
-      
-          # --------------------------------------------------------
+
+          # ==========================================================
           # Création ExportOptions.plist
-          # --------------------------------------------------------
+          # ==========================================================
+          echo ""
+          echo "============================================================"
+          echo "              CREATION EXPORT OPTIONS"
+          echo "============================================================"
+
           cat > "$EXPORT_OPTIONS" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -2194,93 +2248,106 @@ jobs:
           <dict>
               <key>method</key>
               <string>app-store-connect</string>
-      
+
               <key>destination</key>
               <string>export</string>
-      
+
               <key>signingStyle</key>
               <string>manual</string>
-      
+
               <key>teamID</key>
               <string>${APPLE_TEAM_ID}</string>
-      
+
               <key>provisioningProfiles</key>
               <dict>
                   <key>${APP_BUNDLE_ID}</key>
                   <string>${PROVISIONING_PROFILE_NAME}</string>
               </dict>
-      
+
               <key>uploadSymbols</key>
               <true/>
-      
+
               <key>stripSwiftSymbols</key>
               <true/>
           </dict>
           </plist>
           EOF
-      
-          # --------------------------------------------------------
+
+          # ==========================================================
           # Validation plist
-          # --------------------------------------------------------
+          # ==========================================================
           echo ""
           echo "===== VALIDATION EXPORT OPTIONS ====="
-      
+
           plutil -lint "$EXPORT_OPTIONS"
-      
+
           echo ""
           echo "===== EXPORT OPTIONS ====="
           cat "$EXPORT_OPTIONS"
-      
+
+          # ==========================================================
+          # Export
+          # ==========================================================
           echo ""
           echo "============================================================"
           echo "                    EXPORT IPA"
           echo "============================================================"
-      
-          # --------------------------------------------------------
-          # Export
-          # --------------------------------------------------------
+
           set +e
-      
+
           xcodebuild \
             -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_DIR" \
             -exportOptionsPlist "$EXPORT_OPTIONS" \
             2>&1 | tee "$GITHUB_WORKSPACE/build/export.log"
-      
+
           EXPORT_STATUS=${PIPESTATUS[0]}
-      
+
           set -e
-      
-          # --------------------------------------------------------
-          # En cas d'échec : diagnostic distribution logs
-          # --------------------------------------------------------
+
+          # ==========================================================
+          # DIAGNOSTIC EN CAS D'ÉCHEC
+          # ==========================================================
           if [ "$EXPORT_STATUS" -ne 0 ]; then
-      
+
             echo ""
             echo "============================================================"
             echo "              EXPORT IPA EN ECHEC"
             echo "============================================================"
-      
+
+            echo ""
+            echo "===== CODE RETOUR XCODEBUILD ====="
+            echo "$EXPORT_STATUS"
+
             echo ""
             echo "===== LOG XCODEBUILD ====="
             cat "$GITHUB_WORKSPACE/build/export.log" || true
-      
+
             echo ""
-            echo "===== DISTRIBUTION LOGS ====="
-      
+            echo "===== DISTRIBUTION LOGS SOUS RUNNER_TEMP ====="
+
             find "$RUNNER_TEMP" \
               -type d \
               -name "*.xcdistributionlogs" \
               -print \
               2>/dev/null || true
-      
-            # --------------------------------------------------------
-            # Recherche du distribution log Xcode
-            # --------------------------------------------------------
+
             echo ""
-            echo "===== RECHERCHE DISTRIBUTION LOGS ====="
-            
+            echo "===== DISTRIBUTION LOGS SOUS /var/folders ====="
+
+            find /var/folders \
+              -type d \
+              -name "*.xcdistributionlogs" \
+              -print \
+              2>/dev/null || true
+
+            # ======================================================
+            # Recherche du dernier distribution log Xcode
+            # ======================================================
+            echo ""
+            echo "===== RECHERCHE DU DISTRIBUTION LOG XCODE ====="
+
             DISTRIBUTION_LOG=$(
               find /var/folders \
                 -type d \
@@ -2290,53 +2357,55 @@ jobs:
                 | sort \
                 | tail -n 1
             )
-            
+
             if [ -n "$DISTRIBUTION_LOG" ] && [ -d "$DISTRIBUTION_LOG" ]; then
-            
+
               echo ""
               echo "Distribution log trouvé :"
               echo "$DISTRIBUTION_LOG"
-            
+
               echo ""
               echo "===== CONTENU DU DISTRIBUTION LOG ====="
-            
+
               find "$DISTRIBUTION_LOG" \
-                -maxdepth 2 \
+                -maxdepth 3 \
                 -type f \
                 -print \
                 2>/dev/null \
                 || true
-            
+
               echo ""
               echo "===== ERREURS DISTRIBUTION ====="
-            
+
               grep -RniE \
-                'error|failed|failure|invalid|provision|signing|certificate|codesign|copy|rsync|extended-attributes' \
+                'error|failed|failure|invalid|provision|signing|certificate|codesign|copy|rsync|extended-attributes|permission|operation not permitted' \
                 "$DISTRIBUTION_LOG" \
                 2>/dev/null \
                 | head -n 300 \
                 || true
-            
+
               echo ""
               echo "===== IDEDistributionPipeline.log ====="
-            
+
               PIPELINE_LOG="$DISTRIBUTION_LOG/IDEDistributionPipeline.log"
-            
+
               if [ -f "$PIPELINE_LOG" ]; then
                 cat "$PIPELINE_LOG"
               else
                 echo "IDEDistributionPipeline.log introuvable."
               fi
-            
+
             else
-            
+
               echo "Aucun .xcdistributionlogs trouvé sous /var/folders."
-            
+
             fi
-      
-          # --------------------------------------------------------
+
+          fi
+
+          # ==========================================================
           # Recherche IPA
-          # --------------------------------------------------------
+          # ==========================================================
           IPA_PATH=$(
             find "$EXPORT_DIR" \
               -maxdepth 1 \
@@ -2345,39 +2414,43 @@ jobs:
               -print \
               -quit
           )
-      
+
           if [ -z "$IPA_PATH" ]; then
+
+            echo ""
             echo "ERREUR : aucun .ipa généré."
-      
-            echo "Contenu de $EXPORT_DIR :"
+
+            echo ""
+            echo "===== CONTENU DE EXPORT_DIR ====="
+
             find "$EXPORT_DIR" \
               -maxdepth 3 \
               -type f \
               -print \
               || true
-      
+
             exit 1
           fi
-      
+
           echo ""
           echo "IPA = $IPA_PATH"
-      
-          # --------------------------------------------------------
+
+          # ==========================================================
           # Copie finale
-          # --------------------------------------------------------
+          # ==========================================================
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
-      
+
           FINAL_IPA="$GITHUB_WORKSPACE/artifacts/FCVV-${APP_VERSION}-${GITHUB_RUN_NUMBER}.ipa"
-      
+
           cp "$IPA_PATH" "$FINAL_IPA"
-      
+
           echo "FINAL_IPA=$FINAL_IPA" >> "$GITHUB_ENV"
-      
+
           echo ""
           echo "============================================================"
           echo "              IPA CRÉÉ AVEC SUCCÈS"
           echo "============================================================"
-      
+
           ls -lh "$FINAL_IPA"
       
       
