@@ -2259,8 +2259,8 @@ jobs:
           xcodebuild \
             -workspace "$PROJ_DIR/fcvv.xcworkspace" \
             -scheme fcvv \
-            -configuration Debug \
-            -sdk iphonesimulator \
+            -configuration Release \
+            -sdk iphoneos \
             -showBuildSettings \
             > "$RUNNER_TEMP/fcvv-settings.txt"
 
