@@ -1105,15 +1105,15 @@ jobs:
 
 
           cat > "$PROJ_DIR/Podfile" <<EOF
-          platform :ios, '13.0'
+          platform :ios, '15.0'
 
           use_modular_headers!
           
           project 'fcvv.xcodeproj'
           
           target 'fcvv' do
-            pod 'FirebaseCore', '10.29.0'
-            pod 'FirebaseMessaging', '10.29.0'
+            pod 'FirebaseCore'
+            pod 'FirebaseMessaging'
           end
           
           post_install do |installer|
@@ -1132,6 +1132,8 @@ jobs:
           
                 config.build_settings.delete('DEVELOPMENT_TEAM')
                 config.build_settings.delete('CODE_SIGN_IDENTITY')
+
+                config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'NO'
           
                 config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
                 config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
@@ -2394,7 +2396,6 @@ jobs:
             CLANG_ENABLE_MODULES=YES \
             SWIFT_VERSION=5.0 \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=YES \
             LIBRARY_SEARCH_PATHS="\$(inherited) \$(TOOLCHAIN_DIR)/usr/lib/swift/iphonesimulator \$(SDKROOT)/usr/lib/swift" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
