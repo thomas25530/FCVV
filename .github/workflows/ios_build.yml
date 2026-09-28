@@ -1122,6 +1122,10 @@ jobs:
           
               target.build_configurations.each do |config|
           
+                config.build_settings['LIBRARY_SEARCH_PATHS'] = [
+                  '$(inherited)',
+                  '$(SDKROOT)/usr/lib/swift'
+                ]
                 config.build_settings['SWIFT_VERSION'] = '5.0'
                 
                 # Les Pods ne doivent jamais utiliser
@@ -1173,6 +1177,7 @@ jobs:
 
           grep -A 3 "FirebaseCore (" Podfile.lock
           grep -A 3 "FirebaseMessaging (" Podfile.lock
+          grep -R "LIBRARY_SEARCH_PATHS" Pods
 
           # ========================================================
           # 9. Vérification Pods
