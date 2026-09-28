@@ -1116,8 +1116,8 @@ jobs:
           project 'fcvv.xcodeproj'
           
           target 'fcvv' do
-            pod 'FirebaseCore'
-            pod 'FirebaseMessaging'
+            pod 'FirebaseCore', '12.19.0'
+            pod 'FirebaseMessaging', '12.19.0'
           end
           
           post_install do |installer|
@@ -1125,7 +1125,6 @@ jobs:
             installer.pods_project.targets.each do |target|
           
               target.build_configurations.each do |config|
-          
                 config.build_settings['LIBRARY_SEARCH_PATHS'] = [
                   '$(inherited)',
                   '$(SDKROOT)/usr/lib/swift'
@@ -1307,9 +1306,6 @@ jobs:
           target.build_configurations.each do |config|
 
             settings = config.build_settings
-
-            config.build_settings['ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES'] = 'YES'
-            config.build_settings['EMBEDDED_CONTENT_CONTAINS_SWIFT'] = 'YES'
 
             puts "===== #{config.name} ====="
 
@@ -2191,6 +2187,15 @@ jobs:
           xcrun --sdk iphonesimulator --show-sdk-path
 
           echo "============================================================"
+          echo "SWIFT COMPATIBILITY LIBRARIES"
+          echo "============================================================"
+
+          find /Applications/Xcode_26.6.app \
+            -name "libswiftCompatibility*" \
+            -print \
+            || true
+
+          echo "============================================================"
           echo "FIREBASE PODS"
           echo "============================================================"
 
@@ -2239,6 +2244,22 @@ jobs:
             -iname "*FirebaseCoreInternal*" \
             -print
 
+          echo "============================================================"
+          echo "FIREBASE FRAMEWORKS"
+          echo "============================================================"
+
+          find "$PROJ_DIR/Pods" \
+            -name "*.framework" \
+            | grep Fi*ebase \
+            || true
+
+          echo "============================*==============================="
+          echo "SEARCH IN PODS"
+          echo "========*==================================*================"
+          grep -R "swiftCompatibility" "$PROJ_DIR/Pods" || true
+          grep -R "UIUtilities" "$PROJ_DIR/Pods" || true
+          grep -R "SwiftUICore" "$PROJ_DIR/Pods" || true
+          
           echo "============================================================"
           echo "LINK FLAGS"
           echo "============================================================"
