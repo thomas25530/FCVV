@@ -11,10 +11,11 @@ jobs:
 
     env:
       IOS_DEPLOYMENT_TARGET: "15.0"
-      FIREBASE_VERSION: "10.29.0"
       APP_BUNDLE_ID: "org.fcvv.fcvv"
       APP_VERSION: "1.1.0"
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
 
     steps:
       # ============================================================
@@ -27,8 +28,16 @@ jobs:
         run: |
           sudo xcode-select --switch /Applications/Xcode_26.6.app
           sudo xcodebuild -license accept
+          
           xcodebuild -version
+          xcode-select -p
+
+          echo "TOOLCHAINS=$TOOLCHAINS"
+          xcrun --find clang
+          xcrun --find swift
+
           xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos --show-sdk-path
 
       # ============================================================
       # 2. PYTHON
@@ -1128,6 +1137,7 @@ jobs:
                 
                 # Les Pods ne doivent jamais utiliser
                 # le provisioning profile de l'application.
+                
                 config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
                 config.build_settings.delete('PROVISIONING_PROFILE')
           
@@ -2288,8 +2298,6 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/build"
 
           cd "$GITHUB_WORKSPACE/fcvv-ios"
-          # Forcer CocoaPods à régénérer proprement les liens pour iOS device
-          pod install
 
           echo "============================================================"
           echo "              ARCHIVE IPHONEOS FCVV"
