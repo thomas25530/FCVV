@@ -853,14 +853,6 @@ jobs:
       - name: Configure and Install Pods
         shell: bash
         run: |
-
-Check failure on line 1005 in .github/workflows/ios_build.yml
-GitHub Actions / .github/workflows/ios_build.yml
-
-Invalid workflow file
-
-You have an error in your yaml syntax on line 1005
-
           set -euo pipefail
           echo "===== Recherche du projet Xcode ====="
           PROJECT_FILE=$(
@@ -956,9 +948,7 @@ You have an error in your yaml syntax on line 1005
           # ========================================================
           echo "===== Création du Podfile ====="
           cat > "$PROJ_DIR/Podfile" <<'EOF'
-		  
           platform :ios, '15.0'
-
           use_frameworks! :linkage => :static
           
           project 'fcvv.xcodeproj'
@@ -1005,35 +995,23 @@ You have an error in your yaml syntax on line 1005
             end
           
           end
-		  
           EOF
-
           echo "===== PODFILE ====="
           cat "$PROJ_DIR/Podfile"
-
           # ========================================================
           # 7. Nettoyage CocoaPods
           # ========================================================
-
           echo "===== Nettoyage CocoaPods ====="
-
           cd "$PROJ_DIR"
-
           pod deintegrate || true
-
           rm -rf Pods
           rm -f Podfile.lock
-
           # ========================================================
           # 8. Installation CocoaPods
           # ========================================================
-
           echo "===== pod install ====="
-
           pod install --repo-update
-		  
-		  echo "===== Vérification LIBRARY_SEARCH_PATHS ====="
-
+          echo "===== Vérification LIBRARY_SEARCH_PATHS ====="
           grep -R "LIBRARY_SEARCH_PATHS" \
             "$PROJ_DIR/Pods/Target Support Files/Pods-fcvv" \
             || true
@@ -1046,171 +1024,120 @@ You have an error in your yaml syntax on line 1005
             -o \
             -name "libswiftCompatibilityPacks*" \
             || true
-
           grep -A 3 "FirebaseCore (" Podfile.lock
           grep -A 3 "FirebaseMessaging (" Podfile.lock
           grep -R "LIBRARY_SEARCH_PATHS" Pods
-
           # ========================================================
           # 9. Vérification Pods
           # ========================================================
-
           echo "===== Vérification CocoaPods ====="
-
           if [ ! -d "$PROJ_DIR/Pods" ]; then
             echo "ERREUR : dossier Pods absent."
             ls -la "$PROJ_DIR"
             exit 1
           fi
-
           if [ ! -d "$PROJ_DIR/Pods/Target Support Files/Pods-fcvv" ]; then
             echo "ERREUR : support files Pods-fcvv absents."
-
             find "$PROJ_DIR/Pods" \
               -maxdepth 3 \
               -type d \
               -print || true
-
             exit 1
           fi
-
           if [ ! -f "$PROJ_DIR/Podfile.lock" ]; then
             echo "ERREUR : Podfile.lock absent."
             exit 1
           fi
-
           # ========================================================
           # 10. Firebase
           # ========================================================
-
           test -d "$PROJ_DIR/Pods/FirebaseCore" || {
             echo "ERREUR : FirebaseCore absent."
             exit 1
           }
-
           test -d "$PROJ_DIR/Pods/FirebaseMessaging" || {
             echo "ERREUR : FirebaseMessaging absent."
             exit 1
           }
-
           echo "FirebaseCore OK"
           echo "FirebaseMessaging OK"
-
           # ========================================================
           # 11. Workspace
           # ========================================================
-
           WORKSPACE_PATH="$PROJ_DIR/fcvv.xcworkspace"
-
           if [ ! -d "$WORKSPACE_PATH" ]; then
             echo "ERREUR : fcvv.xcworkspace introuvable."
-
             find "$PROJ_DIR" \
               -maxdepth 1 \
               -name "*.xcworkspace" \
               -print
-
             exit 1
           fi
-
           echo "Workspace = $WORKSPACE_PATH"
-
           # ========================================================
           # 12. Liste Xcode
           # ========================================================
-
           xcodebuild \
             -list \
             -workspace "$WORKSPACE_PATH"
-
           # ========================================================
           # 13. xcconfig CocoaPods
           # ========================================================
-
           DEBUG_XCCONFIG="$PROJ_DIR/Pods/Target Support Files/Pods-fcvv/Pods-fcvv.debug.xcconfig"
           RELEASE_XCCONFIG="$PROJ_DIR/Pods/Target Support Files/Pods-fcvv/Pods-fcvv.release.xcconfig"
-
           test -f "$DEBUG_XCCONFIG" || {
             echo "ERREUR : xcconfig Debug absent."
             exit 1
           }
-
           test -f "$RELEASE_XCCONFIG" || {
             echo "ERREUR : xcconfig Release absent."
             exit 1
           }
-
           echo "===== DEBUG XCCONFIG ====="
           cat "$DEBUG_XCCONFIG"
-
           echo "===== RELEASE XCCONFIG ====="
           cat "$RELEASE_XCCONFIG"
-
           # ========================================================
           # 14. $(inherited)
           # ========================================================
-
           echo "===== Correction des build settings ====="
-
           ruby - "$PROJECT_FILE" <<'RUBY'
           require 'xcodeproj'
-
           project_path = ARGV[0]
-
           project =
             Xcodeproj::Project.open(project_path)
-
           target =
             project.targets.find { |t| t.name == 'fcvv' }
-
           raise 'Target fcvv introuvable' unless target
-
           puts "Target fcvv trouvé."
-
           target.build_configurations.each do |config|
-
             settings = config.build_settings
-
             puts "===== #{config.name} ====="
-
             %w[
               GCC_PREPROCESSOR_DEFINITIONS
               HEADER_SEARCH_PATHS
               OTHER_LDFLAGS
             ].each do |key|
-
               value = settings[key]
-
               next if value.nil?
-
               values =
                 value.is_a?(Array) ? value : [value.to_s]
-
               unless values.any? do |v|
                 v.to_s.include?('$(inherited)')
               end
-
                 values.unshift('$(inherited)')
                 settings[key] = values
-
                 puts "Ajout $(inherited) à #{key} pour #{config.name}"
               end
-
             end
-
           end
-
           project.save
-
           puts "Build settings corrigés."
           RUBY
-
           # ========================================================
           # 15. Vérification finale
           # ========================================================
-
           echo "===== Build settings finaux ====="
-
           xcodebuild \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
@@ -1219,9 +1146,7 @@ You have an error in your yaml syntax on line 1005
             | grep -E \
               'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_ENTITLEMENTS|CODE_SIGNING_ALLOWED|OTHER_LDFLAGS|HEADER_SEARCH_PATHS|GCC_PREPROCESSOR_DEFINITIONS' \
               || true
-
           echo "===== CocoaPods configuré avec succès ====="
-
       # ============================================================
       # 12. CONFIGURE LAUNCH SCREEN
       # ============================================================
@@ -1988,9 +1913,7 @@ You have an error in your yaml syntax on line 1005
             "$RUNNER_TEMP/fcvv-settings.txt" \
             || true
             
-      
-      
-	  - name: Check Swift libraries
+      - name: Check Swift libraries
         shell: bash
         run: |
           set -euxo pipefail
@@ -2007,11 +1930,7 @@ You have an error in your yaml syntax on line 1005
             -type f \
             | grep -E 'swiftCompatibility|libswiftCore' \
             | head -50
-	  
-	  
-	  
-	  
-	  # ============================================================
+      # ============================================================
       # 18. ARCHIVE DEVICE / IPHONEOS
       # ============================================================
       - name: Archive signed iOS app
