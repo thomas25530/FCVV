@@ -2033,6 +2033,32 @@ jobs:
             | grep -E \
               'TARGET_NAME|PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_ENTITLEMENTS|CLANG_ENABLE_MODULES' \
               || true
+          
+          echo ""
+          echo "============================================================"
+          echo "                    VERIFICATION RSYNC"
+          echo "============================================================"
+          
+          echo "PATH = $PATH"
+          
+          echo ""
+          echo "rsync utilisé :"
+          command -v rsync || true
+          
+          echo ""
+          echo "Version rsync :"
+          rsync --version || true
+          
+          echo ""
+          echo "Binaire Apple rsync :"
+          /usr/bin/rsync --version || true
+          
+          echo ""
+          echo "Type du rsync trouvé :"
+          type -a rsync || true
+          
+          
+          
           echo "===== ARCHIVE ====="
           xcodebuild archive \
             -workspace "$WORKSPACE_PATH" \
@@ -2249,47 +2275,64 @@ jobs:
               -print \
               2>/dev/null || true
       
+            # --------------------------------------------------------
+            # Recherche du distribution log Xcode
+            # --------------------------------------------------------
+            echo ""
+            echo "===== RECHERCHE DISTRIBUTION LOGS ====="
+            
             DISTRIBUTION_LOG=$(
-              find "$RUNNER_TEMP" \
+              find /var/folders \
                 -type d \
                 -name "*.xcdistributionlogs" \
                 -print \
-                2>/dev/null | \
-                tail -n 1
+                2>/dev/null \
+                | sort \
+                | tail -n 1
             )
-      
+            
             if [ -n "$DISTRIBUTION_LOG" ] && [ -d "$DISTRIBUTION_LOG" ]; then
-      
+            
               echo ""
               echo "Distribution log trouvé :"
               echo "$DISTRIBUTION_LOG"
-      
+            
               echo ""
-              echo "===== ERREURS DISTRIBUTION ====="
-      
-              grep -RniE \
-                'error|failed|failure|invalid|provision|signing|certificate|codesign|copy' \
-                "$DISTRIBUTION_LOG" \
-                2>/dev/null \
-                | head -n 200 \
-                || true
-      
-              echo ""
-              echo "===== FICHIERS DISTRIBUTION ====="
-      
+              echo "===== CONTENU DU DISTRIBUTION LOG ====="
+            
               find "$DISTRIBUTION_LOG" \
-                -maxdepth 3 \
+                -maxdepth 2 \
                 -type f \
                 -print \
                 2>/dev/null \
                 || true
-      
+            
+              echo ""
+              echo "===== ERREURS DISTRIBUTION ====="
+            
+              grep -RniE \
+                'error|failed|failure|invalid|provision|signing|certificate|codesign|copy|rsync|extended-attributes' \
+                "$DISTRIBUTION_LOG" \
+                2>/dev/null \
+                | head -n 300 \
+                || true
+            
+              echo ""
+              echo "===== IDEDistributionPipeline.log ====="
+            
+              PIPELINE_LOG="$DISTRIBUTION_LOG/IDEDistributionPipeline.log"
+            
+              if [ -f "$PIPELINE_LOG" ]; then
+                cat "$PIPELINE_LOG"
+              else
+                echo "IDEDistributionPipeline.log introuvable."
+              fi
+            
             else
-              echo "Aucun .xcdistributionlogs trouvé dans RUNNER_TEMP."
+            
+              echo "Aucun .xcdistributionlogs trouvé sous /var/folders."
+            
             fi
-      
-            exit "$EXPORT_STATUS"
-          fi
       
           # --------------------------------------------------------
           # Recherche IPA
