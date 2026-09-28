@@ -90,8 +90,12 @@ jobs:
         run: |
           set -euo pipefail
 
+          rm -rf build
+          rm -rf dist
+
           toolchain build python3 kivy openssl pillow pyyaml
-          toolchain pip install requests urllib3
+          toolchain pip install requests
+          toolchain pip install urllib3
             
 
       # ============================================================
