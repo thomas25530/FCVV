@@ -107,9 +107,31 @@ jobs:
           set -euo pipefail
           rm -rf build
           rm -rf dist
-          toolchain build python3 kivy openssl pillow
-          toolchain pip install pyyaml requests urllib3 fpdf2 fonttools
+          toolchain build python3 kivy openssl pillow pyyaml
+          #toolchain pip install pyyaml requests urllib3 fpdf2 fonttools
             
+      # ============================================================
+      # 6. DIAGNOSTIC NATIVE MODULES
+      # ============================================================
+      - name: List generated native modules
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "===== .so ====="
+          find build/dist/root/python3 \
+            -type f \
+            -name "*.so" \
+            -print | sort
+
+          echo "===== .dylib ====="
+          find build/dist/root/python3 \
+            -type f \
+            -name "*.dylib" \
+            -print | sort
+
+          exit 1
+
       # ============================================================
       # 6. PREPARE IOS SOURCES
       # ============================================================
