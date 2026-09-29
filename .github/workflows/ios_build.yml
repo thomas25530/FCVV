@@ -917,16 +917,24 @@ jobs:
           # ========================================================
           # 2bis. Privacy - Camera
           # ========================================================
+
+          echo "===== INFO.PLIST AVANT MODIFICATION ====="
+          plutil -lint "$PLIST_FILE"
+          plutil -p "$PLIST_FILE"
+
           /usr/libexec/PlistBuddy \
             -c "Delete :NSCameraUsageDescription" \
             "$PLIST_FILE" 2>/dev/null || true
+
           /usr/libexec/PlistBuddy \
-            -c "Add :NSCameraUsageDescription string La caméra est utilisée par les composants intégrés de l'application lorsque cette fonctionnalité est nécessaire." \
+            -c "Add :NSCameraUsageDescription string Camera access may be used by an integrated component of this app." \
             "$PLIST_FILE"
+
           echo "===== Vérification NSCameraUsageDescription ====="
-          /usr/libexec/PlistBuddy \
-            -c "Print :NSCameraUsageDescription" \
+
+          plutil -extract NSCameraUsageDescription raw \
             "$PLIST_FILE"
+          
           # ========================================================
           # 3. Bundle ID
           # ========================================================
