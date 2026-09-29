@@ -2542,6 +2542,127 @@ jobs:
       
           /usr/local/itms/bin/iTMSTransporter -help
       
+      
+      # ============================================================
+      # 20bis. DIAGNOSTIC CAMERA / PRIVACY API
+      # ============================================================
+      - name: Diagnose camera API references
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "============================================================"
+          echo "       DIAGNOSTIC API CAMERA DANS L'IPA"
+          echo "============================================================"
+
+          CHECK_DIR="$RUNNER_TEMP/fcvv-camera-check"
+
+          rm -rf "$CHECK_DIR"
+          mkdir -p "$CHECK_DIR"
+
+          unzip -q "$FINAL_IPA" -d "$CHECK_DIR"
+
+          APP_PATH=$(find "$CHECK_DIR/Payload" \
+            -maxdepth 1 \
+            -name "*.app" \
+            -type d \
+            -print -quit)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : .app introuvable"
+            exit 1
+          fi
+
+          echo "APP = $APP_PATH"
+
+          echo ""
+          echo "============================================================"
+          echo "BINAIRES"
+          echo "============================================================"
+
+          find "$APP_PATH" \
+            -type f \
+            \( -perm -111 -o -name "*.dylib" -o -name "*.framework" \) \
+            -print \
+            | sort
+
+          echo ""
+          echo "============================================================"
+          echo "RECHERCHE AVCAPTURE / CAMERA"
+          echo "============================================================"
+
+          find "$APP_PATH" \
+            -type f \
+            \( -perm -111 -o -name "*.dylib" \) \
+            -print0 |
+          while IFS= read -r -d '' FILE; do
+
+            echo ""
+            echo "----- $FILE -----"
+
+            strings "$FILE" 2>/dev/null |
+              grep -Ei \
+                'AVCapture|AVFoundation|camera|videocapture|capturedevice|capturesession' \
+              | sort -u \
+              || true
+
+          done
+
+          echo ""
+          echo "============================================================"
+          echo "FRAMEWORKS EMBARQUES"
+          echo "============================================================"
+
+          find "$APP_PATH/Frameworks" \
+            -maxdepth 2 \
+            -print \
+            2>/dev/null \
+            | sort \
+            || true
+
+          echo ""
+          echo "============================================================"
+          echo "LINK AVFOUNDATION"
+          echo "============================================================"
+
+          find "$APP_PATH" \
+            -type f \
+            \( -perm -111 -o -name "*.dylib" \) \
+            -print0 |
+          while IFS= read -r -d '' FILE; do
+
+            echo ""
+            echo "----- $FILE -----"
+
+            otool -L "$FILE" 2>/dev/null |
+              grep -Ei 'AVFoundation|CoreMedia|CoreVideo' \
+              || true
+
+          done
+
+          echo ""
+          echo "============================================================"
+          echo "INFO.PLIST FINAL"
+          echo "============================================================"
+
+          plutil -p "$APP_PATH/Info.plist"
+
+          echo ""
+          echo "============================================================"
+          echo "CAMERA USAGE DESCRIPTION"
+          echo "============================================================"
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :NSCameraUsageDescription" \
+            "$APP_PATH/Info.plist" \
+            2>/dev/null \
+            || echo "NSCameraUsageDescription ABSENT"
+
+          echo ""
+          echo "============================================================"
+          echo "DIAGNOSTIC TERMINE"
+          echo "============================================================"
+      
       # ============================================================
       # 23. UPLOAD TESTFLIGHT
       # ============================================================
