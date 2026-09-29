@@ -913,6 +913,20 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Add :CFBundleVersion string ${GITHUB_RUN_NUMBER}" \
             "$PLIST_FILE"
+          
+          # ========================================================
+          # 2bis. Privacy - Camera
+          # ========================================================
+          /usr/libexec/PlistBuddy \
+            -c "Delete :NSCameraUsageDescription" \
+            "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy \
+            -c "Add :NSCameraUsageDescription string La caméra est utilisée par les composants intégrés de l'application lorsque cette fonctionnalité est nécessaire." \
+            "$PLIST_FILE"
+          echo "===== Vérification NSCameraUsageDescription ====="
+          /usr/libexec/PlistBuddy \
+            -c "Print :NSCameraUsageDescription" \
+            "$PLIST_FILE"
           # ========================================================
           # 3. Bundle ID
           # ========================================================
