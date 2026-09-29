@@ -107,9 +107,8 @@ jobs:
           set -euo pipefail
           rm -rf build
           rm -rf dist
-          toolchain build python3 kivy openssl pillow pyyaml
-          toolchain pip install requests
-          toolchain pip install urllib3
+          toolchain build python3 kivy openssl pillow
+          toolchain pip install pyyaml requests urllib3 fpdf2 fonttools
             
       # ============================================================
       # 6. PREPARE IOS SOURCES
