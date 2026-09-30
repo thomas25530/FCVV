@@ -117,11 +117,12 @@ jobs:
           toolchain pip install defusedxml
           toolchain pip install --no-deps fpdf2
 
+          toolchain pip install --no-deps fonttools
+
           find dist/root/python3/lib/python3.11/site-packages/yaml \
             -name "_yaml*.so" \
             -delete
             
-          find dist/root/python3/lib/python3.11/site-packages/yaml
 
       # ============================================================
       # 6. PREPARE IOS SOURCES
