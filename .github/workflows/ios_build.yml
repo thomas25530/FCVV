@@ -113,6 +113,7 @@ jobs:
           
           toolchain build python3 kivy openssl pillow
           toolchain pip install pyyaml requests urllib3
+          toolchain pip install --no-binary=:all: fpdf2
 
           find dist/root/python3/lib/python3.11/site-packages/yaml \
             -name "_yaml*.so" \
