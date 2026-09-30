@@ -108,8 +108,11 @@ jobs:
           set -euo pipefail
           rm -rf build
           rm -rf dist
+          rm -rf ~/.kivy-ios
+          rm -rf ~/Library/Caches/pip
+          
           toolchain build python3 kivy openssl pillow pyyaml
-          toolchain pip install requests urllib3 fpdf2 fonttools
+          toolchain pip pyyaml install requests urllib3
 
       # ============================================================
       # 6. PREPARE IOS SOURCES
