@@ -111,8 +111,14 @@ jobs:
           rm -rf ~/.kivy-ios
           rm -rf ~/Library/Caches/pip
           
-          toolchain build python3 kivy openssl pillow pyyaml
+          toolchain build python3 kivy openssl pillow
           toolchain pip install pyyaml requests urllib3
+
+          find dist/root/python3/lib/python3.11/site-packages/yaml \
+            -name "_yaml*.so" \
+            -delete
+            
+          find dist/root/python3/lib/python3.11/site-packages/yaml
 
       # ============================================================
       # 6. PREPARE IOS SOURCES
