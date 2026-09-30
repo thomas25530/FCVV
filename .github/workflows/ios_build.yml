@@ -112,7 +112,7 @@ jobs:
           rm -rf ~/Library/Caches/pip
           
           toolchain build python3 kivy openssl pillow pyyaml
-          toolchain pip pyyaml install requests urllib3
+          toolchain pip install pyyaml requests urllib3
 
       # ============================================================
       # 6. PREPARE IOS SOURCES
