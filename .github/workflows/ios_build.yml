@@ -122,6 +122,10 @@ jobs:
           find dist/root/python3/lib/python3.11/site-packages/yaml \
             -name "_yaml*.so" \
             -delete
+
+          find dist/root/python3/lib/python3.11/site-packages/fontTools \
+            -name "*.so" \
+            -delete
             
 
       # ============================================================
