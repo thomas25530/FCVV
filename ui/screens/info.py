@@ -19,6 +19,7 @@ def _(key):
         return app._(key)
     return key
 
+
 # On importe plyer conditionnellement ou directement
 try:
     from plyer import url as plyer_url

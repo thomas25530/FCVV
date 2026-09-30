@@ -268,6 +268,7 @@ class MenuSeparator(Widget):
         self.rect.pos = self.pos
         self.rect.size = self.size
         
+        
 class RootLayout(FloatLayout):
     def __init__(self, safe_area_top=0, **kwargs):
         super().__init__(**kwargs)

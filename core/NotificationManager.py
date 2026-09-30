@@ -110,6 +110,7 @@ class IOSNotificationManager(NotificationManager):
         self.waiting_for_token = False
         self.token_wait_count = 0
         self.max_token_wait = 60
+        
 
         try:
             print("[FCM iOS] Chargement Firebase...")

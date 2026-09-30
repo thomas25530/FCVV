@@ -87,6 +87,7 @@ jobs:
             fonttools \
             plyer \
             pyobjus
+            
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
       # ============================================================
       # 4. CACHE KIVY-IOS
