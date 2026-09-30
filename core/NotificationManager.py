@@ -99,6 +99,7 @@ class AndroidNotificationManager(NotificationManager):
         request_permissions([Permission.POST_NOTIFICATIONS])
 
 class IOSNotificationManager(NotificationManager):
+
     def __init__(self):
         from pyobjus import autoclass
         self.FIRApp = None
@@ -111,22 +112,20 @@ class IOSNotificationManager(NotificationManager):
         self.max_token_wait = 60
 
         try:
-            print("[FCM DEBUG] Chargement Firebase iOS...")
+            print("[FCM iOS] Chargement Firebase...")
             self.FIRApp = autoclass("FIRApp")
             if not self.FIRApp.defaultApp():
-                print("[FCM iOS] FIRApp absent, tentative de configuration...")
+                print("[FCM iOS] Firebase non configure.")
                 self.FIRApp.configure()
-            print("[FCM DEBUG] Chargement FIRMessaging...")
-            FIRMessagingClass = autoclass("FIRMessaging")
-            try:
-                self.FIRMessaging = FIRMessagingClass.messaging()
-            except Exception:
-                self.FIRMessaging = FIRMessagingClass.sharedInstance()
-            self.UNCenter = autoclass("UNUserNotificationCenter").currentNotificationCenter()
+            self.FIRMessaging = autoclass("FIRMessaging").messaging()
+            self.UNCenter = (
+                autoclass("UNUserNotificationCenter")
+                .currentNotificationCenter()
+            )
             self.UIApplication = autoclass("UIApplication")
-            print("[FCM iOS] Initialisation Firebase OK")
+            print("[FCM iOS] Firebase initialise.")
         except Exception as e:
-            print(f"[FCM iOS Init Error] {e!r}")
+            print(f"[FCM iOS INIT ERROR] {e!r}")
 
     def init_service(self):
         token = self._get_token()
@@ -209,14 +208,28 @@ class IOSNotificationManager(NotificationManager):
             print(f"[FCM iOS] Erreur desabonnement topic '{topic}' : {e!r}")
 
     def request_permissions(self):
-        print("[FCM iOS] request_permissions() appelee")
+        print("[FCM iOS] Demande permission notifications...")
         if not self.UNCenter:
             print("[FCM iOS] UNUserNotificationCenter absent")
             return
         try:
-            print("[FCM iOS] Permissions APNs deja gerees par le code natif Objective-C")
+            options = 4 | 2 | 1
+            def completion(granted, error):
+                print(
+                    f"[FCM iOS] Permission result : "
+                    f"granted={granted}, error={error}"
+                )
+                if granted:
+                    Clock.schedule_once(
+                        self._register_remote_notifications,
+                        0.2
+                    )
+            self.UNCenter.requestAuthorizationWithOptions_completionHandler_(
+                options,
+                completion
+            )
         except Exception as e:
-            print(f"[FCM iOS] Erreur lors de request_permissions : {e!r}")
+            print(f"[FCM iOS] Permission error : {e!r}")
             
     def _register_remote_notifications(self, dt=None):
         try:

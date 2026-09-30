@@ -269,27 +269,34 @@ class MenuSeparator(Widget):
         self.rect.size = self.size
         
 class RootLayout(FloatLayout):
-    def __init__(self, **kwargs):
+    def __init__(self, safe_area_top=0, **kwargs):
         super().__init__(**kwargs)
+        self.safe_area_top = safe_area_top
+        self.main_ui = BoxLayout(orientation="vertical",size_hint=(1, 1))
         if is_mobile:
-            self.menu_width = int(Window.width * 0.75)
+            if platform == "ios":
+                safe_top = self.safe_area_top
+            else:
+                safe_top = 0
+            # Hauteur normale de ta barre.
+            content_height = int(Window.height * 0.09)
+            self.top_bar = BoxLayout(
+                size_hint_y=None,
+                height=content_height + safe_top,
+                padding=[
+                    dp(10),
+                    safe_top,
+                    dp(10),
+                    0
+                ]
+            )
+
         else:
-            self.menu_width = 260
-        self.menu_open = False
-        # --- 1. L'INTERFACE PRINCIPALE ---
-        self.main_ui = BoxLayout(orientation="vertical", size_hint=(1, 1))
-        
-        # Top Bar
-        if is_mobile:
-            # On augmente le padding du haut pour descendre davantage le contenu sous l'encoche
-            self.top_bar = BoxLayout(size_hint_y=None, height=int(Window.height * 0.10), padding=[dp(10), dp(22), dp(10), 0])
-        else:
-            self.top_bar = BoxLayout(size_hint_y=None, height=50)
-            
+            self.top_bar = BoxLayout(size_hint_y=None,height=50)
         with self.top_bar.canvas.before:
             Color(*get_color_from_hex(YELLOW))
-            self.rect = Rectangle(pos=self.top_bar.pos, size=self.top_bar.size)
-        self.top_bar.bind(pos=self.update_rects, size=self.update_rects)
+            self.rect = Rectangle(pos=self.top_bar.pos,size=self.top_bar.size)
+        self.top_bar.bind(pos=self.update_rects,size=self.update_rects)
         
         # Bouton Menu (Ajustement de center_y pour le descendre un peu si nécessaire)
         if is_mobile:
@@ -420,6 +427,21 @@ class RootLayout(FloatLayout):
         #self.build_menu()
         #Clock.schedule_once(lambda dt: self.switch_screen("home"))
         
+    def update_ios_safe_area(self, safe_top):
+        """Met à jour la Safe Area iOS (sans effet sur Android)."""
+        from kivy.utils import platform
+        if platform != "ios":
+            return
+
+        self.safe_area_top = max(0, safe_top)
+        if not hasattr(self, "top_bar"):
+            return
+
+        content_height = int(Window.height * 0.09)
+        self.top_bar.height = content_height + self.safe_area_top
+        self.top_bar.padding = [dp(10), self.safe_area_top, dp(10), 0]
+        self.top_bar.do_layout()
+    
     def load_initial_screen(self):
         from ui.screens.home import HomeScreen
         self.sm.add_widget(HomeScreen(name="home"))
@@ -678,8 +700,27 @@ class MyApp(App):
     def get_application_config(self):
         return os.path.join(self.user_data_dir, 'fcvv.ini')
 
+    def get_ios_safe_area_top(self):
+        """Récupère la hauteur de la Safe Area sur iOS, 0 sinon."""
+        if platform != "ios":
+            return 0
+        try:
+            from pyobjus import autoclass
+            app = autoclass("UIApplication").sharedApplication()
+            window = app.keyWindow or (app.windows and app.windows[0])
+            if not window:
+                print("[iOS SAFE AREA] Fenetre introuvable")
+                return 0
+            return float(window.safeAreaInsets.top)
+        except Exception as e:
+            print(f"[iOS SAFE AREA] Erreur : {e}")
+            return 0
+
     def build(self):
-        return RootLayout()
+        """Initialise l'interface avec la Safe Area."""
+        safe_top = self.get_ios_safe_area_top()
+        print(f"[SAFE AREA] Valeur initiale = {safe_top}")
+        return RootLayout(safe_area_top=safe_top)
     
     def clean_key(self, text):
         """Normalise une catégorie pour son stockage dans le .ini."""
@@ -980,7 +1021,19 @@ class MyApp(App):
             pass
         from kivy.core.window import Window
         if platform == "ios":
-            Window.softinput_mode = ""
+            Window.softinput_mode = "below_target"
+            def update_ios_safe_area(dt):
+                try:
+                    safe_top = self.get_ios_safe_area_top()
+                    print(f"[iOS SAFE AREA] Mise à jour : top = {safe_top}")
+                    if hasattr(self, "root") and self.root:
+                        if hasattr(self.root,"update_ios_safe_area"):
+                            self.root.update_ios_safe_area(safe_top)
+                except Exception as e:
+                    print(f"[iOS SAFE AREA] Mise à jour impossible : {e}")
+    
+            # Première récupération
+            Clock.schedule_once(update_ios_safe_area,0.5)
         else:
             Window.softinput_mode = "below_target"
         Window.bind(on_keyboard=self.on_back_button)

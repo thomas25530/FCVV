@@ -84,7 +84,9 @@ jobs:
             urllib3 \
             pyyaml \
             fpdf2 \
-            fonttools
+            fonttools \
+            plyer \
+            pyobjus
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
       # ============================================================
       # 4. CACHE KIVY-IOS
@@ -111,8 +113,8 @@ jobs:
           rm -rf ~/.kivy-ios
           rm -rf ~/Library/Caches/pip
           
-          toolchain build python3 kivy openssl pillow
-          toolchain pip install pyyaml requests urllib3
+          toolchain build python3 kivy openssl pillow plyer pyobjus
+          toolchain pip install pyyaml requests urllib3 plyer pyobjus
           
           toolchain pip install defusedxml
           toolchain pip install --no-deps fpdf2

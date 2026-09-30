@@ -11,6 +11,7 @@ from kivy.metrics import dp
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
+from kivy.utils import platform
 
 def _(key):
     app = App.get_running_app()
@@ -18,17 +19,37 @@ def _(key):
         return app._(key)
     return key
 
+# On importe plyer conditionnellement ou directement
+try:
+    from plyer import url as plyer_url
+except ImportError:
+    plyer_url = None
+
 # --- CLASSE ICONBUTTON SANS FOND (TRANSPARENTE) ---
 class IconButton(ButtonBehavior, Image):
     """Bouton image simple sans fond."""
-    def __init__(self, url, source, **kwargs):
+    def __init__(self, url_target, source, **kwargs):
         super().__init__(**kwargs)
         self.source = source
-        self.target_url = url
+        self.target_url = url_target
     
     def on_release(self):
         if self.target_url:
-            webbrowser.open(self.target_url)
+            try:
+                if platform == 'ios':
+                    # Utilisation stricte de plyer pour iOS
+                    if plyer_url:
+                        plyer_url.open(self.target_url)
+                    else:
+                        print("Plyer n'est pas disponible pour iOS")
+                elif platform == 'android':
+                    # Votre code actuel pour Android (ou webbrowser / autre)
+                    webbrowser.open(self.target_url)  # ou ce que vous utilisiez
+                else:
+                    # Pour le développement sur PC / Mac
+                    webbrowser.open(self.target_url)
+            except Exception as e:
+                print(f"Erreur lors de l'ouverture du lien : {e}")
 
 # --- CLASSE PRINCIPALE INFO ---
 class InfoScreen(Screen):
