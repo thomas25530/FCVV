@@ -259,616 +259,976 @@ jobs:
             puts 'Target fcvv OK.'
           "
       # ============================================================
-      # 9. INJECT FIREBASE / APNS
+      # 9. FIREBASE FCM + APNs
+      #    Injection sécurisée dans SDLUIKitDelegate
       # ============================================================
-      - name: Inject Firebase into files
+      - name: Configure Firebase FCM and APNs
+        shell: bash
+        env:
+          TARGET_NAME: fcvv
         run: |
           set -euo pipefail
-          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" -print -quit)
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : aucun fichier .xcodeproj trouvé"
+
+          echo "============================================================"
+          echo "  CONFIGURATION FIREBASE / FCM / APNs"
+          echo "============================================================"
+
+          # --------------------------------------------------------
+          # Recherche du projet Xcode
+          # --------------------------------------------------------
+
+          XCODEPROJ="$(find . -name "*.xcodeproj" -print -quit)"
+
+          if [ -z "$XCODEPROJ" ]; then
+            echo "❌ Aucun fichier .xcodeproj trouvé"
             exit 1
           fi
-          PROJ_DIR=$(dirname "$PROJECT_FILE")
-          MAIN_FILE=$(find "$PROJ_DIR" -name "main.m" -print -quit)
-          APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" -print -quit)
-          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" -print -quit)
-          if [ -z "$MAIN_FILE" ]; then
-            echo "ERREUR : main.m introuvable"
+
+          PROJECT_DIR="$(dirname "$XCODEPROJ")"
+
+          echo "✓ Projet Xcode : $XCODEPROJ"
+
+          # --------------------------------------------------------
+          # Recherche des fichiers SDL
+          # --------------------------------------------------------
+
+          DELEGATE_M="$(find "$PROJECT_DIR" -name "SDL_uikitappdelegate.m" -print -quit)"
+          DELEGATE_H="$(find "$PROJECT_DIR" -name "SDL_uikitappdelegate.h" -print -quit)"
+
+          if [ -z "$DELEGATE_M" ]; then
+            echo "❌ SDL_uikitappdelegate.m introuvable"
             exit 1
           fi
-          if [ -z "$APPDELEGATE_FILE" ]; then
-            echo "ERREUR : SDL_uikitappdelegate.m introuvable"
+
+          if [ -z "$DELEGATE_H" ]; then
+            echo "❌ SDL_uikitappdelegate.h introuvable"
             exit 1
           fi
-          if [ -z "$HEADER_FILE" ]; then
-            echo "ERREUR : SDL_uikitappdelegate.h introuvable"
+
+          echo "✓ Delegate Objective-C : $DELEGATE_M"
+          echo "✓ Header Objective-C   : $DELEGATE_H"
+
+          export XCODEPROJ PROJECT_DIR DELEGATE_M DELEGATE_H TARGET_NAME
+
+          # --------------------------------------------------------
+          # Sauvegarde avant modification
+          # --------------------------------------------------------
+
+          cp "$DELEGATE_M" "$DELEGATE_M.before-fcvv"
+          cp "$DELEGATE_H" "$DELEGATE_H.before-fcvv"
+
+          echo "✓ Sauvegardes créées"
+
+          # --------------------------------------------------------
+          # Vérification de SDLUIKitDelegate
+          # --------------------------------------------------------
+
+          if ! grep -qE '@interface[[:space:]]+SDLUIKitDelegate' "$DELEGATE_H"; then
+            echo "❌ SDLUIKitDelegate absent du header"
             exit 1
           fi
-          echo "MAIN_FILE=$MAIN_FILE"
-          echo "APPDELEGATE_FILE=$APPDELEGATE_FILE"
-          echo "HEADER_FILE=$HEADER_FILE"
-          # ============================================================
-          # 1. Firebase imports dans main.m
-          # ============================================================
-          python3 - "$MAIN_FILE" <<'PY'
+
+          if ! grep -qE '@implementation[[:space:]]+SDLUIKitDelegate' "$DELEGATE_M"; then
+            echo "❌ SDLUIKitDelegate absent du .m"
+            exit 1
+          fi
+
+          echo "✓ SDLUIKitDelegate trouvé"
+
+          # --------------------------------------------------------
+          # Imports
+          # --------------------------------------------------------
+
+          python3 <<'PY'
+          import os
           from pathlib import Path
-          import sys
-          path = Path(sys.argv[1])
-          content = path.read_text()
-          imports = """@import UIKit;
-          @import FirebaseCore;
-          @import FirebaseMessaging;
-          @import UserNotifications;
-          """
-          if "FirebaseCore" not in content:
-              content = imports + "\n" + content
-          else:
-              if "FirebaseMessaging" not in content:
-                  content = "@import FirebaseMessaging;\n" + content
-              if "UserNotifications" not in content:
-                  content = "@import UserNotifications;\n" + content
-          path.write_text(content)
+
+          header = Path(os.environ["DELEGATE_H"])
+          implementation = Path(os.environ["DELEGATE_M"])
+
+          header_imports = [
+              "#import <UIKit/UIKit.h>",
+              "#import <UserNotifications/UserNotifications.h>",
+              "#import <FirebaseMessaging/FirebaseMessaging.h>",
+          ]
+
+          implementation_imports = [
+              "#import <UIKit/UIKit.h>",
+              "#import <UserNotifications/UserNotifications.h>",
+              "#import <FirebaseCore/FirebaseCore.h>",
+              "#import <FirebaseMessaging/FirebaseMessaging.h>",
+          ]
+
+          def add_imports(path, imports):
+              text = path.read_text()
+
+              for imp in imports:
+                  if imp not in text:
+                      text = imp + "\n" + text
+
+              path.write_text(text)
+
+          add_imports(header, header_imports)
+          add_imports(implementation, implementation_imports)
+
+          print("✓ Imports Firebase / APNs vérifiés")
           PY
-          # ============================================================
-          # 2. Initialisation Firebase + demande permission APNs
-          # ============================================================
-          python3 - "$MAIN_FILE" <<'PY'
-          from pathlib import Path
-          import sys
-          path = Path(sys.argv[1])
-          content = path.read_text()
-          marker = "int main(int argc, char *argv[]) {"
-          code = r'''
-              // ========================================================
-              // FCVV Firebase / APNs initialization
-              // ========================================================
-              if ([FIRApp defaultApp] == nil) {
-                  [FIRApp configure];
-                  NSLog(@"[FCM iOS] Firebase configure");
-              }
-              if (@available(iOS 10.0, *)) {
-                  UNAuthorizationOptions options =
-                      UNAuthorizationOptionAlert |
-                      UNAuthorizationOptionSound |
-                      UNAuthorizationOptionBadge;
-                  [[UNUserNotificationCenter currentNotificationCenter]
-                      requestAuthorizationWithOptions:options
-                      completionHandler:^(BOOL granted, NSError * _Nullable error) {
-                          if (error) {
-                              NSLog(
-                                  @"[FCM iOS] Erreur permission notifications : %@",
-                                  error
-                              );
-                              return;
-                          }
-                          NSLog(
-                              @"[FCM iOS] Permission notifications : %d",
-                              granted
-                          );
-                          dispatch_async(dispatch_get_main_queue(), ^{
-                              [[UIApplication sharedApplication]
-                                  registerForRemoteNotifications];
-                          });
-                      }];
-              } else {
-                  [[UIApplication sharedApplication]
-                      registerForRemoteNotifications];
-              }
-              NSLog(@"[FCM iOS] Demande enregistrement APNS");
-          '''
-          marker_already_present = "[FIRApp configure]"
-          if marker_already_present not in content:
-              if marker not in content:
-                  raise RuntimeError(
-                      "Impossible de trouver int main(int argc, char *argv[])"
-                  )
-              content = content.replace(
-                  marker,
-                  marker + "\n" + code,
-                  1
-              )
-          path.write_text(content)
-          PY
-          # ============================================================
-          # 3. Imports Firebase dans SDL_uikitappdelegate.m
-          # ============================================================
-          python3 - "$APPDELEGATE_FILE" <<'PY'
-          from pathlib import Path
-          import sys
-          path = Path(sys.argv[1])
-          content = path.read_text()
-          imports = """@import UIKit;
-          @import FirebaseCore;
-          @import FirebaseMessaging;
-          @import UserNotifications;
-          """
-          if "FirebaseMessaging" not in content:
-              content = imports + "\n" + content
-          else:
-              if "FirebaseCore" not in content:
-                  content = "@import FirebaseCore;\n" + content
-              if "UserNotifications" not in content:
-                  content = "@import UserNotifications;\n" + content
-          path.write_text(content)
-          PY
-          # ============================================================
-          # 4. Ajouter UNUserNotificationCenterDelegate au HEADER
-          #    et PAS au .m
-          # ============================================================
-          python3 - "$HEADER_FILE" <<'PY'
-          from pathlib import Path
-          import sys
+
+          # --------------------------------------------------------
+          # Ajout des protocoles au header
+          #
+          # IMPORTANT :
+          # on ne remplace pas aveuglément toute la déclaration.
+          # --------------------------------------------------------
+
+          python3 <<'PY'
+          import os
           import re
-          path = Path(sys.argv[1])
-          content = path.read_text()
-          # ------------------------------------------------------------
-          # Import UserNotifications
-          # ------------------------------------------------------------
-          if "#import <UserNotifications/UserNotifications.h>" not in content:
-              if "#import <UIKit/UIKit.h>" in content:
-                  content = content.replace(
-                      "#import <UIKit/UIKit.h>",
-                      "#import <UIKit/UIKit.h>\n"
-                      "#import <UserNotifications/UserNotifications.h>",
-                      1
-                  )
-              else:
-                  content = (
-                      "#import <UserNotifications/UserNotifications.h>\n"
-                      + content
-                  )
-          # ------------------------------------------------------------
-          # Recherche de la déclaration réelle de SDLUIKitDelegate
-          # ------------------------------------------------------------
+          from pathlib import Path
+
+          path = Path(os.environ["DELEGATE_H"])
+          text = path.read_text()
+
+          # Déjà présent : rien à faire
+          if (
+              "UNUserNotificationCenterDelegate" in text
+              and "FIRMessagingDelegate" in text
+          ):
+              print("✓ Delegates déjà déclarés")
+              raise SystemExit(0)
+
           pattern = re.compile(
-              r'@interface\s+SDLUIKitDelegate\s*:\s*NSObject\s*'
-              r'<([^>]*)>',
+              r'(@interface\s+SDLUIKitDelegate\s*:\s*NSObject)'
+              r'(\s*(?:<[^>]*>)?)',
               re.MULTILINE
           )
-          match = pattern.search(content)
-          if match:
-              protocols = match.group(1)
-              if "UNUserNotificationCenterDelegate" not in protocols:
-                  new_protocols = protocols.strip()
-                  if new_protocols:
-                      new_protocols += ", "
-                  new_protocols += "UNUserNotificationCenterDelegate"
-                  replacement = (
-                      "@interface SDLUIKitDelegate : NSObject<"
-                      + new_protocols
-                      + ">"
-                  )
-                  content = (
-                      content[:match.start()]
-                      + replacement
-                      + content[match.end():]
-                  )
-          else:
-              # Cas où SDL utilise une déclaration légèrement différente.
-              simple = "@interface SDLUIKitDelegate : NSObject"
-              if simple in content:
-                  replacement = (
-                      "@interface SDLUIKitDelegate : NSObject"
-                      "<UNUserNotificationCenterDelegate>"
-                  )
-                  content = content.replace(
-                      simple,
-                      replacement,
-                      1
-                  )
-              elif "UNUserNotificationCenterDelegate" not in content:
-                  raise RuntimeError(
-                      "Impossible de trouver la déclaration de "
-                      "SDLUIKitDelegate dans le header"
-                  )
-          # ------------------------------------------------------------
-          # Vérification finale
-          # ------------------------------------------------------------
-          if "UNUserNotificationCenterDelegate" not in content:
+
+          match = pattern.search(text)
+
+          if not match:
               raise RuntimeError(
-                  "UNUserNotificationCenterDelegate absent du header "
-                  "SDL_uikitappdelegate.h"
+                  "Impossible de localiser @interface SDLUIKitDelegate"
               )
-          path.write_text(content)
+
+          existing_protocols = match.group(2) or ""
+
+          protocols = []
+
+          if "UNUserNotificationCenterDelegate" not in existing_protocols:
+              protocols.append("UNUserNotificationCenterDelegate")
+
+          if "FIRMessagingDelegate" not in existing_protocols:
+              protocols.append("FIRMessagingDelegate")
+
+          if existing_protocols.strip():
+              inside = existing_protocols.strip()[1:-1].strip()
+              all_protocols = [p.strip() for p in inside.split(",") if p.strip()]
+              all_protocols.extend(protocols)
+          else:
+              all_protocols = protocols
+
+          replacement = (
+              match.group(1)
+              + " <"
+              + ", ".join(dict.fromkeys(all_protocols))
+              + ">"
+          )
+
+          text = (
+              text[:match.start()]
+              + replacement
+              + text[match.end():]
+          )
+
+          path.write_text(text)
+
+          print("✓ UNUserNotificationCenterDelegate déclaré")
+          print("✓ FIRMessagingDelegate déclaré")
           PY
-          # ============================================================
-          # 5. Gestion FCM / APNs :
-          #    - réception des notifications de validation
-          #    - abonnement immédiat au topic catégorie
-          #    - récupération du token APNs
-          #    - transmission du token APNs à Firebase Messaging
+
+          # --------------------------------------------------------
+          # Vérification CRITIQUE :
+          # didFinishLaunchingWithOptions doit exister.
           #
-          # Le fichier SDL_uikitappdelegate.m est généré par kivy-ios.
-          # On injecte donc automatiquement les méthodes dans sa classe.
-          # ============================================================
-          
-          python3 - "$APPDELEGATE_FILE" <<'PY'
+          # Nous NE créons PAS cette méthode automatiquement.
+          # Cela évite de casser le cycle de vie SDL.
+          # --------------------------------------------------------
+
+          if ! grep -q "didFinishLaunchingWithOptions" "$DELEGATE_M"; then
+            echo ""
+            echo "❌ ERREUR DE SÉCURITÉ"
+            echo "   didFinishLaunchingWithOptions n'a pas été trouvé."
+            echo ""
+            echo "   Le workflow s'arrête volontairement plutôt que"
+            echo "   de créer une méthode SDL au mauvais endroit."
+            echo ""
+            exit 1
+          fi
+
+          echo "✓ didFinishLaunchingWithOptions trouvé"
+
+          # --------------------------------------------------------
+          # Bloc Firebase / APNs
+          # --------------------------------------------------------
+
+          python3 <<'PY'
+          import os
+          import re
           from pathlib import Path
-          import sys
-          
-          path = Path(sys.argv[1])
-          content = path.read_text()
-          
-          marker = "// FCVV FCM VALIDATION HANDLER"
-          
-          if marker not in content:
-          
-              code = r'''
-          // ============================================================
-          // FCVV FCM VALIDATION HANDLER
-          // ============================================================
-          
-          static void FCVVSubscribeToValidatedCategory(NSString *categorie)
+
+          path = Path(os.environ["DELEGATE_M"])
+          text = path.read_text()
+
+          MARKER = "FCVV_FCM_CONFIGURATION_V1"
+
+          if MARKER in text:
+              print("✓ Bloc FCVV déjà présent")
+              raise SystemExit(0)
+
+          block = r'''
+
+          // ==========================================================
+          // FCVV_FCM_CONFIGURATION_V1
+          // Firebase Cloud Messaging + APNs
+          // ==========================================================
+
+          - (void)fcvvConfigureFirebaseAndNotifications
           {
-              if (categorie == nil || categorie.length == 0) {
-                  NSLog(@"[FCM iOS] Validation sans categorie.");
-                  return;
+              NSLog(@"[FCVV] Initialisation Firebase/APNs");
+
+              // ------------------------------------------------------
+              // Firebase
+              // ------------------------------------------------------
+
+              if ([FIRApp defaultApp] == nil) {
+                  [FIRApp configure];
+                  NSLog(@"[FCVV] Firebase configuré");
+              } else {
+                  NSLog(@"[FCVV] Firebase déjà configuré");
               }
-          
-              NSString *topic =
-                  [categorie stringByTrimmingCharactersInSet:
-                      [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-          
-              if (topic.length == 0) {
-                  NSLog(@"[FCM iOS] Validation avec categorie vide.");
-                  return;
-              }
-          
-              NSLog(
-                  @"[FCM iOS] Validation reçue : abonnement immédiat au topic %@",
-                  topic
-              );
-          
-              [[FIRMessaging messaging]
-                  subscribeToTopic:topic
-                  completion:^(NSError * _Nullable error) {
-          
-                      if (error) {
-                          NSLog(
-                              @"[FCM iOS] ERREUR abonnement topic %@ : %@",
-                              topic,
-                              error
-                          );
-                      } else {
-                          NSLog(
-                              @"[FCM iOS] Abonnement topic %@ réussi immédiatement",
-                              topic
-                          );
-                      }
-                  }];
+
+              // ------------------------------------------------------
+              // Delegate Firebase Messaging
+              // ------------------------------------------------------
+
+              [FIRMessaging messaging].delegate = self;
+
+              // ------------------------------------------------------
+              // Delegate notifications iOS
+              // ------------------------------------------------------
+
+              UNUserNotificationCenter *center =
+                  [UNUserNotificationCenter currentNotificationCenter];
+
+              center.delegate = self;
+
+              NSLog(@"[FCVV] Delegates Firebase/APNs configurés");
+
+              // ------------------------------------------------------
+              // Autorisation notifications
+              // ------------------------------------------------------
+
+              UNAuthorizationOptions options =
+                  UNAuthorizationOptionAlert |
+                  UNAuthorizationOptionSound |
+                  UNAuthorizationOptionBadge;
+
+              [center requestAuthorizationWithOptions:options
+                                    completionHandler:^(BOOL granted,
+                                                        NSError * _Nullable error) {
+
+                  if (error != nil) {
+                      NSLog(@"[FCVV] Erreur autorisation notifications: %@",
+                            error);
+                  } else {
+                      NSLog(@"[FCVV] Autorisation notifications: %d",
+                            granted);
+                  }
+
+                  // registerForRemoteNotifications doit être exécuté
+                  // sur le thread principal.
+                  dispatch_async(dispatch_get_main_queue(), ^{
+                      [[UIApplication sharedApplication]
+                          registerForRemoteNotifications];
+
+                      NSLog(@"[FCVV] registerForRemoteNotifications appelé");
+                  });
+              }];
           }
-          
-          
-          // ============================================================
-          // APNs : TOKEN RECU
-          // ============================================================
-          //
-          // C'est ce callback qui reçoit le token APNs fourni par iOS.
-          //
-          // Firebase Messaging doit connaître ce token pour pouvoir
-          // associer APNs au token FCM.
-          //
-          
+
+
+          // ==========================================================
+          // Token FCM
+          // ==========================================================
+
+          - (void)messaging:(FIRMessaging *)messaging
+              didReceiveRegistrationToken:(NSString *)fcmToken
+          {
+              NSLog(@"[FCVV] ==========================================");
+              NSLog(@"[FCVV] TOKEN FCM : %@", fcmToken);
+              NSLog(@"[FCVV] ==========================================");
+
+              if (fcmToken == nil || fcmToken.length == 0) {
+                  NSLog(@"[FCVV] Token FCM vide");
+                  return;
+              }
+
+              NSDictionary *userInfo = @{
+                  @"token": fcmToken
+              };
+
+              [[NSNotificationCenter defaultCenter]
+                  postNotificationName:@"FCVV_FCM_TOKEN"
+                                object:nil
+                              userInfo:userInfo];
+          }
+
+
+          // ==========================================================
+          // Token APNs
+          // ==========================================================
+
           - (void)application:(UIApplication *)application
               didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
           {
-              NSLog(
-                  @"[FCM iOS] APNs device token reçu : %@",
-                  deviceToken
-              );
-          
-              if (deviceToken == nil || deviceToken.length == 0) {
-                  NSLog(
-                      @"[FCM iOS] ERREUR : token APNs vide."
-                  );
+              NSLog(@"[FCVV] Token APNs reçu");
+
+              if (deviceToken == nil) {
+                  NSLog(@"[FCVV] ❌ Token APNs nil");
                   return;
               }
-          
+
               [[FIRMessaging messaging] setAPNSToken:deviceToken];
-          
-              NSLog(
-                  @"[FCM iOS] APNs token transmis à Firebase Messaging."
-              );
+
+              NSLog(@"[FCVV] Token APNs transmis à Firebase");
           }
-          
-          
-          // ============================================================
-          // APNs : ECHEC ENREGISTREMENT
-          // ============================================================
-          
+
+
+          // ==========================================================
+          // Erreur APNs
+          // ==========================================================
+
           - (void)application:(UIApplication *)application
               didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
           {
-              NSLog(
-                  @"[FCM iOS] Échec enregistrement APNs : %@",
-                  error
-              );
+              NSLog(@"[FCVV] ❌ Échec enregistrement APNs : %@", error);
           }
-          
-          
-          // ============================================================
-          // NOTIFICATION AU PREMIER PLAN
-          // ============================================================
-          
+
+
+          // ==========================================================
+          // Notification au premier plan
+          // ==========================================================
+
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
-                 willPresentNotification:(UNNotification *)notification
-                   withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
+              willPresentNotification:(UNNotification *)notification
+              withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
           {
               NSDictionary *userInfo =
                   notification.request.content.userInfo;
-          
-              NSLog(
-                  @"[FCM iOS] Notification reçue au premier plan : %@",
-                  userInfo
-              );
-          
+
+              NSLog(@"[FCVV] Notification foreground : %@", userInfo);
+
               NSString *notifType = userInfo[@"notif_type"];
               NSString *categorie = userInfo[@"categorie"];
-          
-              if (notifType != nil &&
-                  [notifType isKindOfClass:[NSString class]] &&
-                  [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
-          
-                  NSLog(
-                      @"[FCM iOS] Notification de validation détectée : %@",
-                      categorie
-                  );
-          
-                  FCVVSubscribeToValidatedCategory(categorie);
+
+              if ([notifType isKindOfClass:[NSString class]] &&
+                  [notifType isEqualToString:@"validation"] &&
+                  [categorie isKindOfClass:[NSString class]] &&
+                  categorie.length > 0)
+              {
+                  NSLog(@"[FCVV] Validation catégorie : %@",
+                        categorie);
+
+                  [[FIRMessaging messaging]
+                      subscribeToTopic:categorie
+                              completion:^(NSError * _Nullable error) {
+
+                      if (error != nil) {
+                          NSLog(@"[FCVV] ❌ Abonnement topic %@ : %@",
+                                categorie,
+                                error);
+                      } else {
+                          NSLog(@"[FCVV] ✓ Topic %@ souscrit",
+                                categorie);
+                      }
+                  }];
               }
-          
-              if (@available(iOS 14.0, *)) {
-          
-                  completionHandler(
-                      UNNotificationPresentationOptionBanner |
-                      UNNotificationPresentationOptionSound |
-                      UNNotificationPresentationOptionBadge
-                  );
-          
-              } else {
-          
-                  completionHandler(
-                      UNNotificationPresentationOptionAlert |
-                      UNNotificationPresentationOptionSound |
-                      UNNotificationPresentationOptionBadge
-                  );
-              }
+
+              completionHandler(
+                  UNNotificationPresentationOptionAlert |
+                  UNNotificationPresentationOptionSound |
+                  UNNotificationPresentationOptionBadge
+              );
           }
-          
-          
-          // ============================================================
-          // NOTIFICATION OUVERTE PAR L'UTILISATEUR
-          // ============================================================
-          
+
+
+          // ==========================================================
+          // Notification ouverte
+          // ==========================================================
+
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
-                 didReceiveNotificationResponse:(UNNotificationResponse *)response
-                 withCompletionHandler:(void (^)(void))completionHandler
+              didReceiveNotificationResponse:(UNNotificationResponse *)response
+              withCompletionHandler:(void (^)(void))completionHandler
           {
               NSDictionary *userInfo =
                   response.notification.request.content.userInfo;
-          
-              NSLog(
-                  @"[FCM iOS] Notification ouverte : %@",
-                  userInfo
-              );
-          
+
+              NSLog(@"[FCVV] Notification ouverte : %@", userInfo);
+
               NSString *notifType = userInfo[@"notif_type"];
               NSString *categorie = userInfo[@"categorie"];
-          
-              if (notifType != nil &&
-                  [notifType isKindOfClass:[NSString class]] &&
-                  [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
-          
-                  NSLog(
-                      @"[FCM iOS] Validation ouverte : %@",
-                      categorie
-                  );
-          
-                  FCVVSubscribeToValidatedCategory(categorie);
+
+              if ([notifType isKindOfClass:[NSString class]] &&
+                  [notifType isEqualToString:@"validation"] &&
+                  [categorie isKindOfClass:[NSString class]] &&
+                  categorie.length > 0)
+              {
+                  NSLog(@"[FCVV] Validation ouverte : %@",
+                        categorie);
+
+                  [[FIRMessaging messaging]
+                      subscribeToTopic:categorie
+                              completion:^(NSError * _Nullable error) {
+
+                      if (error != nil) {
+                          NSLog(@"[FCVV] ❌ Abonnement topic %@ : %@",
+                                categorie,
+                                error);
+                      } else {
+                          NSLog(@"[FCVV] ✓ Topic %@ souscrit",
+                                categorie);
+                      }
+                  }];
               }
-          
-              if (completionHandler != nil) {
-                  completionHandler();
-              }
+
+              completionHandler();
           }
-          
-          
-          // ============================================================
-          // NOTIFICATION REMOTE EN BACKGROUND
-          // ============================================================
-          
+
+
+          // ==========================================================
+          // Notification background
+          // ==========================================================
+
           - (void)application:(UIApplication *)application
-                 didReceiveRemoteNotification:(NSDictionary *)userInfo
-                 fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler
+              didReceiveRemoteNotification:(NSDictionary *)userInfo
+              fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler
           {
-              NSLog(
-                  @"[FCM iOS] Remote notification reçue : %@",
-                  userInfo
-              );
-          
+              NSLog(@"[FCVV] Notification background : %@", userInfo);
+
               NSString *notifType = userInfo[@"notif_type"];
               NSString *categorie = userInfo[@"categorie"];
-          
-              if (notifType != nil &&
-                  [notifType isKindOfClass:[NSString class]] &&
-                  [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
-          
-                  NSLog(
-                      @"[FCM iOS] Validation FCM reçue en background : %@",
-                      categorie
-                  );
-          
-                  FCVVSubscribeToValidatedCategory(categorie);
+
+              if ([notifType isKindOfClass:[NSString class]] &&
+                  [notifType isEqualToString:@"validation"] &&
+                  [categorie isKindOfClass:[NSString class]] &&
+                  categorie.length > 0)
+              {
+                  NSLog(@"[FCVV] Validation background : %@",
+                        categorie);
+
+                  [[FIRMessaging messaging]
+                      subscribeToTopic:categorie
+                              completion:^(NSError * _Nullable error) {
+
+                      if (error != nil) {
+                          NSLog(@"[FCVV] ❌ Topic %@ : %@",
+                                categorie,
+                                error);
+                      } else {
+                          NSLog(@"[FCVV] ✓ Topic %@ souscrit",
+                                categorie);
+                      }
+                  }];
               }
-          
-              if (completionHandler != nil) {
-                  completionHandler(UIBackgroundFetchResultNewData);
-              }
+
+              completionHandler(UIBackgroundFetchResultNoData);
           }
-          
-          
-          // ============================================================
-          // FIN FCVV FCM VALIDATION HANDLER
-          // ============================================================
+
           '''
-          
-              # --------------------------------------------------------
-              # Insérer juste avant le dernier @end du .m.
-              # --------------------------------------------------------
-          
-              last_end = content.rfind("@end")
-          
-              if last_end == -1:
-                  raise RuntimeError(
-                      "Impossible de trouver @end dans SDL_uikitappdelegate.m"
-                  )
-          
-              content = (
-                  content[:last_end]
-                  + "\n"
-                  + code
-                  + "\n"
-                  + content[last_end:]
+
+          # ----------------------------------------------------------
+          # Localiser précisément @implementation SDLUIKitDelegate
+          # ----------------------------------------------------------
+
+          impl = re.search(
+              r'@implementation\s+SDLUIKitDelegate\b',
+              text
+          )
+
+          if not impl:
+              raise RuntimeError(
+                  "@implementation SDLUIKitDelegate introuvable"
               )
-          
-              path.write_text(content)
-          
-              print(
-                  "[FCM iOS] Gestion FCM/APNs injectée dans "
-                  "SDL_uikitappdelegate.m"
+
+          impl_start = impl.end()
+
+          # ----------------------------------------------------------
+          # Trouver la fin de cette implementation.
+          #
+          # On compte les blocs { } afin de ne pas prendre un @end
+          # appartenant à une autre structure.
+          # ----------------------------------------------------------
+
+          end_match = re.search(
+              r'\n@end\b',
+              text[impl_start:]
+          )
+
+          if not end_match:
+              raise RuntimeError(
+                  "@end de SDLUIKitDelegate introuvable"
               )
-          
-          else:
-              print(
-                  "[FCM iOS] Gestion FCM/APNs déjà présente."
-              )
+
+          end_pos = impl_start + end_match.start()
+
+          text = text[:end_pos] + block + text[end_pos:]
+
+          path.write_text(text)
+
+          print("✓ Méthodes Firebase/APNs injectées")
           PY
-          
-          # ============================================================
-          # 6. Vérifications finales
-          # ============================================================
-          echo "===== Vérification Firebase ====="
-          grep -q "FirebaseCore" "$MAIN_FILE" || {
-              echo "ERREUR : FirebaseCore absent de main.m"
+
+          # --------------------------------------------------------
+          # Ajout de l'appel dans didFinishLaunchingWithOptions
+          # --------------------------------------------------------
+
+          python3 <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path(os.environ["DELEGATE_M"])
+          text = path.read_text()
+
+          CALL = "[self fcvvConfigureFirebaseAndNotifications];"
+
+          if CALL in text:
+              print("✓ Appel Firebase déjà présent")
+              raise SystemExit(0)
+
+          # Signature Objective-C standard, tolérante aux espaces
+          pattern = re.compile(
+              r'(-\s*\(BOOL\)\s*application\s*:\s*'
+              r'\(UIApplication\s*\*\)\s*application\s*'
+              r'didFinishLaunchingWithOptions\s*:\s*'
+              r'\(NSDictionary\s*\*\)\s*launchOptions\s*\{)',
+              re.MULTILINE
+          )
+
+          match = pattern.search(text)
+
+          if not match:
+              raise RuntimeError(
+                  "didFinishLaunchingWithOptions existe mais "
+                  "sa signature n'a pas pu être analysée automatiquement"
+              )
+
+          insertion = (
+              match.group(1)
+              + "\n"
+              + "    " + CALL + "\n"
+          )
+
+          text = (
+              text[:match.start()]
+              + insertion
+              + text[match.end():]
+          )
+
+          path.write_text(text)
+
+          print("✓ Appel Firebase ajouté à didFinishLaunchingWithOptions")
+          PY
+
+          # --------------------------------------------------------
+          # Recherche GoogleService-Info.plist
+          # --------------------------------------------------------
+
+          GOOGLE_PLIST="$(find . -name "GoogleService-Info.plist" -print -quit)"
+
+          if [ -z "$GOOGLE_PLIST" ]; then
+            echo ""
+            echo "❌ GoogleService-Info.plist introuvable"
+            echo "   Firebase ne peut pas être considéré comme configuré."
+            exit 1
+          fi
+
+          echo "✓ GoogleService-Info.plist : $GOOGLE_PLIST"
+
+          export GOOGLE_PLIST
+
+          # --------------------------------------------------------
+          # Ajout GoogleService-Info.plist au target Xcode
+          # --------------------------------------------------------
+
+          ruby <<'RUBY'
+          require 'xcodeproj'
+
+          project_path = ENV['XCODEPROJ']
+          project_dir = ENV['PROJECT_DIR']
+          target_name = ENV['TARGET_NAME']
+          plist_path = ENV['GOOGLE_PLIST']
+
+          project = Xcodeproj::Project.open(project_path)
+
+          target = project.targets.find do |t|
+            t.name == target_name
+          end
+
+          unless target
+            puts "❌ Target '#{target_name}' introuvable"
+            puts "Targets disponibles :"
+            project.targets.each do |t|
+              puts "  - #{t.name}"
+            end
+            exit 1
+          end
+
+          # --------------------------------------------------------
+          # GoogleService-Info.plist
+          # --------------------------------------------------------
+
+          relative_plist = Pathname.new(plist_path)
+            .relative_path_from(Pathname.new(project_dir))
+            .to_s
+
+          file_ref = project.files.find do |f|
+            f.path == relative_plist ||
+            f.path == File.basename(plist_path)
+          end
+
+          unless file_ref
+            file_ref = project.main_group.new_file(plist_path)
+            puts "✓ GoogleService-Info.plist ajouté au projet"
+          else
+            puts "✓ GoogleService-Info.plist déjà dans le projet"
+          end
+
+          resources_phase = target.resources_build_phase
+
+          unless resources_phase.files.any? do |build_file|
+            build_file.file_ref == file_ref
+          end
+            resources_phase.add_file_reference(file_ref)
+            puts "✓ GoogleService-Info.plist ajouté aux ressources"
+          else
+            puts "✓ GoogleService-Info.plist déjà dans les ressources"
+          end
+
+          project.save
+
+          puts "✓ Projet Xcode sauvegardé"
+          RUBY
+
+          # --------------------------------------------------------
+          # Vérifications finales
+          # --------------------------------------------------------
+
+          echo ""
+          echo "============================================================"
+          echo "  VÉRIFICATIONS ÉTAPE 9"
+          echo "============================================================"
+
+          check() {
+            local pattern="$1"
+            local file="$2"
+            local label="$3"
+
+            if grep -q "$pattern" "$file"; then
+              echo "✓ $label"
+            else
+              echo "❌ $label"
               exit 1
+            fi
           }
-          grep -q "FirebaseMessaging" "$MAIN_FILE" || {
-              echo "ERREUR : FirebaseMessaging absent de main.m"
-              exit 1
-          }
-          grep -q "FirebaseMessaging" "$APPDELEGATE_FILE" || {
-              echo "ERREUR : FirebaseMessaging absent du delegate"
-              exit 1
-          }
-          grep -q "FCVVSubscribeToValidatedCategory" "$APPDELEGATE_FILE" || {
-              echo "ERREUR : gestion validation FCM absente du delegate"
-              exit 1
-          }
-          grep -q "notif_type" "$APPDELEGATE_FILE" || {
-              echo "ERREUR : notif_type absent du delegate"
-              exit 1
-          }
-          grep -q "categorie" "$APPDELEGATE_FILE" || {
-              echo "ERREUR : categorie absente du delegate"
-              exit 1
-          }
-          grep -q "subscribeToTopic" "$APPDELEGATE_FILE" || {
-              echo "ERREUR : subscribeToTopic absent du delegate"
-              exit 1
-          }
-          grep -q "UNUserNotificationCenterDelegate" "$HEADER_FILE" || {
-              echo "ERREUR : UNUserNotificationCenterDelegate absent du header"
-              exit 1
-          }
-          echo "===== SDLUIKitDelegate ====="
-          grep -n "SDLUIKitDelegate" "$HEADER_FILE" || true
-          grep -n "UNUserNotificationCenterDelegate" "$HEADER_FILE" || true
-          echo "===== FCM VALIDATION ====="
-          grep -n "FCVVSubscribeToValidatedCategory" "$APPDELEGATE_FILE" || true
-          grep -n "subscribeToTopic" "$APPDELEGATE_FILE" || true
-          grep -n "notif_type" "$APPDELEGATE_FILE" || true
-          grep -n "categorie" "$APPDELEGATE_FILE" || true
-          echo "===== Firebase / APNs injection OK ====="
+
+          check "FirebaseMessaging" \
+                "$DELEGATE_M" \
+                "FirebaseMessaging"
+
+          check "FirebaseCore" \
+                "$DELEGATE_M" \
+                "FirebaseCore"
+
+          check "UNUserNotificationCenterDelegate" \
+                "$DELEGATE_H" \
+                "UNUserNotificationCenterDelegate"
+
+          check "FIRMessagingDelegate" \
+                "$DELEGATE_H" \
+                "FIRMessagingDelegate"
+
+          check "didReceiveRegistrationToken" \
+                "$DELEGATE_M" \
+                "Callback token FCM"
+
+          check "didRegisterForRemoteNotificationsWithDeviceToken" \
+                "$DELEGATE_M" \
+                "Callback token APNs"
+
+          check "setAPNSToken" \
+                "$DELEGATE_M" \
+                "Association APNs -> FCM"
+
+          check "didFailToRegisterForRemoteNotificationsWithError" \
+                "$DELEGATE_M" \
+                "Callback erreur APNs"
+
+          check "UNUserNotificationCenter" \
+                "$DELEGATE_M" \
+                "UNUserNotificationCenter"
+
+          check "subscribeToTopic" \
+                "$DELEGATE_M" \
+                "subscribeToTopic"
+
+          check "notif_type" \
+                "$DELEGATE_M" \
+                "notif_type"
+
+          check "categorie" \
+                "$DELEGATE_M" \
+                "categorie"
+
+          check "fcvvConfigureFirebaseAndNotifications" \
+                "$DELEGATE_M" \
+                "Configuration FCVV"
+
+          echo ""
+          echo "✓ Étape 9 terminée sans erreur"
+      
+      
       # ============================================================
-      # 10. CONFIGURE ENTITLEMENTS
+      # 10. APNs ENTITLEMENTS + CODE SIGNING
       # ============================================================
-      - name: Configure Xcode Entitlements for Push
+      - name: Configure APNs entitlements
         shell: bash
+        env:
+          TARGET_NAME: fcvv
+          APNS_ENVIRONMENT: production
         run: |
           set -euo pipefail
-          echo "===== Recherche du projet Xcode ====="
-          PROJECT_FILE=$(
-            find "$GITHUB_WORKSPACE" \
-              -maxdepth 3 \
-              -name "*.xcodeproj" \
-              -type d \
-              -print \
-              -quit
-          )
-          if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : .xcodeproj introuvable."
-            find "$GITHUB_WORKSPACE" -name "*.xcodeproj" -print
+
+          echo "============================================================"
+          echo "  CONFIGURATION APNs ENTITLEMENTS"
+          echo "============================================================"
+
+          # --------------------------------------------------------
+          # Recherche du projet Xcode
+          # --------------------------------------------------------
+
+          XCODEPROJ="$(find . -name "*.xcodeproj" -print -quit)"
+
+          if [ -z "$XCODEPROJ" ]; then
+            echo "❌ Aucun .xcodeproj trouvé"
             exit 1
           fi
-          # PROJECT_FILE est maintenant un chemin ABSOLU.
-          PROJ_DIR="$(dirname "$PROJECT_FILE")"
-          PROJ_NAME="$(basename "$PROJECT_FILE")"
-          echo "PROJECT_FILE=$PROJECT_FILE"
-          echo "PROJ_DIR=$PROJ_DIR"
-          echo "PROJ_NAME=$PROJ_NAME"
-          if [ ! -d "$PROJECT_FILE" ]; then
-            echo "ERREUR : projet Xcode inexistant : $PROJECT_FILE"
+
+          PROJECT_DIR="$(dirname "$XCODEPROJ")"
+          ENTITLEMENTS="$PROJECT_DIR/fcvv.entitlements"
+
+          echo "✓ Projet Xcode : $XCODEPROJ"
+          echo "✓ Entitlements : $ENTITLEMENTS"
+          echo "✓ APNs         : $APNS_ENVIRONMENT"
+
+          export XCODEPROJ PROJECT_DIR ENTITLEMENTS
+          export TARGET_NAME APNS_ENVIRONMENT
+
+          # --------------------------------------------------------
+          # Validation de la valeur APNs
+          # --------------------------------------------------------
+
+          if [ "$APNS_ENVIRONMENT" != "production" ] &&
+             [ "$APNS_ENVIRONMENT" != "development" ]; then
+
+            echo "❌ APNS_ENVIRONMENT invalide : $APNS_ENVIRONMENT"
+            echo "   Valeurs autorisées : production ou development"
             exit 1
           fi
-          ENTITLEMENTS_PATH="$PROJ_DIR/fcvv.entitlements"
+
           # --------------------------------------------------------
-          # Création des entitlements
+          # Création sécurisée des entitlements
           # --------------------------------------------------------
-          cat > "$ENTITLEMENTS_PATH" <<'EOF'
+
+          cat > "$ENTITLEMENTS" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+              "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>aps-environment</key>
-              <string>production</string>
+              <string>${APNS_ENVIRONMENT}</string>
           </dict>
           </plist>
           EOF
-          echo "===== ENTITLEMENTS ====="
-          cat "$ENTITLEMENTS_PATH"
-          plutil -lint "$ENTITLEMENTS_PATH"
+
+          echo "✓ fcvv.entitlements créé"
+
           # --------------------------------------------------------
-          # Intégration dans Xcode
+          # Modification Xcode via xcodeproj
           # --------------------------------------------------------
-          ruby - "$PROJECT_FILE" "$ENTITLEMENTS_PATH" <<'RUBY'
+
+          ruby <<'RUBY'
           require 'xcodeproj'
-          project_path = ARGV[0]
-          entitlements_path = ARGV[1]
+
+          project_path = ENV['XCODEPROJ']
+          project_dir = ENV['PROJECT_DIR']
+          entitlements_path = ENV['ENTITLEMENTS']
+          target_name = ENV['TARGET_NAME']
+
           project = Xcodeproj::Project.open(project_path)
+
+          # --------------------------------------------------------
+          # Target
+          # --------------------------------------------------------
+
           target = project.targets.find do |t|
-            t.name == 'fcvv'
+            t.name == target_name
           end
-          raise 'Target fcvv introuvable' unless target
-          puts "Target trouvé : #{target.name}"
+
+          unless target
+            puts "❌ Target '#{target_name}' introuvable"
+            puts ""
+            puts "Targets disponibles :"
+
+            project.targets.each do |t|
+              puts "  - #{t.name}"
+            end
+
+            exit 1
+          end
+
+          puts "✓ Target trouvé : #{target.name}"
+
+          # --------------------------------------------------------
+          # Référence du fichier entitlements
+          # --------------------------------------------------------
+
           relative_entitlements =
-            File.basename(entitlements_path)
-          file =
-            project.main_group.find_file_by_path(relative_entitlements)
-          unless file
-            file =
-              project.main_group.new_file(relative_entitlements)
+            Pathname.new(entitlements_path)
+              .relative_path_from(Pathname.new(project_dir))
+              .to_s
+
+          file_ref = project.files.find do |f|
+            f.path == relative_entitlements ||
+            f.path == File.basename(entitlements_path)
           end
+
+          unless file_ref
+            file_ref = project.main_group.new_file(
+              entitlements_path
+            )
+
+            puts "✓ fcvv.entitlements ajouté au projet"
+          else
+            puts "✓ fcvv.entitlements déjà présent"
+          end
+
+          # --------------------------------------------------------
+          # CODE_SIGN_ENTITLEMENTS
+          # --------------------------------------------------------
+
           target.build_configurations.each do |config|
-            config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
-              relative_entitlements
-            config.build_settings['CODE_SIGNING_ALLOWED'] =
-              'YES'
-            puts "Entitlements configurés pour #{config.name}"
+
+            config.build_settings[
+              "CODE_SIGN_ENTITLEMENTS"
+            ] = "fcvv.entitlements"
+
+            config.build_settings[
+              "CODE_SIGNING_ALLOWED"
+            ] = "YES"
+
+            puts "✓ #{config.name}"
+            puts "    CODE_SIGN_ENTITLEMENTS = fcvv.entitlements"
+            puts "    CODE_SIGNING_ALLOWED   = YES"
           end
+
           project.save
+
+          puts "✓ Projet Xcode sauvegardé"
           RUBY
-          echo "Entitlements configurés avec succès."
+
+          # --------------------------------------------------------
+          # Vérification plist
+          # --------------------------------------------------------
+
+          echo ""
+          echo "============================================================"
+          echo "  VÉRIFICATION ENTITLEMENTS"
+          echo "============================================================"
+
+          if [ ! -f "$ENTITLEMENTS" ]; then
+            echo "❌ Entitlements non créé"
+            exit 1
+          fi
+
+          if ! /usr/libexec/PlistBuddy \
+              -c "Print :aps-environment" \
+              "$ENTITLEMENTS" >/dev/null 2>&1; then
+
+            echo "❌ aps-environment absent"
+            exit 1
+          fi
+
+          CURRENT_APNS=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :aps-environment" \
+              "$ENTITLEMENTS"
+          )
+
+          if [ "$CURRENT_APNS" != "$APNS_ENVIRONMENT" ]; then
+            echo "❌ Mauvais environnement APNs"
+            echo "   Attendu : $APNS_ENVIRONMENT"
+            echo "   Trouvé  : $CURRENT_APNS"
+            exit 1
+          fi
+
+          echo "✓ aps-environment = $CURRENT_APNS"
+
+          # --------------------------------------------------------
+          # Vérification Xcode
+          # --------------------------------------------------------
+
+          echo ""
+          echo "============================================================"
+          echo "  VÉRIFICATION CODE SIGNING"
+          echo "============================================================"
+
+          BUILD_SETTINGS="$(
+            xcodebuild \
+              -project "$XCODEPROJ" \
+              -target "$TARGET_NAME" \
+              -showBuildSettings \
+              2>/dev/null
+          )"
+
+          if ! echo "$BUILD_SETTINGS" |
+              grep -q "CODE_SIGN_ENTITLEMENTS = fcvv.entitlements"; then
+
+            echo "❌ CODE_SIGN_ENTITLEMENTS incorrect"
+            echo "$BUILD_SETTINGS" |
+              grep "CODE_SIGN_ENTITLEMENTS" || true
+            exit 1
+          fi
+
+          echo "✓ CODE_SIGN_ENTITLEMENTS = fcvv.entitlements"
+
+          # --------------------------------------------------------
+          # Vérification de la présence de Push Notifications dans
+          # le fichier entitlements
+          # --------------------------------------------------------
+
+          echo ""
+          echo "============================================================"
+          echo "  CONFIGURATION APNs TERMINÉE"
+          echo "============================================================"
+
+          echo "✓ Target       : $TARGET_NAME"
+          echo "✓ Entitlements : fcvv.entitlements"
+          echo "✓ APNs         : $APNS_ENVIRONMENT"
+          echo "✓ Signing      : activé"
+      
+      
       # ============================================================
       # 11. CONFIGURE PODS + INFO.PLIST
       # ============================================================

@@ -684,6 +684,29 @@ def customize_android_bars():
             
     _set_bars_colors()
 #===============================================================================
+def customize_ios_status_bar():
+    if platform != "ios":
+        return
+
+    try:
+        from pyobjus import autoclass
+
+        UIApplication = autoclass("UIApplication")
+        app = UIApplication.sharedApplication()
+
+        # Demande à iOS de ne PAS cacher la Status Bar
+        app.setStatusBarHidden_(False)
+
+        # Style des éléments de la Status Bar
+        # UIStatusBarStyleDarkContent = 3
+        # => texte/icônes noirs, idéal sur ton jaune
+        app.setStatusBarStyle_(3)
+
+        print("[iOS] Status Bar activee")
+
+    except Exception as e:
+        print(f"[iOS STATUS BAR] Erreur : {e}")
+#===============================================================================
 
 class MyApp(App):
     name = "fcvv" 
@@ -723,9 +746,13 @@ class MyApp(App):
             return 0
 
     def build(self):
-        """Initialise l'interface avec la Safe Area."""
-        safe_top = self.get_ios_safe_area_top()
-        print(f"[SAFE AREA] Valeur initiale = {safe_top}")
+        if platform == "ios":
+            safe_top = Window.safe_area.get("top", 0)
+        else:
+            safe_top = 0
+    
+        print(f"[SAFE AREA] top = {safe_top}")
+    
         return RootLayout(safe_area_top=safe_top)
     
     def clean_key(self, text):
@@ -1021,6 +1048,10 @@ class MyApp(App):
 
         if platform == "android" and "customize_android_bars" in globals():
             Clock.schedule_once(lambda dt: customize_android_bars(), 1)
+        
+        if platform == "ios":
+            Clock.schedule_once(lambda dt: customize_ios_status_bar(), 0.5)
+        
         try:
             os.makedirs(self.cache_images_dir, exist_ok=True)
         except Exception:

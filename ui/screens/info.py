@@ -20,37 +20,33 @@ def _(key):
     return key
 
 
-# On importe plyer conditionnellement ou directement
-try:
-    from plyer import url as plyer_url
-except ImportError:
-    plyer_url = None
-
 # --- CLASSE ICONBUTTON SANS FOND (TRANSPARENTE) ---
 class IconButton(ButtonBehavior, Image):
-    """Bouton image simple sans fond."""
-    def __init__(self, url_target, source, **kwargs):
+
+    def __init__(self, url, source, **kwargs):
         super().__init__(**kwargs)
         self.source = source
-        self.target_url = url_target
-    
+        self.target_url = url
+
     def on_release(self):
-        if self.target_url:
-            try:
-                if platform == 'ios':
-                    # Utilisation stricte de plyer pour iOS
-                    if plyer_url:
-                        plyer_url.open(self.target_url)
-                    else:
-                        print("Plyer n'est pas disponible pour iOS")
-                elif platform == 'android':
-                    # Votre code actuel pour Android (ou webbrowser / autre)
-                    webbrowser.open(self.target_url)  # ou ce que vous utilisiez
-                else:
-                    # Pour le développement sur PC / Mac
-                    webbrowser.open(self.target_url)
-            except Exception as e:
-                print(f"Erreur lors de l'ouverture du lien : {e}")
+        if not self.target_url:
+            return
+
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+
+                nsurl = NSURL.URLWithString_(self.target_url)
+                UIApplication.sharedApplication().openURL_(nsurl)
+
+            else:
+                webbrowser.open(self.target_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
 
 # --- CLASSE PRINCIPALE INFO ---
 class InfoScreen(Screen):
@@ -149,16 +145,3 @@ class InfoScreen(Screen):
         l.bind(width=lambda inst, width_val: setattr(inst, 'text_size', (width_val, None)))
         l.bind(texture_size=lambda inst, size_val: setattr(inst, 'height', size_val[1] + dp(10)))
         return l
-
-    def _create_link_button(self, text, url, size):
-        return LinkButton(
-            url=url,
-            text=text,
-            size_hint_y=None, 
-            height=dp(60),
-            background_normal='',
-            background_color=self.LIGHT_GRAY,
-            color=self.TEXT_BLACK,
-            bold=True,
-            font_size=f"{size+1}sp"
-        )
