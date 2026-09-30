@@ -291,24 +291,66 @@ jobs:
           # --------------------------------------------------------
           # Recherche des fichiers SDL
           # --------------------------------------------------------
-
-          DELEGATE_M="$(find "$PROJECT_DIR" -name "SDL_uikitappdelegate.m" -print -quit)"
-          DELEGATE_H="$(find "$PROJECT_DIR" -name "SDL_uikitappdelegate.h" -print -quit)"
-
+          
+          echo "→ Recherche de SDL_uikitappdelegate.m..."
+          
+          DELEGATE_M="$(
+            find . \
+              -type f \
+              -name "SDL_uikitappdelegate.m" \
+              -print \
+              -quit
+          )"
+          
+          DELEGATE_H="$(
+            find . \
+              -type f \
+              -name "SDL_uikitappdelegate.h" \
+              -print \
+              -quit
+          )"
+          
           if [ -z "$DELEGATE_M" ]; then
+            echo ""
             echo "❌ SDL_uikitappdelegate.m introuvable"
+            echo ""
+            echo "Fichiers SDL/UIKit trouvés :"
+            find . \
+              -type f \
+              \( \
+                -name "*uikit*delegate*" \
+                -o \
+                -name "*SDL*delegate*" \
+              \) \
+              -print \
+              | head -50
+          
+            echo ""
+            echo "Arborescence des fichiers Objective-C :"
+            find . \
+              -type f \
+              \( -name "*.m" -o -name "*.h" \) \
+              -print \
+              | grep -Ei 'SDL|UIKit|delegate' \
+              | head -100 || true
+          
             exit 1
           fi
-
+          
           if [ -z "$DELEGATE_H" ]; then
+            echo ""
             echo "❌ SDL_uikitappdelegate.h introuvable"
             exit 1
           fi
-
+          
           echo "✓ Delegate Objective-C : $DELEGATE_M"
           echo "✓ Header Objective-C   : $DELEGATE_H"
-
-          export XCODEPROJ PROJECT_DIR DELEGATE_M DELEGATE_H TARGET_NAME
+          
+          export XCODEPROJ
+          export PROJECT_DIR
+          export DELEGATE_M
+          export DELEGATE_H
+          export TARGET_NAME
 
           # --------------------------------------------------------
           # Sauvegarde avant modification
@@ -398,8 +440,12 @@ jobs:
               raise SystemExit(0)
 
           pattern = re.compile(
-              r'(@interface\s+SDLUIKitDelegate\s*:\s*NSObject)'
-              r'(\s*(?:<[^>]*>)?)',
+              r'(-\s*\(BOOL\)\s*application\s*:\s*'
+              r'\(UIApplication\s*\*\)\s*application'
+              r'[\s\S]{0,500}?'
+              r'didFinishLaunchingWithOptions\s*:\s*'
+              r'\(NSDictionary\s*\*\)\s*launchOptions'
+              r'\s*\{)',
               re.MULTILINE
           )
 
@@ -769,16 +815,21 @@ jobs:
           # appartenant à une autre structure.
           # ----------------------------------------------------------
 
+          # ----------------------------------------------------------
+          # Trouver le @end correspondant à l'implementation
+          # ----------------------------------------------------------
+          
           end_match = re.search(
-              r'\n@end\b',
-              text[impl_start:]
+              r'\n@end\s*$',
+              text[impl_start:],
+              re.MULTILINE
           )
-
+          
           if not end_match:
               raise RuntimeError(
                   "@end de SDLUIKitDelegate introuvable"
               )
-
+          
           end_pos = impl_start + end_match.start()
 
           text = text[:end_pos] + block + text[end_pos:]
