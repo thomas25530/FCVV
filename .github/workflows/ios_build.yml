@@ -14,6 +14,7 @@ jobs:
       APP_BUNDLE_ID: "org.fcvv.fcvv"
       APP_VERSION: "1.1.0"
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      PURE_PYTHON: "1"
 
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
 
@@ -108,7 +109,7 @@ jobs:
           rm -rf build
           rm -rf dist
           toolchain build python3 kivy openssl pillow pyyaml
-          toolchain pip install pyyaml requests urllib3 fpdf2
+          toolchain pip install pyyaml requests urllib3 fpdf2 fonttools
             
       # ============================================================
       # 6. DIAGNOSTIC NATIVE MODULES
@@ -129,8 +130,6 @@ jobs:
             -type f \
             -name "*.dylib" \
             -print | sort
-
-          #exit 1
 
       # ============================================================
       # 6. PREPARE IOS SOURCES
