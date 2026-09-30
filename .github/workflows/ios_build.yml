@@ -109,7 +109,7 @@ jobs:
           rm -rf build
           rm -rf dist
           toolchain build python3 kivy openssl pillow pyyaml
-          toolchain pip install pyyaml requests urllib3 fpdf2 fonttools
+          toolchain pip install requests urllib3 fpdf2 fonttools
 
       # ============================================================
       # 6. PREPARE IOS SOURCES
