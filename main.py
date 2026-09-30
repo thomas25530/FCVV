@@ -273,6 +273,11 @@ class RootLayout(FloatLayout):
     def __init__(self, safe_area_top=0, **kwargs):
         super().__init__(**kwargs)
         self.safe_area_top = safe_area_top
+        self.menu_open = False
+        if is_mobile:
+            self.menu_width = int(Window.width * 0.75)
+        else:
+            self.menu_width = 260
         self.main_ui = BoxLayout(orientation="vertical",size_hint=(1, 1))
         if is_mobile:
             if platform == "ios":
