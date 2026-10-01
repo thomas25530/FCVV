@@ -14,8 +14,9 @@ from kivy.utils import platform
 
 class StageCard(BoxLayout):
     """Carte d'information pour les stages, basée sur le layout NewsCard."""
-    def __init__(self, stage_data, **kwargs):
+    def __init__(self, stage_data, screen_ref, **kwargs):
         super().__init__(orientation="vertical", size_hint_y=None, spacing=dp(12), padding=dp(15), **kwargs)
+        self.screen_ref = screen_ref  # Référence vers DiversScreen pour l'ouverture sécurisée
         
         # Récupération des préférences utilisateur
         app = App.get_running_app()
@@ -78,7 +79,7 @@ class StageCard(BoxLayout):
         btn_form = Button(text="S'INSCRIRE", bold=True, size_hint_x=0.6, background_normal='', 
                           background_color=(34/255, 197/255, 94/255, 1))
         btn_form.target_url = stage_data.get('form_url', '')
-        btn_form.bind(on_release=lambda x: webbrowser.open(x.target_url) if x.target_url else None)
+        btn_form.bind(on_release=lambda x: self.screen_ref.open_url(x.target_url) if x.target_url else None)
         btn_box.add_widget(btn_form)
 
         # Bouton Planning PDF
@@ -86,7 +87,8 @@ class StageCard(BoxLayout):
         if planning_url:
             btn_pdf = Button(text="PLANNING", bold=True, size_hint_x=0.4, 
                              background_normal='', background_color=(0.5, 0.5, 0.5, 1))
-            btn_pdf.bind(on_release=lambda x: webbrowser.open(planning_url))
+            btn_pdf.target_url = planning_url
+            btn_pdf.bind(on_release=lambda x: self.screen_ref.open_url(x.target_url))
             btn_box.add_widget(btn_pdf)
 
         self.add_widget(btn_box)
@@ -132,6 +134,29 @@ class DiversScreen(Screen):
 
     def on_enter(self):
         self.update_ui_from_config()
+
+    def open_url(self, url):
+        # Utilisation de Clock.schedule_once pour garantir l'exécution sur le main thread sous iOS
+        Clock.schedule_once(lambda dt: self._open_url(url))
+
+    def _open_url(self, target_url):
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                
+                nsurl = NSURL.URLWithString_(target_url)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne recommandée pour iOS
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
+            else:
+                webbrowser.open(target_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
 
     def _on_tab_released(self, instance):
         self.current_tab = instance.target_tab
@@ -196,7 +221,8 @@ class DiversScreen(Screen):
                 ))
             else:
                 for s in stages:
-                    self.content_layout.add_widget(StageCard(stage_data=s))
+                    # Passage de 'self' (DiversScreen) pour l'ouverture sécurisée
+                    self.content_layout.add_widget(StageCard(stage_data=s, screen_ref=self))
         else: # Onglet Documents
             docs = divers_data.get("documents", [])
             
@@ -218,7 +244,7 @@ class DiversScreen(Screen):
                         color=(0, 0, 0, 1)
                     )
                     btn.target_url = url
-                    btn.bind(on_release=lambda instance: webbrowser.open(instance.target_url))
+                    btn.bind(on_release=lambda instance: self.open_url(instance.target_url))
                     self.content_layout.add_widget(btn)
             
             # Si aucun document ou aucun document valide
