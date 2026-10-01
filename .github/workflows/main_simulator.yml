@@ -921,6 +921,81 @@ jobs:
           /usr/libexec/PlistBuddy \
             -c "Print :UIViewControllerBasedStatusBarAppearance" \
             "$PLIST_FILE"
+
+
+          # ========================================================
+          # 1B. FORCE KIVY WINDOWED MODE
+          # ========================================================
+          echo "===== FORCE IOS_IS_WINDOWED=True dans main.m ====="
+
+          MAIN_M_FILE=$(
+            find "$PROJ_DIR" \
+              -name "main.m" \
+              -type f \
+              -print \
+              -quit
+          )
+
+          if [ -z "$MAIN_M_FILE" ]; then
+            echo "ERREUR : main.m introuvable."
+            find "$PROJ_DIR" \
+              -name "*.m" \
+              -type f \
+              -print
+            exit 1
+          fi
+
+          echo "main.m trouvé : $MAIN_M_FILE"
+
+          # Remplace toute valeur existante par True
+          python3 - "$MAIN_M_FILE" <<'PY'
+          import sys
+          import re
+          
+          path = sys.argv[1]
+          
+          with open(path, "r", encoding="utf-8") as f:
+              content = f.read()
+          
+          pattern = r'putenv\(\s*"IOS_IS_WINDOWED\s*=\s*(?:True|False)"\s*\);'
+          
+          replacement = 'putenv("IOS_IS_WINDOWED=True");'
+          
+          content_new, count = re.subn(pattern, replacement, content)
+          
+          if count == 0:
+              # Si la ligne n'existe pas, on l'insère après l'import UIKit
+              marker = '#import <UIKit/UIKit.h>'
+          
+              if marker not in content_new:
+                  raise SystemExit(
+                      "ERREUR : impossible de trouver '#import <UIKit/UIKit.h>' dans main.m"
+                  )
+          
+              content_new = content_new.replace(
+                  marker,
+                  marker + '\n\n// Force Kivy/SDL to keep the iOS status bar visible\n'
+                           'putenv("IOS_IS_WINDOWED=True");',
+                  1
+              )
+          
+              print("Ligne IOS_IS_WINDOWED ajoutée.")
+          else:
+              print(f"{count} ligne(s) IOS_IS_WINDOWED corrigée(s).")
+          
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content_new)
+          PY
+
+          echo "===== VERIFICATION main.m ====="
+          grep -n -C 3 "IOS_IS_WINDOWED" "$MAIN_M_FILE"
+
+          if ! grep -q 'putenv("IOS_IS_WINDOWED=True");' "$MAIN_M_FILE"; then
+            echo "ERREUR : IOS_IS_WINDOWED=True n'a pas été injecté correctement."
+            exit 1
+          fi
+
+          echo "OK : IOS_IS_WINDOWED=True est forcé."
           
           # ========================================================
           # 2. Version
