@@ -20,6 +20,8 @@ from kivy.animation import Animation
 from kivy.uix.popup import Popup
 from kivy.uix.spinner import SpinnerOption
 from kivy.uix.widget import Widget
+from kivy.clock import Clock
+from kivy.utils import platform
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -137,7 +139,9 @@ class BoutiqueScreen(Screen):
             self.btn_color = Color(253/255, 224/255, 71/255, 1)
             self.btn_rect = RoundedRectangle(pos=self.btn_link.pos, size=self.btn_link.size, radius=[dp(14)])
         self.btn_link.bind(pos=self._update_btn_rect, size=self._update_btn_rect)
-        self.btn_link.bind(on_release=lambda x: webbrowser.open(self.boutique_url))
+        
+        # Sécurisation de l'ouverture d'URL via Clock.schedule_once pour iOS
+        self.btn_link.bind(on_release=lambda x: Clock.schedule_once(lambda dt: self._open_url()))
         self.main_layout.add_widget(self.btn_link)
         
         self.lbl_afficher = Label(text="Afficher :", size_hint_y=None, height=dp(30), halign='left', color=(1, 1, 1, 1))
@@ -161,6 +165,25 @@ class BoutiqueScreen(Screen):
         self.scroll.add_widget(self.products_container)
         self.main_layout.add_widget(self.scroll)
         self.add_widget(self.main_layout)
+
+    def _open_url(self):
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                
+                nsurl = NSURL.URLWithString_(self.boutique_url)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne pour iOS
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
+            else:
+                webbrowser.open(self.boutique_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
 
     def on_enter(self, *args):
         app = App.get_running_app()
