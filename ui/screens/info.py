@@ -39,18 +39,14 @@ class IconButton(ButtonBehavior, Image):
             if platform == "ios":
                 from pyobjus import autoclass
 
-                # Utilisation correcte avec passage par le thread principal d'UIKit
                 UIApplication = autoclass("UIApplication")
                 NSURL = autoclass("NSURL")
                 
                 nsurl = NSURL.URLWithString_(self.target_url)
                 app_instance = UIApplication.sharedApplication()
                 
-                # Méthode moderne recommandée pour iOS 10+
-                if app_instance.respondsToSelector_(autoclass("NSString").stringWithString_("openURL:options:completionHandler:")):
-                    app_instance.openURL_options_completionHandler_(nsurl, None, None)
-                else:
-                    app_instance.openURL_(nsurl)
+                # Appel direct de la méthode moderne recommandée
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
 
             else:
                 webbrowser.open(self.target_url)
