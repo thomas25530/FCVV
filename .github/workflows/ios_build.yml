@@ -427,69 +427,126 @@ jobs:
           import os
           import re
           from pathlib import Path
-
+          
           path = Path(os.environ["DELEGATE_H"])
           text = path.read_text()
-
-          # Déjà présent : rien à faire
-          if (
-              "UNUserNotificationCenterDelegate" in text
-              and "FIRMessagingDelegate" in text
-          ):
+          
+          # ----------------------------------------------------------
+          # Vérification préalable
+          # ----------------------------------------------------------
+          
+          if "UNUserNotificationCenterDelegate" in text:
+              has_un = True
+          else:
+              has_un = False
+          
+          if "FIRMessagingDelegate" in text:
+              has_fcm = True
+          else:
+              has_fcm = False
+          
+          if has_un and has_fcm:
               print("✓ Delegates déjà déclarés")
               raise SystemExit(0)
-
+          
+          # ----------------------------------------------------------
+          # Recherche souple de @interface SDLUIKitDelegate
+          #
+          # On ne suppose PAS que la classe hérite directement de
+          # NSObject ni que tout soit sur une seule ligne.
+          # ----------------------------------------------------------
+          
           pattern = re.compile(
-              r'(-\s*\(BOOL\)\s*application\s*:\s*'
-              r'\(UIApplication\s*\*\)\s*application'
-              r'[\s\S]{0,500}?'
-              r'didFinishLaunchingWithOptions\s*:\s*'
-              r'\(NSDictionary\s*\*\)\s*launchOptions'
-              r'\s*\{)',
+              r'(@interface\s+SDLUIKitDelegate\b[^\n]*)(\n)',
               re.MULTILINE
           )
-
+          
           match = pattern.search(text)
-
+          
           if not match:
+              print("")
+              print("❌ Impossible de localiser @interface SDLUIKitDelegate")
+              print("")
+              print("Déclarations @interface trouvées dans le header :")
+          
+              for line in text.splitlines():
+                  if "@interface" in line:
+                      print("  " + line)
+          
               raise RuntimeError(
                   "Impossible de localiser @interface SDLUIKitDelegate"
               )
-
-          existing_protocols = match.group(2) or ""
-
-          protocols = []
-
-          if "UNUserNotificationCenterDelegate" not in existing_protocols:
-              protocols.append("UNUserNotificationCenterDelegate")
-
-          if "FIRMessagingDelegate" not in existing_protocols:
-              protocols.append("FIRMessagingDelegate")
-
-          if existing_protocols.strip():
-              inside = existing_protocols.strip()[1:-1].strip()
-              all_protocols = [p.strip() for p in inside.split(",") if p.strip()]
-              all_protocols.extend(protocols)
+          
+          interface_line = match.group(1)
+          
+          # ----------------------------------------------------------
+          # Ajouter les protocoles sans casser ceux déjà présents
+          # ----------------------------------------------------------
+          
+          protocols_to_add = []
+          
+          if not has_un:
+              protocols_to_add.append("UNUserNotificationCenterDelegate")
+          
+          if not has_fcm:
+              protocols_to_add.append("FIRMessagingDelegate")
+          
+          # ----------------------------------------------------------
+          # Si une liste <...> existe déjà, on l'étend.
+          # Sinon on en crée une.
+          # ----------------------------------------------------------
+          
+          protocol_match = re.search(
+              r'<([^>]*)>',
+              interface_line
+          )
+          
+          if protocol_match:
+              existing = [
+                  p.strip()
+                  for p in protocol_match.group(1).split(",")
+                  if p.strip()
+              ]
+          
+              for protocol in protocols_to_add:
+                  if protocol not in existing:
+                      existing.append(protocol)
+          
+              new_protocols = "<" + ", ".join(existing) + ">"
+          
+              new_interface_line = (
+                  interface_line[:protocol_match.start()]
+                  + new_protocols
+                  + interface_line[protocol_match.end():]
+              )
+          
           else:
-              all_protocols = protocols
-
-          replacement = (
-              match.group(1)
-              + " <"
-              + ", ".join(dict.fromkeys(all_protocols))
-              + ">"
-          )
-
+              new_interface_line = (
+                  interface_line
+                  + " <"
+                  + ", ".join(protocols_to_add)
+                  + ">"
+              )
+          
+          # ----------------------------------------------------------
+          # Remplacement uniquement de la ligne @interface
+          # ----------------------------------------------------------
+          
           text = (
-              text[:match.start()]
-              + replacement
-              + text[match.end():]
+              text[:match.start(1)]
+              + new_interface_line
+              + text[match.end(1):]
           )
-
+          
           path.write_text(text)
-
-          print("✓ UNUserNotificationCenterDelegate déclaré")
-          print("✓ FIRMessagingDelegate déclaré")
+          
+          print("✓ Déclaration SDLUIKitDelegate trouvée")
+          
+          if "UNUserNotificationCenterDelegate" in text:
+              print("✓ UNUserNotificationCenterDelegate déclaré")
+          
+          if "FIRMessagingDelegate" in text:
+              print("✓ FIRMessagingDelegate déclaré")
           PY
 
           # --------------------------------------------------------
