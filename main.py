@@ -285,16 +285,12 @@ class RootLayout(FloatLayout):
             else:
                 safe_top = 0
             # Hauteur normale de ta barre.
-            content_height = int(Window.height * 0.09)
             self.top_bar = BoxLayout(
+                orientation="horizontal",
                 size_hint_y=None,
-                height=content_height + safe_top,
-                padding=[
-                    dp(10),
-                    safe_top,
-                    dp(10),
-                    0
-                ]
+                height=dp(56) + safe_top,
+                padding=[dp(10), safe_top, dp(10), 0],
+                spacing=dp(5)
             )
 
         else:
@@ -310,7 +306,7 @@ class RootLayout(FloatLayout):
                 source="assets/icons/menu.png",
                 size_hint=(None, None),
                 size=(int(Window.height * 0.045), int(Window.height * 0.045)),
-                pos_hint={'center_y': 0.42}  # Descendu légèrement en dessous du centre exact (0.5 -> 0.42)
+                pos_hint={'center_y': 0.5} 
             )
         else:
             self.menu_btn = IconButton(
@@ -361,7 +357,7 @@ class RootLayout(FloatLayout):
         # Bouton Reload
         if is_mobile:
             reload_size = int(Window.height * 0.045)
-            reload_pos_y = 0.42  # Descendu au même niveau que le menu
+            reload_pos_y = 0.5  # Descendu au même niveau que le menu
         else:
             reload_size = 40
             reload_pos_y = 0.5
@@ -432,20 +428,29 @@ class RootLayout(FloatLayout):
         self.menu_built = False
         #self.build_menu()
         #Clock.schedule_once(lambda dt: self.switch_screen("home"))
-        
+
     def update_ios_safe_area(self, safe_top):
-        """Met à jour la Safe Area iOS (sans effet sur Android)."""
         from kivy.utils import platform
         if platform != "ios":
             return
 
         self.safe_area_top = max(0, safe_top)
+
+        if self.safe_area_top <= 0:
+            self.safe_area_top = dp(44)
+
         if not hasattr(self, "top_bar"):
             return
 
-        content_height = int(Window.height * 0.09)
-        self.top_bar.height = content_height + self.safe_area_top
-        self.top_bar.padding = [dp(10), self.safe_area_top, dp(10), 0]
+        self.top_bar.height = dp(56) + self.safe_area_top
+
+        self.top_bar.padding = [
+            dp(10),
+            self.safe_area_top,
+            dp(10),
+            0
+        ]
+
         self.top_bar.do_layout()
     
     def load_initial_screen(self):
@@ -684,29 +689,6 @@ def customize_android_bars():
             
     _set_bars_colors()
 #===============================================================================
-def customize_ios_status_bar():
-    if platform != "ios":
-        return
-
-    try:
-        from pyobjus import autoclass
-
-        UIApplication = autoclass("UIApplication")
-        app = UIApplication.sharedApplication()
-
-        # Demande à iOS de ne PAS cacher la Status Bar
-        app.setStatusBarHidden_(False)
-
-        # Style des éléments de la Status Bar
-        # UIStatusBarStyleDarkContent = 3
-        # => texte/icônes noirs, idéal sur ton jaune
-        app.setStatusBarStyle_(3)
-
-        print("[iOS] Status Bar activee")
-
-    except Exception as e:
-        print(f"[iOS STATUS BAR] Erreur : {e}")
-#===============================================================================
 
 class MyApp(App):
     name = "fcvv" 
@@ -729,30 +711,29 @@ class MyApp(App):
     def get_application_config(self):
         return os.path.join(self.user_data_dir, 'fcvv.ini')
 
-    def get_ios_safe_area_top(self):
-        """Récupère la hauteur de la Safe Area sur iOS, 0 sinon."""
-        if platform != "ios":
-            return 0
-        try:
-            from pyobjus import autoclass
-            app = autoclass("UIApplication").sharedApplication()
-            window = app.keyWindow or (app.windows and app.windows[0])
-            if not window:
-                print("[iOS SAFE AREA] Fenetre introuvable")
-                return 0
-            return float(window.safeAreaInsets.top)
-        except Exception as e:
-            print(f"[iOS SAFE AREA] Erreur : {e}")
-            return 0
-
     def build(self):
+
         if platform == "ios":
-            safe_top = Window.safe_area.get("top", 0)
+            try:
+                print(f"[SAFE AREA RAW] {Window.safe_area}")
+
+                safe_top = Window.safe_area.get("top", 0)
+
+                if safe_top <= 0:
+                    print("[SAFE AREA] valeur invalide -> fallback 44dp")
+                    safe_top = dp(44)
+
+            except Exception as e:
+                print(f"[SAFE AREA ERROR] {e}")
+                safe_top = dp(44)
+
         else:
             safe_top = 0
-    
-        print(f"[SAFE AREA] top = {safe_top}")
-    
+
+        print(f"[SAFE AREA] top={safe_top}")
+        print("SAFE_AREA =", Window.safe_area)
+        print("WINDOW SIZE =", Window.size)
+
         return RootLayout(safe_area_top=safe_top)
     
     def clean_key(self, text):
@@ -1049,9 +1030,6 @@ class MyApp(App):
         if platform == "android" and "customize_android_bars" in globals():
             Clock.schedule_once(lambda dt: customize_android_bars(), 1)
         
-        if platform == "ios":
-            Clock.schedule_once(lambda dt: customize_ios_status_bar(), 0.5)
-        
         try:
             os.makedirs(self.cache_images_dir, exist_ok=True)
         except Exception:
@@ -1061,16 +1039,23 @@ class MyApp(App):
             Window.softinput_mode = "below_target"
             def update_ios_safe_area(dt):
                 try:
-                    safe_top = self.get_ios_safe_area_top()
-                    print(f"[iOS SAFE AREA] Mise à jour : top = {safe_top}")
+                    safe_top = Window.safe_area.get("top", 0)
+
+                    if safe_top <= 0:
+                        print("[IOS] Safe Area indisponible -> fallback 44dp")
+                        safe_top = dp(44)
+                    print(f"[iOS SAFE AREA] Mise a jour : top = {safe_top}")
                     if hasattr(self, "root") and self.root:
                         if hasattr(self.root,"update_ios_safe_area"):
                             self.root.update_ios_safe_area(safe_top)
                 except Exception as e:
-                    print(f"[iOS SAFE AREA] Mise à jour impossible : {e}")
+                    print(f"[iOS SAFE AREA] Mise a jour impossible : {e}")
     
             # Première récupération
-            Clock.schedule_once(update_ios_safe_area,0.5)
+            Clock.schedule_once(update_ios_safe_area, 0.5)
+            Clock.schedule_once(update_ios_safe_area, 1.0)
+            Clock.schedule_once(update_ios_safe_area, 2.0)
+
         else:
             Window.softinput_mode = "below_target"
         Window.bind(on_keyboard=self.on_back_button)
