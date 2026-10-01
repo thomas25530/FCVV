@@ -45,7 +45,6 @@ class LoadingSpinner(Image):
         if hasattr(self, 'anim'):
             self.anim.stop(self)
 
-
 class PresentationScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -116,10 +115,29 @@ class PresentationScreen(Screen):
         self.update_ui_from_config()
 
     def _on_pdf_released(self, instance):
-        """Callback nommé pour l'ouverture de PDF"""
+        """Callback nommé pour l'ouverture de PDF de manière sécurisée (iOS et autres)"""
         url = instance.target_url
         if url and url.startswith("http"):
-            webbrowser.open(url)
+            Clock.schedule_once(lambda dt: self._open_url(url))
+
+    def _open_url(self, target_url):
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                
+                nsurl = NSURL.URLWithString_(target_url)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne recommandée pour iOS
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
+            else:
+                webbrowser.open(target_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
 
     def update_ui_from_config(self, *args):
         # Annulation d'un ancien clock en cours si cette méthode est appelée manuellement entre-temps
