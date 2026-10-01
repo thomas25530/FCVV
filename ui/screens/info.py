@@ -12,6 +12,7 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.utils import platform
+from kivy.clock import Clock  # Assurez-vous d'importer Clock en haut de votre fichier
 
 def _(key):
     app = App.get_running_app()
@@ -19,8 +20,6 @@ def _(key):
         return app._(key)
     return key
 
-
-# --- CLASSE ICONBUTTON SANS FOND (TRANSPARENTE) ---
 class IconButton(ButtonBehavior, Image):
 
     def __init__(self, url, source, **kwargs):
@@ -32,15 +31,26 @@ class IconButton(ButtonBehavior, Image):
         if not self.target_url:
             return
 
+        # On utilise Clock.schedule_once pour s'exécuter en sécurité (sur le main thread sous iOS)
+        Clock.schedule_once(lambda dt: self._open_url())
+
+    def _open_url(self):
         try:
             if platform == "ios":
                 from pyobjus import autoclass
 
+                # Utilisation correcte avec passage par le thread principal d'UIKit
                 UIApplication = autoclass("UIApplication")
                 NSURL = autoclass("NSURL")
-
+                
                 nsurl = NSURL.URLWithString_(self.target_url)
-                UIApplication.sharedApplication().openURL_(nsurl)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne recommandée pour iOS 10+
+                if app_instance.respondsToSelector_(autoclass("NSString").stringWithString_("openURL:options:completionHandler:")):
+                    app_instance.openURL_options_completionHandler_(nsurl, None, None)
+                else:
+                    app_instance.openURL_(nsurl)
 
             else:
                 webbrowser.open(self.target_url)
