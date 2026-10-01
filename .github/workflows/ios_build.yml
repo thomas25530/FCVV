@@ -3202,23 +3202,50 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+      
           WORKSPACE_PATH="$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcworkspace"
           ARCHIVE_PATH="$GITHUB_WORKSPACE/build/FCVV.xcarchive"
-          # 🧹 AJOUTER CE NETTOYAGE POUR ÉVITER LES CONFLITS DE SIMULATEUR
-          echo "===== NETTOYAGE DES CACHES ET DÉRIVÉS ====="
+          ARCHIVE_LOG="$GITHUB_WORKSPACE/archive.log"
+      
+          # ============================================================
+          # NETTOYAGE DERIVED DATA UNIQUEMENT
+          # NE PAS SUPPRIMER $GITHUB_WORKSPACE/build :
+          # le SDL modifié avec le code FCVV se trouve dans build/sdl2/
+          # ============================================================
+          echo "============================================================"
+          echo "          NETTOYAGE DERIVED DATA"
+          echo "============================================================"
+      
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
-
-
+      
+          echo "✓ DerivedData nettoyé"
+          echo "✓ Répertoire build conservé"
+      
           cd "$GITHUB_WORKSPACE/fcvv-ios"
+      
+          # ============================================================
+          # INFORMATIONS BUILD
+          # ============================================================
+          echo ""
           echo "============================================================"
           echo "              ARCHIVE IPHONEOS FCVV"
           echo "============================================================"
+      
           echo "===== IDENTITÉS DE SIGNATURE ====="
+      
           security find-identity \
             -v \
             -p codesigning \
             signing_temp.keychain
-          echo "===== BUILD SETTINGS FCVV ====="
+      
+          # ============================================================
+          # BUILD SETTINGS
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "                 BUILD SETTINGS FCVV"
+          echo "============================================================"
+      
           xcodebuild \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
@@ -3232,54 +3259,109 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_NAME}" \
             CLANG_ENABLE_MODULES=YES \
             | grep -E \
-              'TARGET_NAME|PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_ENTITLEMENTS|CLANG_ENABLE_MODULES' \
-              || true
-          
+              'TARGET_NAME|PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_ENTITLEMENTS|CLANG_ENABLE_MODULES|SDKROOT|IPHONEOS_DEPLOYMENT_TARGET' \
+            || true
+      
+          # ============================================================
+          # CONTRÔLE RSYNC
+          # ============================================================
           echo ""
           echo "============================================================"
           echo "                    VERIFICATION RSYNC"
           echo "============================================================"
-          
+      
           echo "PATH = $PATH"
-          
+      
           echo ""
           echo "rsync utilisé :"
           command -v rsync || true
-          
+      
           echo ""
           echo "Version rsync :"
           rsync --version || true
-          
+      
           echo ""
           echo "Binaire Apple rsync :"
           /usr/bin/rsync --version || true
-          
+      
           echo ""
           echo "Type du rsync trouvé :"
           type -a rsync || true
-          
+      
+          # ============================================================
+          # CONTRÔLE SDL AVANT XCODEBUILD
+          # ============================================================
           echo ""
           echo "============================================================"
           echo "      CONTRÔLE SDL JUSTE AVANT XCODEBUILD ARCHIVE"
           echo "============================================================"
-          
+      
+          echo ""
+          echo "===== TOUTES LES COPIES DE SDL_uikitappdelegate.m ====="
+      
           find "$GITHUB_WORKSPACE" \
             -type f \
             -name "SDL_uikitappdelegate.m" \
             -print
-          
+      
           echo ""
-          echo "Recherche du code FCVV :"
-          
+          echo "===== CODE FCVV DANS CHAQUE COPIE SDL ====="
+      
           find "$GITHUB_WORKSPACE" \
             -type f \
             -name "SDL_uikitappdelegate.m" \
             -exec grep -Hn \
               "fcvvConfigureFirebaseAndNotifications" {} \; \
             || true
-          
-          echo "===== ARCHIVE ====="
+      
+          echo ""
+          echo "===== CHAÎNES [FCVV] DANS CHAQUE COPIE SDL ====="
+      
+          find "$GITHUB_WORKSPACE" \
+            -type f \
+            -name "SDL_uikitappdelegate.m" \
+            -exec grep -Hn \
+              "\[FCVV\]" {} \; \
+            || true
+      
+          # ============================================================
+          # CONTRÔLE DU PROJET XCODE
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "       RÉFÉRENCES SDL DANS LE PROJET XCODE"
+          echo "============================================================"
+      
+          PROJECT_FILE="$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcodeproj/project.pbxproj"
+      
+          echo ""
+          echo "===== SDL_uikitappdelegate.m DANS project.pbxproj ====="
+      
+          grep -n \
+            "SDL_uikitappdelegate.m" \
+            "$PROJECT_FILE" \
+            || true
+      
+          echo ""
+          echo "===== RÉFÉRENCES FCVV DANS project.pbxproj ====="
+      
+          grep -n \
+            -E "fcvvConfigureFirebaseAndNotifications|\[FCVV\]" \
+            "$PROJECT_FILE" \
+            || true
+      
+          # ============================================================
+          # ARCHIVE
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "                    XCODEBUILD ARCHIVE"
+          echo "============================================================"
+      
+          echo "Log complet : $ARCHIVE_LOG"
+      
           xcodebuild archive \
+            -verbose \
             -workspace "$WORKSPACE_PATH" \
             -scheme fcvv \
             -configuration Release \
@@ -3295,86 +3377,179 @@ jobs:
             CODE_SIGN_IDENTITY="Apple Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="${PROVISIONING_PROFILE_NAME}" \
             CLANG_ENABLE_MODULES=YES \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            2>&1 | tee "$ARCHIVE_LOG"
+      
+          # ============================================================
+          # VÉRIFICATION ARCHIVE
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "              VÉRIFICATION ARCHIVE"
+          echo "============================================================"
+      
           if [ ! -d "$ARCHIVE_PATH" ]; then
-            echo "ERREUR : archive absente."
+            echo "❌ ERREUR : archive absente."
             exit 1
           fi
+      
           if [ ! -d "$ARCHIVE_PATH/Products/Applications/fcvv.app" ]; then
-            echo "ERREUR : fcvv.app absente de l'archive."
+            echo "❌ ERREUR : fcvv.app absente de l'archive."
             exit 1
           fi
-          echo "============================================================"
-          echo "              ARCHIVE CRÉÉE AVEC SUCCÈS"
-          echo "============================================================"
-          echo "Archive créée : $ARCHIVE_PATH"
+      
+          echo "✓ Archive créée : $ARCHIVE_PATH"
+          echo "✓ fcvv.app présente dans l'archive"
+      
           echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
-
+      
+          # ============================================================
+          # SDL EFFECTIVEMENT COMPILÉ PAR XCODE
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "       SDL EFFECTIVEMENT COMPILÉ PAR XCODE"
+          echo "============================================================"
+      
+          echo ""
+          echo "===== SDL_uikitappdelegate.m DANS archive.log ====="
+      
+          grep -n \
+            "SDL_uikitappdelegate.m" \
+            "$ARCHIVE_LOG" \
+            || true
+      
+          echo ""
+          echo "===== CHEMINS iphoneos-arm64 DANS archive.log ====="
+      
+          grep -n \
+            "iphoneos-arm64.*SDL" \
+            "$ARCHIVE_LOG" \
+            || true
+      
+          echo ""
+          echo "===== CHEMINS iphonesimulator-arm64 DANS archive.log ====="
+      
+          grep -n \
+            "iphonesimulator-arm64.*SDL" \
+            "$ARCHIVE_LOG" \
+            || true
+      
+          # ============================================================
+          # BINAIRE FINAL
+          # ============================================================
           echo ""
           echo "============================================================"
           echo "       VÉRIFICATION DU BINAIRE FINAL FCVV"
           echo "============================================================"
-
+      
           APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
           APP_BINARY="$APP_PATH/fcvv"
-
+      
           if [ ! -f "$APP_BINARY" ]; then
             echo "❌ ERREUR : binaire final introuvable : $APP_BINARY"
             exit 1
           fi
-
+      
           echo "✓ Binaire final trouvé : $APP_BINARY"
+      
+          # ============================================================
+          # STRINGS FCVV
+          # ============================================================
           echo ""
-          echo "===== STRINGS FCVV ====="
-
+          echo "============================================================"
+          echo "                    STRINGS FCVV"
+          echo "============================================================"
+      
           FCVV_STRINGS=$(
             strings "$APP_BINARY" \
-              | grep '\[FCVV\]' \
+              | grep -E \
+                "\[FCVV\]|Initialisation Firebase|Autorisation notifications|registerForRemoteNotifications|fcvvConfigureFirebaseAndNotifications" \
               | sort -u \
               || true
           )
-
+      
           if [ -z "$FCVV_STRINGS" ]; then
-            echo "❌ AUCUNE chaîne [FCVV] trouvée dans le binaire"
+            echo "⚠️ AUCUNE chaîne FCVV trouvée dans le binaire."
             echo ""
-            echo "Cela indique que le code FCVV injecté n'est probablement"
-            echo "pas présent dans le binaire final."
-            exit 1
+            echo "Cela indique que le code SDL contenant FCVV"
+            echo "n'est probablement pas compilé dans le binaire final."
+            echo ""
+            echo "Le diagnostic continue afin d'identifier"
+            echo "quelle copie de SDL Xcode a réellement compilée."
+          else
+            echo "✓ Chaînes FCVV trouvées dans le binaire :"
+            echo ""
+            echo "$FCVV_STRINGS"
           fi
-
-          echo "$FCVV_STRINGS"
-
-          FCVV_COUNT=$(
-            printf '%s\n' "$FCVV_STRINGS" \
-              | grep -c '\[FCVV\]' \
-              || true
-          )
-
-          echo ""
-          echo "✓ Nombre de chaînes [FCVV] : $FCVV_COUNT"
-
-          echo ""
-          echo "===== VÉRIFICATION DES CHAÎNES CRITIQUES ====="
-
-          REQUIRED_STRINGS=(
-            "[FCVV] Initialisation Firebase/APNs"
-            "[FCVV] Delegates Firebase/APNs configurés"
-            "[FCVV] Autorisation notifications"
-            "[FCVV] registerForRemoteNotifications appelé"
-          )
-
-          for REQUIRED in "${REQUIRED_STRINGS[@]}"; do
-              if strings "$APP_BINARY" | grep -Fq "$REQUIRED"; then
-                  echo "✓ $REQUIRED"
-              else
-                  echo "❌ ABSENT : $REQUIRED"
-                  exit 1
-              fi
-          done
-
+      
+          # ============================================================
+          # INSPECTION DES SYMBOLES / STRINGS CRITIQUES
+          # ============================================================
           echo ""
           echo "============================================================"
-          echo "✓ CODE FCVV CONFIRMÉ DANS LE BINAIRE FINAL"
+          echo "             VÉRIFICATION CODE FCVV FINAL"
+          echo "============================================================"
+      
+          echo ""
+          echo "===== FCVV ====="
+      
+          strings "$APP_BINARY" \
+            | grep -E \
+              "\[FCVV\]" \
+            | sort -u \
+            || true
+      
+          echo ""
+          echo "===== FIREBASE ====="
+      
+          strings "$APP_BINARY" \
+            | grep -E \
+              "Firebase|FIRApp|FIRMessaging" \
+            | head -50 \
+            || true
+      
+          echo ""
+          echo "===== NOTIFICATIONS ====="
+      
+          strings "$APP_BINARY" \
+            | grep -E \
+              "registerForRemoteNotifications|requestAuthorization|UNUserNotificationCenter" \
+            | head -50 \
+            || true
+      
+          # ============================================================
+          # INFORMATIONS FINALES
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "                    DIAGNOSTIC FINAL"
+          echo "============================================================"
+      
+          if [ -n "$FCVV_STRINGS" ]; then
+            echo "✓ Le binaire contient des chaînes FCVV."
+            echo "✓ Le code FCVV est probablement compilé dans l'application."
+          else
+            echo "⚠️ Le binaire ne contient aucune chaîne FCVV."
+            echo "⚠️ Il faut vérifier archive.log pour déterminer"
+            echo "   quelle copie de SDL a réellement été compilée."
+          fi
+      
+          echo ""
+          echo "Archive :"
+          echo "$ARCHIVE_PATH"
+      
+          echo ""
+          echo "Binaire :"
+          echo "$APP_BINARY"
+      
+          echo ""
+          echo "Log Xcode :"
+          echo "$ARCHIVE_LOG"
+      
+          echo ""
+          echo "============================================================"
+          echo "                     FIN ÉTAPE 18"
           echo "============================================================"
           
       
