@@ -12,6 +12,7 @@ from kivy.metrics import dp
 from kivy.uix.button import Button
 from kivy.uix.widget import Widget
 from kivy.effects.scroll import ScrollEffect
+from kivy.utils import platform
 
 
 class InscriptionsScreen(Screen):
@@ -104,10 +105,29 @@ class InscriptionsScreen(Screen):
         self.btn_color.rgb = (1, 1, 1)
 
     def _on_btn_release(self, instance):
-        """ Repasse au Jaune FCVV et lance la redirection """
+        """ Repasse au Jaune FCVV et lance la redirection de manière sécurisée """
         self.btn_color.rgb = (253/255, 224/255, 71/255)
         if self.inscription_url:
-            webbrowser.open(self.inscription_url)
+            Clock.schedule_once(lambda dt: self._open_url(self.inscription_url))
+
+    def _open_url(self, target_url):
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                
+                nsurl = NSURL.URLWithString_(target_url)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne recommandée pour iOS
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
+            else:
+                webbrowser.open(target_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
 
     def _update_table_height(self, instance, value):
         """ Met à jour uniquement le conteneur """
