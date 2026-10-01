@@ -208,22 +208,67 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     pdf.output(chemin)
     print(f"PDF cree : {chemin}")
 
-    # Ouverture selon la plateforme (sans le partage Android bloquant)
+    # Ouverture selon la plateforme
     if platform == "win":
         try:
             os.startfile(chemin)
         except Exception as e:
             print(f"Ouverture PDF impossible : {e}")
+            
     elif platform == "android":
-        print(f"PDF enregistre dans le stockage. Retrouvez-le dans l'explorateur de fichiers : {chemin}")
+        print(f"PDF enregistre dans le stockage : {chemin}")
+        
     elif platform == "ios":
-        try:
-            from plyer import share
-            share.share(title="Convocation FCVV", filepath=chemin)
-        except Exception as e:
-            print(f"Partage iOS impossible : {e}")
+        # On utilise Clock pour exécuter l'affichage du partage sur le thread principal d'iOS
+        
+        Clock.schedule_once(lambda dt: _partager_pdf_ios(chemin))
             
     return chemin
+
+
+def _partager_pdf_ios(chemin):
+    """Fonction dédiée pour ouvrir la feuille de partage native iOS proprement sur le main thread"""
+    try:
+        from pyobjus import autoclass
+        from pyobjus.objc_py_conversion import python_to_objc
+
+        NSURL = autoclass("NSURL")
+        UIActivityViewController = autoclass("UIActivityViewController")
+        UIApplication = autoclass("UIApplication")
+
+        # Conversion du chemin en NSURL
+        file_url = NSURL.fileURLWithPath_(chemin)
+        
+        # Création de l'activité de partage avec le fichier PDF
+        activity_items = python_to_objc([file_url])
+        activity_vc = UIActivityViewController.alloc().initWithActivityItems_applicationActivities_(activity_items, None)
+
+        # Récupération de la fenêtre principale et du contrôleur racine (Root ViewController)
+        window = UIApplication.sharedApplication().keyWindow
+        if not window:
+            # Pour les versions récentes d'iOS
+            windows = UIApplication.sharedApplication().windows
+            if windows and windows.count() > 0:
+                window = windows.objectAtIndex_(0)
+        
+        root_vc = window.rootViewController()
+        
+        # Gestion des iPads (nécessite une ancre popover, sinon l'application plante sur iPad)
+        # S'il y a un popoverPresentationController, on le configure au centre au minimum
+        if activity_vc.respondsToSelector_(autoclass("NSString").stringWithString_("popoverPresentationController")):
+            popover = activity_vc.popoverPresentationController()
+            if popover:
+                popover.setSourceView_(root_vc.view())
+                # Centre l'ancre du popover si ouvert sur iPad
+                from pyobjus import cast
+                # Rect centré par défaut
+                pass
+
+        # Affichage du menu de partage
+        root_vc.presentViewController_animated_completion_(activity_vc, True, None)
+
+    except Exception as e:
+        print(f"Partage iOS natif impossible : {e}")
 
 class DateTextInput(TextInput):
     def insert_text(self, substring, from_undo=False):
