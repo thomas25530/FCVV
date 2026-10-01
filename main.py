@@ -715,28 +715,24 @@ class MyApp(App):
         """Récupère la Safe Area iOS via UIKit."""
         if platform != "ios":
             return 0
-        print("[iOS SAFE AREA] force dp100 pour voir si l'heure apparait")
-        return dp(100)
-        
-
-        #try:
-            #from pyobjus import autoclass
-            #UIApplication = autoclass("UIApplication")
-            #app = UIApplication.sharedApplication()
-            #window = app.keyWindow
-            #if not window:
-                #windows = app.windows
-                #if windows and len(windows) > 0:
-                    #window = windows[0]
-            #if not window:
-                #print("[iOS SAFE AREA] Fenetre introuvable")
-                #return 0
-            #top = float(window.safeAreaInsets.top)
-            #print(f"[iOS SAFE AREA] top={top}")
-            #return top
-        #except Exception as e:
-            #print(f"[iOS SAFE AREA] Erreur : {e}")
-            #return 0
+        try:
+            from pyobjus import autoclass
+            UIApplication = autoclass("UIApplication")
+            app = UIApplication.sharedApplication()
+            window = app.keyWindow
+            if not window:
+                windows = app.windows
+                if windows and len(windows) > 0:
+                    window = windows[0]
+            if not window:
+                print("[iOS SAFE AREA] Fenetre introuvable")
+                return 0
+            top = float(window.safeAreaInsets.top)
+            print(f"[iOS SAFE AREA] top={top}")
+            return top
+        except Exception as e:
+            print(f"[iOS SAFE AREA] Erreur : {e}")
+            return 0
     
     def build(self):
         if platform == "ios":
