@@ -2185,6 +2185,31 @@ class VestiaireScreen(Screen):
     
         threading.Thread(target=task,daemon=True).start()
     
+    
+    def open_url(self, url):
+        Clock.schedule_once(lambda dt: self._open_url(url))
+
+    def _open_url(self, target_url):
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                
+                nsurl = NSURL.URLWithString_(target_url)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne recommandée pour iOS
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
+            else:
+                webbrowser.open(target_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
+    
+    
+    
     def render_content(self, data):
         self.scroll_content.clear_widgets()
         self.scroll_content.scroll_y = 1
@@ -2357,7 +2382,8 @@ class VestiaireScreen(Screen):
                     for label, url_key in [("Calendrier", "calendrier"), ("Classement", "classement")]:
                         if (url := infos_eq.get("liens_fff", {}).get(url_key)) and url.startswith("http"):
                             btn = Button(text=label, size_hint_y=None, height=dp(50), font_size=f"{fs*0.8}sp")
-                            btn.bind(on_release=lambda _, u=url: webbrowser.open(u))
+                            # Utilisation de self.open_url pour le routage sécurisé iOS/Android/Desktop
+                            btn.bind(on_release=lambda _, u=url: self.open_url(u))
                             layout.add_widget(btn)
 
             # 🔥 AJOUT DE L'ESPACE DE SÉCURITÉ EN FIN DE LISTE SAISON
@@ -2542,8 +2568,12 @@ class VestiaireScreen(Screen):
             else:
                 for doc in docs:
                     btn = Button(text=doc.get("nom"), size_hint_y=None, height=dp(60), font_size=f"{fs*0.8}sp")
-                    if url := doc.get("url"): btn.bind(on_release=lambda _, u=url: webbrowser.open(u))
-                    else: btn.disabled = True; btn.text += " (Lien invalide)"
+                    if url := doc.get("url"): 
+                        # Utilisation de self.open_url pour le routage sécurisé iOS/Android/Desktop
+                        btn.bind(on_release=lambda _, u=url: self.open_url(u))
+                    else: 
+                        btn.disabled = True
+                        btn.text += " (Lien invalide)"
                     layout.add_widget(btn)
 
         elif self.current_sub_tab == "MEMBRES":
