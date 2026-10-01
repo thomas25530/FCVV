@@ -711,29 +711,39 @@ class MyApp(App):
     def get_application_config(self):
         return os.path.join(self.user_data_dir, 'fcvv.ini')
 
+    def get_ios_safe_area_top(self):
+        """Récupère la Safe Area iOS via UIKit."""
+        if platform != "ios":
+            return 0
+        try:
+            from pyobjus import autoclass
+            UIApplication = autoclass("UIApplication")
+            app = UIApplication.sharedApplication()
+            window = app.keyWindow
+            if not window:
+                windows = app.windows
+                if windows and len(windows) > 0:
+                    window = windows[0]
+            if not window:
+                print("[iOS SAFE AREA] Fenetre introuvable")
+                return 0
+            top = float(window.safeAreaInsets.top)
+            print(f"[iOS SAFE AREA] top={top}")
+            return top
+        except Exception as e:
+            print(f"[iOS SAFE AREA] Erreur : {e}")
+            return 0
+    
     def build(self):
-
         if platform == "ios":
-            try:
-                print(f"[SAFE AREA RAW] {Window.safe_area}")
-
-                safe_top = Window.safe_area.get("top", 0)
-
-                if safe_top <= 0:
-                    print("[SAFE AREA] valeur invalide -> fallback 44dp")
-                    safe_top = dp(44)
-
-            except Exception as e:
-                print(f"[SAFE AREA ERROR] {e}")
+            safe_top = self.get_ios_safe_area_top()
+            if safe_top <= 0:
+                print("[iOS SAFE AREA] Fallback 44")
                 safe_top = dp(44)
-
         else:
             safe_top = 0
-
         print(f"[SAFE AREA] top={safe_top}")
-        print("SAFE_AREA =", Window.safe_area)
-        print("WINDOW SIZE =", Window.size)
-
+        print(f"[WINDOW SIZE] {Window.size}")
         return RootLayout(safe_area_top=safe_top)
     
     def clean_key(self, text):
@@ -1039,8 +1049,7 @@ class MyApp(App):
             Window.softinput_mode = "below_target"
             def update_ios_safe_area(dt):
                 try:
-                    safe_top = Window.safe_area.get("top", 0)
-
+                    safe_top = self.get_ios_safe_area_top()
                     if safe_top <= 0:
                         print("[IOS] Safe Area indisponible -> fallback 44dp")
                         safe_top = dp(44)
