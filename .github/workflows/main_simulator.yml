@@ -1,0 +1,1718 @@
+name: Build Kivy App for Simulator (FCVV)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    env:
+      IOS_DEPLOYMENT_TARGET: "13.0"
+      FIREBASE_VERSION: "10.29.0"
+      APP_BUNDLE_ID: "org.fcvv.fcvv"
+      APP_VERSION: "1.1.0"
+
+    steps:
+      # ============================================================
+      # 1. CHECKOUT
+      # ============================================================
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # 2. PYTHON
+      # ============================================================
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.11"
+
+      # ============================================================
+      # 3. SYSTEM TOOLS
+      # ============================================================
+      - name: Install system tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install \
+            autoconf \
+            automake \
+            libtool \
+            pkg-config \
+            cmake \
+            cocoapods \
+            rsync
+          python -m pip install --upgrade pip
+          pip install \
+            "Cython>=3.0,<3.1" \
+            "kivy-ios>=1.3.0" \
+            pillow \
+            requests \
+            urllib3 \
+            pyyaml \
+            fpdf2 \
+            fonttools \
+            plyer \
+            pyobjus
+          ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
+      # ============================================================
+      # 4. CACHE KIVY-IOS
+      # ============================================================
+      - name: Cache kivy-ios
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.kivy-ios
+          key: ${{ runner.os }}-kivy-ios-v5-python310-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.py') }}
+          restore-keys: |
+            ${{ runner.os }}-kivy-ios-v5-python310-
+            ${{ runner.os }}-kivy-ios-v5-
+      # ============================================================
+      # 5. BUILD KIVY-IOS RECIPES
+      # ============================================================
+      - name: Build kivy-ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain build \
+            python3 \
+            kivy \
+            openssl \
+            pillow \
+            pyobjus
+          toolchain pip install \
+            pyyaml \
+            requests \
+            urllib3 \
+            fpdf2 \
+            fonttools \
+            plyer \
+            pyobjus
+      # ============================================================
+      # 6. PREPARE IOS SOURCES
+      # ============================================================
+      - name: Prepare sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf ios_src
+          mkdir -p ios_src
+          rsync -a \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude=".buildozer" \
+            --exclude="bin" \
+            --exclude="build" \
+            --exclude="dist" \
+            --exclude="ios_src" \
+            --exclude="__pycache__" \
+            --exclude="*.pyc" \
+            ./ ios_src/
+          if [ -z "${{ secrets.FIREBASE_IOS_CONFIG }}" ]; then
+            echo "ERREUR : FIREBASE_IOS_CONFIG est vide."
+            exit 1
+          fi
+          printf '%s\n' '${{ secrets.FIREBASE_IOS_CONFIG }}' \
+            > ios_src/GoogleService-Info.plist
+          if [ ! -s ios_src/GoogleService-Info.plist ]; then
+            echo "ERREUR : GoogleService-Info.plist vide."
+            exit 1
+          fi
+          plutil -lint ios_src/GoogleService-Info.plist
+          find ios_src -name "__pycache__" -type d -prune -exec rm -rf {} +
+          find ios_src -name "*.pyc" -delete
+          echo "Sources iOS préparées."
+      # ============================================================
+      # 7. CREATE XCODE PROJECT
+      # ============================================================
+      - name: Create Xcode project and setup Firebase
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Création du projet Xcode avec kivy-ios..."
+          toolchain create FCVV ios_src
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun fichier .xcodeproj trouvé après toolchain create."
+            find . -maxdepth 3 -type f | sort | head -200
+            exit 1
+          fi
+          PROJ_DIR=$(dirname "$PROJECT_FILE")
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+          if [ ! -d "$PROJ_DIR" ]; then
+            echo "ERREUR : dossier projet introuvable."
+            exit 1
+          fi
+          cp ios_src/GoogleService-Info.plist \
+            "$PROJ_DIR/GoogleService-Info.plist"
+          plutil -lint \
+            "$PROJ_DIR/GoogleService-Info.plist"
+          ruby -e "
+            require 'xcodeproj'
+            project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+            target = project.targets.find do |t|
+              t.name == 'fcvv'
+            end
+            raise 'Target fcvv introuvable' unless target
+            existing = project.files.find do |f|
+              File.basename(f.path.to_s) == 'GoogleService-Info.plist'
+            end
+            unless existing
+              file = project.main_group.new_file('GoogleService-Info.plist')
+              target.resources_build_phase.add_file_reference(file, true)
+            else
+              unless target.resources_build_phase.files_references.include?(existing)
+                target.resources_build_phase.add_file_reference(existing, true)
+              end
+            end
+            project.save
+          "
+          echo "Firebase plist ajouté au projet."
+      # ============================================================
+      # 8. VERIFY PROJECT / TARGET
+      # ============================================================
+      - name: Verify generated Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_FILE=$(
+            find . \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -print \
+              -quit
+          )
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : .xcodeproj introuvable."
+            exit 1
+          fi
+          FULL_PROJECT_PATH="$PWD/$PROJECT_FILE"
+          ruby -e "
+            require 'xcodeproj'
+            project = Xcodeproj::Project.open('$FULL_PROJECT_PATH')
+            puts '===== TARGETS ====='
+            project.targets.each do |target|
+              puts \"- #{target.name}\"
+            end
+            target = project.targets.find { |t| t.name == 'fcvv' }
+            raise 'ERREUR : target fcvv introuvable' unless target
+            puts 'Target fcvv OK.'
+          "
+      # ============================================================
+      # 9. INJECT FIREBASE / APNS
+      # ============================================================
+      - name: Inject Firebase into files
+        run: |
+          set -euo pipefail
+          PROJECT_FILE=$(find . -maxdepth 2 -name "*.xcodeproj" -print -quit)
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun fichier .xcodeproj trouvé"
+            exit 1
+          fi
+          PROJ_DIR=$(dirname "$PROJECT_FILE")
+          MAIN_FILE=$(find "$PROJ_DIR" -name "main.m" -print -quit)
+          APPDELEGATE_FILE=$(find . -name "SDL_uikitappdelegate.m" -print -quit)
+          HEADER_FILE=$(find . -name "SDL_uikitappdelegate.h" -print -quit)
+          if [ -z "$MAIN_FILE" ]; then
+            echo "ERREUR : main.m introuvable"
+            exit 1
+          fi
+          if [ -z "$APPDELEGATE_FILE" ]; then
+            echo "ERREUR : SDL_uikitappdelegate.m introuvable"
+            exit 1
+          fi
+          if [ -z "$HEADER_FILE" ]; then
+            echo "ERREUR : SDL_uikitappdelegate.h introuvable"
+            exit 1
+          fi
+          echo "MAIN_FILE=$MAIN_FILE"
+          echo "APPDELEGATE_FILE=$APPDELEGATE_FILE"
+          echo "HEADER_FILE=$HEADER_FILE"
+          # ============================================================
+          # 1. Firebase imports dans main.m
+          # ============================================================
+          python3 - "$MAIN_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          content = path.read_text()
+          imports = """@import UIKit;
+          @import FirebaseCore;
+          @import FirebaseMessaging;
+          @import UserNotifications;
+          """
+          if "FirebaseCore" not in content:
+              content = imports + "\n" + content
+          else:
+              if "FirebaseMessaging" not in content:
+                  content = "@import FirebaseMessaging;\n" + content
+              if "UserNotifications" not in content:
+                  content = "@import UserNotifications;\n" + content
+          path.write_text(content)
+          PY
+          # ============================================================
+          # 2. Initialisation Firebase + demande permission APNs
+          # ============================================================
+          python3 - "$MAIN_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          content = path.read_text()
+          marker = "int main(int argc, char *argv[]) {"
+          code = r'''
+              // ========================================================
+              // FCVV Firebase / APNs initialization
+              // ========================================================
+              if ([FIRApp defaultApp] == nil) {
+                  [FIRApp configure];
+                  NSLog(@"[FCM iOS] Firebase configure");
+              }
+              if (@available(iOS 10.0, *)) {
+                  UNAuthorizationOptions options =
+                      UNAuthorizationOptionAlert |
+                      UNAuthorizationOptionSound |
+                      UNAuthorizationOptionBadge;
+                  [[UNUserNotificationCenter currentNotificationCenter]
+                      requestAuthorizationWithOptions:options
+                      completionHandler:^(BOOL granted, NSError * _Nullable error) {
+                          if (error) {
+                              NSLog(
+                                  @"[FCM iOS] Erreur permission notifications : %@",
+                                  error
+                              );
+                              return;
+                          }
+                          NSLog(
+                              @"[FCM iOS] Permission notifications : %d",
+                              granted
+                          );
+                          dispatch_async(dispatch_get_main_queue(), ^{
+                              [[UIApplication sharedApplication]
+                                  registerForRemoteNotifications];
+                          });
+                      }];
+              } else {
+                  [[UIApplication sharedApplication]
+                      registerForRemoteNotifications];
+              }
+              NSLog(@"[FCM iOS] Demande enregistrement APNS");
+          '''
+          marker_already_present = "[FIRApp configure]"
+          if marker_already_present not in content:
+              if marker not in content:
+                  raise RuntimeError(
+                      "Impossible de trouver int main(int argc, char *argv[])"
+                  )
+              content = content.replace(
+                  marker,
+                  marker + "\n" + code,
+                  1
+              )
+          path.write_text(content)
+          PY
+          # ============================================================
+          # 3. Imports Firebase dans SDL_uikitappdelegate.m
+          # ============================================================
+          python3 - "$APPDELEGATE_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+          path = Path(sys.argv[1])
+          content = path.read_text()
+          imports = """@import UIKit;
+          @import FirebaseCore;
+          @import FirebaseMessaging;
+          @import UserNotifications;
+          """
+          if "FirebaseMessaging" not in content:
+              content = imports + "\n" + content
+          else:
+              if "FirebaseCore" not in content:
+                  content = "@import FirebaseCore;\n" + content
+              if "UserNotifications" not in content:
+                  content = "@import UserNotifications;\n" + content
+          path.write_text(content)
+          PY
+          # ============================================================
+          # 4. Ajouter UNUserNotificationCenterDelegate au HEADER
+          #    et PAS au .m
+          # ============================================================
+          python3 - "$HEADER_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+          import re
+          path = Path(sys.argv[1])
+          content = path.read_text()
+          # ------------------------------------------------------------
+          # Import UserNotifications
+          # ------------------------------------------------------------
+          if "#import <UserNotifications/UserNotifications.h>" not in content:
+              if "#import <UIKit/UIKit.h>" in content:
+                  content = content.replace(
+                      "#import <UIKit/UIKit.h>",
+                      "#import <UIKit/UIKit.h>\n"
+                      "#import <UserNotifications/UserNotifications.h>",
+                      1
+                  )
+              else:
+                  content = (
+                      "#import <UserNotifications/UserNotifications.h>\n"
+                      + content
+                  )
+          # ------------------------------------------------------------
+          # Recherche de la déclaration réelle de SDLUIKitDelegate
+          # ------------------------------------------------------------
+          pattern = re.compile(
+              r'@interface\s+SDLUIKitDelegate\s*:\s*NSObject\s*'
+              r'<([^>]*)>',
+              re.MULTILINE
+          )
+          match = pattern.search(content)
+          if match:
+              protocols = match.group(1)
+              if "UNUserNotificationCenterDelegate" not in protocols:
+                  new_protocols = protocols.strip()
+                  if new_protocols:
+                      new_protocols += ", "
+                  new_protocols += "UNUserNotificationCenterDelegate"
+                  replacement = (
+                      "@interface SDLUIKitDelegate : NSObject<"
+                      + new_protocols
+                      + ">"
+                  )
+                  content = (
+                      content[:match.start()]
+                      + replacement
+                      + content[match.end():]
+                  )
+          else:
+              # Cas où SDL utilise une déclaration légèrement différente.
+              simple = "@interface SDLUIKitDelegate : NSObject"
+              if simple in content:
+                  replacement = (
+                      "@interface SDLUIKitDelegate : NSObject"
+                      "<UNUserNotificationCenterDelegate>"
+                  )
+                  content = content.replace(
+                      simple,
+                      replacement,
+                      1
+                  )
+              elif "UNUserNotificationCenterDelegate" not in content:
+                  raise RuntimeError(
+                      "Impossible de trouver la déclaration de "
+                      "SDLUIKitDelegate dans le header"
+                  )
+          # ------------------------------------------------------------
+          # Vérification finale
+          # ------------------------------------------------------------
+          if "UNUserNotificationCenterDelegate" not in content:
+              raise RuntimeError(
+                  "UNUserNotificationCenterDelegate absent du header "
+                  "SDL_uikitappdelegate.h"
+              )
+          path.write_text(content)
+          PY
+          # ============================================================
+          # 5. Gestion FCM / APNs :
+          #    - réception des notifications de validation
+          #    - abonnement immédiat au topic catégorie
+          #    - récupération du token APNs
+          #    - transmission du token APNs à Firebase Messaging
+          #
+          # Le fichier SDL_uikitappdelegate.m est généré par kivy-ios.
+          # On injecte donc automatiquement les méthodes dans sa classe.
+          # ============================================================
+          
+          python3 - "$APPDELEGATE_FILE" <<'PY'
+          from pathlib import Path
+          import sys
+          
+          path = Path(sys.argv[1])
+          content = path.read_text()
+          
+          marker = "// FCVV FCM VALIDATION HANDLER"
+          
+          if marker not in content:
+          
+              code = r'''
+          // ============================================================
+          // FCVV FCM VALIDATION HANDLER
+          // ============================================================
+          
+          static void FCVVSubscribeToValidatedCategory(NSString *categorie)
+          {
+              if (categorie == nil || categorie.length == 0) {
+                  NSLog(@"[FCM iOS] Validation sans categorie.");
+                  return;
+              }
+          
+              NSString *topic =
+                  [categorie stringByTrimmingCharactersInSet:
+                      [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+          
+              if (topic.length == 0) {
+                  NSLog(@"[FCM iOS] Validation avec categorie vide.");
+                  return;
+              }
+          
+              NSLog(
+                  @"[FCM iOS] Validation reçue : abonnement immédiat au topic %@",
+                  topic
+              );
+          
+              [[FIRMessaging messaging]
+                  subscribeToTopic:topic
+                  completion:^(NSError * _Nullable error) {
+          
+                      if (error) {
+                          NSLog(
+                              @"[FCM iOS] ERREUR abonnement topic %@ : %@",
+                              topic,
+                              error
+                          );
+                      } else {
+                          NSLog(
+                              @"[FCM iOS] Abonnement topic %@ réussi immédiatement",
+                              topic
+                          );
+                      }
+                  }];
+          }
+          
+          
+          // ============================================================
+          // APNs : TOKEN RECU
+          // ============================================================
+          //
+          // C'est ce callback qui reçoit le token APNs fourni par iOS.
+          //
+          // Firebase Messaging doit connaître ce token pour pouvoir
+          // associer APNs au token FCM.
+          //
+          
+          - (void)application:(UIApplication *)application
+              didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+          {
+              NSLog(
+                  @"[FCM iOS] APNs device token reçu : %@",
+                  deviceToken
+              );
+          
+              if (deviceToken == nil || deviceToken.length == 0) {
+                  NSLog(
+                      @"[FCM iOS] ERREUR : token APNs vide."
+                  );
+                  return;
+              }
+          
+              [[FIRMessaging messaging] setAPNSToken:deviceToken];
+          
+              NSLog(
+                  @"[FCM iOS] APNs token transmis à Firebase Messaging."
+              );
+          }
+          
+          
+          // ============================================================
+          // APNs : ECHEC ENREGISTREMENT
+          // ============================================================
+          
+          - (void)application:(UIApplication *)application
+              didFailToRegisterForRemoteNotificationsWithError:(NSError *)error
+          {
+              NSLog(
+                  @"[FCM iOS] Échec enregistrement APNs : %@",
+                  error
+              );
+          }
+          
+          
+          // ============================================================
+          // NOTIFICATION AU PREMIER PLAN
+          // ============================================================
+          
+          - (void)userNotificationCenter:(UNUserNotificationCenter *)center
+                 willPresentNotification:(UNNotification *)notification
+                   withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler
+          {
+              NSDictionary *userInfo =
+                  notification.request.content.userInfo;
+          
+              NSLog(
+                  @"[FCM iOS] Notification reçue au premier plan : %@",
+                  userInfo
+              );
+          
+              NSString *notifType = userInfo[@"notif_type"];
+              NSString *categorie = userInfo[@"categorie"];
+          
+              if (notifType != nil &&
+                  [notifType isKindOfClass:[NSString class]] &&
+                  [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
+          
+                  NSLog(
+                      @"[FCM iOS] Notification de validation détectée : %@",
+                      categorie
+                  );
+          
+                  FCVVSubscribeToValidatedCategory(categorie);
+              }
+          
+              if (@available(iOS 14.0, *)) {
+          
+                  completionHandler(
+                      UNNotificationPresentationOptionBanner |
+                      UNNotificationPresentationOptionSound |
+                      UNNotificationPresentationOptionBadge
+                  );
+          
+              } else {
+          
+                  completionHandler(
+                      UNNotificationPresentationOptionAlert |
+                      UNNotificationPresentationOptionSound |
+                      UNNotificationPresentationOptionBadge
+                  );
+              }
+          }
+          
+          
+          // ============================================================
+          // NOTIFICATION OUVERTE PAR L'UTILISATEUR
+          // ============================================================
+          
+          - (void)userNotificationCenter:(UNUserNotificationCenter *)center
+                 didReceiveNotificationResponse:(UNNotificationResponse *)response
+                 withCompletionHandler:(void (^)(void))completionHandler
+          {
+              NSDictionary *userInfo =
+                  response.notification.request.content.userInfo;
+          
+              NSLog(
+                  @"[FCM iOS] Notification ouverte : %@",
+                  userInfo
+              );
+          
+              NSString *notifType = userInfo[@"notif_type"];
+              NSString *categorie = userInfo[@"categorie"];
+          
+              if (notifType != nil &&
+                  [notifType isKindOfClass:[NSString class]] &&
+                  [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
+          
+                  NSLog(
+                      @"[FCM iOS] Validation ouverte : %@",
+                      categorie
+                  );
+          
+                  FCVVSubscribeToValidatedCategory(categorie);
+              }
+          
+              if (completionHandler != nil) {
+                  completionHandler();
+              }
+          }
+          
+          
+          // ============================================================
+          // NOTIFICATION REMOTE EN BACKGROUND
+          // ============================================================
+          
+          - (void)application:(UIApplication *)application
+                 didReceiveRemoteNotification:(NSDictionary *)userInfo
+                 fetchCompletionHandler:(void (^)(UIBackgroundFetchResult result))completionHandler
+          {
+              NSLog(
+                  @"[FCM iOS] Remote notification reçue : %@",
+                  userInfo
+              );
+          
+              NSString *notifType = userInfo[@"notif_type"];
+              NSString *categorie = userInfo[@"categorie"];
+          
+              if (notifType != nil &&
+                  [notifType isKindOfClass:[NSString class]] &&
+                  [notifType caseInsensitiveCompare:@"validation"] == NSOrderedSame) {
+          
+                  NSLog(
+                      @"[FCM iOS] Validation FCM reçue en background : %@",
+                      categorie
+                  );
+          
+                  FCVVSubscribeToValidatedCategory(categorie);
+              }
+          
+              if (completionHandler != nil) {
+                  completionHandler(UIBackgroundFetchResultNewData);
+              }
+          }
+          
+          
+          // ============================================================
+          // FIN FCVV FCM VALIDATION HANDLER
+          // ============================================================
+          '''
+          
+              # --------------------------------------------------------
+              # Insérer juste avant le dernier @end du .m.
+              # --------------------------------------------------------
+          
+              last_end = content.rfind("@end")
+          
+              if last_end == -1:
+                  raise RuntimeError(
+                      "Impossible de trouver @end dans SDL_uikitappdelegate.m"
+                  )
+          
+              content = (
+                  content[:last_end]
+                  + "\n"
+                  + code
+                  + "\n"
+                  + content[last_end:]
+              )
+          
+              path.write_text(content)
+          
+              print(
+                  "[FCM iOS] Gestion FCM/APNs injectée dans "
+                  "SDL_uikitappdelegate.m"
+              )
+          
+          else:
+              print(
+                  "[FCM iOS] Gestion FCM/APNs déjà présente."
+              )
+          PY
+          
+          # ============================================================
+          # 6. Vérifications finales
+          # ============================================================
+          echo "===== Vérification Firebase ====="
+          grep -q "FirebaseCore" "$MAIN_FILE" || {
+              echo "ERREUR : FirebaseCore absent de main.m"
+              exit 1
+          }
+          grep -q "FirebaseMessaging" "$MAIN_FILE" || {
+              echo "ERREUR : FirebaseMessaging absent de main.m"
+              exit 1
+          }
+          grep -q "FirebaseMessaging" "$APPDELEGATE_FILE" || {
+              echo "ERREUR : FirebaseMessaging absent du delegate"
+              exit 1
+          }
+          grep -q "FCVVSubscribeToValidatedCategory" "$APPDELEGATE_FILE" || {
+              echo "ERREUR : gestion validation FCM absente du delegate"
+              exit 1
+          }
+          grep -q "notif_type" "$APPDELEGATE_FILE" || {
+              echo "ERREUR : notif_type absent du delegate"
+              exit 1
+          }
+          grep -q "categorie" "$APPDELEGATE_FILE" || {
+              echo "ERREUR : categorie absente du delegate"
+              exit 1
+          }
+          grep -q "subscribeToTopic" "$APPDELEGATE_FILE" || {
+              echo "ERREUR : subscribeToTopic absent du delegate"
+              exit 1
+          }
+          grep -q "UNUserNotificationCenterDelegate" "$HEADER_FILE" || {
+              echo "ERREUR : UNUserNotificationCenterDelegate absent du header"
+              exit 1
+          }
+          echo "===== SDLUIKitDelegate ====="
+          grep -n "SDLUIKitDelegate" "$HEADER_FILE" || true
+          grep -n "UNUserNotificationCenterDelegate" "$HEADER_FILE" || true
+          echo "===== FCM VALIDATION ====="
+          grep -n "FCVVSubscribeToValidatedCategory" "$APPDELEGATE_FILE" || true
+          grep -n "subscribeToTopic" "$APPDELEGATE_FILE" || true
+          grep -n "notif_type" "$APPDELEGATE_FILE" || true
+          grep -n "categorie" "$APPDELEGATE_FILE" || true
+          echo "===== Firebase / APNs injection OK ====="
+      # ============================================================
+      # 10. CONFIGURE ENTITLEMENTS
+      # ============================================================
+      - name: Configure Xcode Entitlements for Push
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "===== Recherche du projet Xcode ====="
+          PROJECT_FILE=$(
+            find "$GITHUB_WORKSPACE" \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -type d \
+              -print \
+              -quit
+          )
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : .xcodeproj introuvable."
+            find "$GITHUB_WORKSPACE" -name "*.xcodeproj" -print
+            exit 1
+          fi
+          # PROJECT_FILE est maintenant un chemin ABSOLU.
+          PROJ_DIR="$(dirname "$PROJECT_FILE")"
+          PROJ_NAME="$(basename "$PROJECT_FILE")"
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+          echo "PROJ_NAME=$PROJ_NAME"
+          if [ ! -d "$PROJECT_FILE" ]; then
+            echo "ERREUR : projet Xcode inexistant : $PROJECT_FILE"
+            exit 1
+          fi
+          ENTITLEMENTS_PATH="$PROJ_DIR/fcvv.entitlements"
+          # --------------------------------------------------------
+          # Création des entitlements
+          # --------------------------------------------------------
+          cat > "$ENTITLEMENTS_PATH" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>aps-environment</key>
+              <string>development</string>
+          </dict>
+          </plist>
+          EOF
+          echo "===== ENTITLEMENTS ====="
+          cat "$ENTITLEMENTS_PATH"
+          plutil -lint "$ENTITLEMENTS_PATH"
+          # --------------------------------------------------------
+          # Intégration dans Xcode
+          # --------------------------------------------------------
+          ruby - "$PROJECT_FILE" "$ENTITLEMENTS_PATH" <<'RUBY'
+          require 'xcodeproj'
+          project_path = ARGV[0]
+          entitlements_path = ARGV[1]
+          project = Xcodeproj::Project.open(project_path)
+          target = project.targets.find do |t|
+            t.name == 'fcvv'
+          end
+          raise 'Target fcvv introuvable' unless target
+          puts "Target trouvé : #{target.name}"
+          relative_entitlements =
+            File.basename(entitlements_path)
+          file =
+            project.main_group.find_file_by_path(relative_entitlements)
+          unless file
+            file =
+              project.main_group.new_file(relative_entitlements)
+          end
+          target.build_configurations.each do |config|
+            config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
+              relative_entitlements
+            config.build_settings['CODE_SIGNING_ALLOWED'] =
+              'YES'
+            puts "Entitlements configurés pour #{config.name}"
+          end
+          project.save
+          RUBY
+          echo "Entitlements configurés avec succès."
+      # ============================================================
+      # 11. CONFIGURE PODS + INFO.PLIST
+      # ============================================================
+      - name: Configure and Install Pods
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "===== Recherche du projet Xcode ====="
+          PROJECT_FILE=$(
+            find "$GITHUB_WORKSPACE" \
+              -maxdepth 3 \
+              -name "*.xcodeproj" \
+              -type d \
+              -print \
+              -quit
+          )
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : aucun fichier .xcodeproj trouvé."
+            find "$GITHUB_WORKSPACE" -name "*.xcodeproj" -print
+            exit 1
+          fi
+          # Chemins ABSOLUS partout.
+          PROJ_DIR="$(dirname "$PROJECT_FILE")"
+          PROJ_NAME="$(basename "$PROJECT_FILE")"
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+          echo "PROJ_NAME=$PROJ_NAME"
+          if [ ! -d "$PROJ_DIR" ]; then
+            echo "ERREUR : dossier projet introuvable : $PROJ_DIR"
+            exit 1
+          fi
+          cd "$PROJ_DIR"
+          # ========================================================
+          # 1. Info.plist
+          # ========================================================
+          PLIST_FILE=$(
+            find "$PROJ_DIR" \
+              -maxdepth 1 \
+              -name "*-Info.plist" \
+              ! -name "GoogleService-Info.plist" \
+              -type f \
+              -print \
+              -quit
+          )
+          if [ -z "$PLIST_FILE" ]; then
+            echo "ERREUR : Info.plist principal introuvable."
+            find "$PROJ_DIR" -maxdepth 1 -name "*.plist" -print
+            exit 1
+          fi
+          echo "Info.plist = $PLIST_FILE"
+          plutil -convert xml1 "$PLIST_FILE"
+          # ========================================================
+          # 2. Version
+          # ========================================================
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleShortVersionString" \
+            "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleShortVersionString string ${APP_VERSION}" \
+            "$PLIST_FILE"
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleVersion" \
+            "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleVersion string ${GITHUB_RUN_NUMBER}" \
+            "$PLIST_FILE"
+          # ========================================================
+          # 3. Bundle ID
+          # ========================================================
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleIdentifier" \
+            "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleIdentifier string ${APP_BUNDLE_ID}" \
+            "$PLIST_FILE"
+          # ========================================================
+          # 4. Display Name
+          # ========================================================
+          /usr/libexec/PlistBuddy \
+            -c "Delete :CFBundleDisplayName" \
+            "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy \
+            -c "Add :CFBundleDisplayName string FCVV" \
+            "$PLIST_FILE"
+          plutil -lint "$PLIST_FILE"
+          # ========================================================
+          # 5. Images.xcassets
+          # ========================================================
+          if [ -d "$GITHUB_WORKSPACE/assets/Images.xcassets" ]; then
+            echo "===== Installation Images.xcassets ====="
+            rm -rf "$PROJ_DIR/fcvv/Images.xcassets"
+            mkdir -p "$PROJ_DIR/fcvv"
+            cp -R \
+              "$GITHUB_WORKSPACE/assets/Images.xcassets" \
+              "$PROJ_DIR/fcvv/Images.xcassets"
+          fi
+          # ========================================================
+          # 6. Podfile
+          # ========================================================
+          echo "===== Création du Podfile ====="
+          cat > "$PROJ_DIR/Podfile" <<EOF
+          platform :ios, '13.0'
+          use_frameworks!
+          use_modular_headers!
+          project '$PROJ_NAME'
+          target 'fcvv' do
+            pod 'FirebaseCore', '10.29.0'
+            pod 'FirebaseMessaging', '10.29.0'
+          end
+          EOF
+          echo "===== PODFILE ====="
+          cat "$PROJ_DIR/Podfile"
+          # ========================================================
+          # 7. Nettoyage CocoaPods
+          # ========================================================
+          echo "===== Nettoyage CocoaPods ====="
+          cd "$PROJ_DIR"
+          pod deintegrate || true
+          rm -rf Pods
+          rm -f Podfile.lock
+          # ========================================================
+          # 8. Installation CocoaPods
+          # ========================================================
+          echo "===== pod install ====="
+          pod install --repo-update
+          # ========================================================
+          # 9. Vérification Pods
+          # ========================================================
+          echo "===== Vérification CocoaPods ====="
+          if [ ! -d "$PROJ_DIR/Pods" ]; then
+            echo "ERREUR : dossier Pods absent."
+            ls -la "$PROJ_DIR"
+            exit 1
+          fi
+          if [ ! -d "$PROJ_DIR/Pods/Target Support Files/Pods-fcvv" ]; then
+            echo "ERREUR : support files Pods-fcvv absents."
+            find "$PROJ_DIR/Pods" \
+              -maxdepth 3 \
+              -type d \
+              -print || true
+            exit 1
+          fi
+          if [ ! -f "$PROJ_DIR/Podfile.lock" ]; then
+            echo "ERREUR : Podfile.lock absent."
+            exit 1
+          fi
+          # ========================================================
+          # 10. Firebase
+          # ========================================================
+          test -d "$PROJ_DIR/Pods/FirebaseCore" || {
+            echo "ERREUR : FirebaseCore absent."
+            exit 1
+          }
+          test -d "$PROJ_DIR/Pods/FirebaseMessaging" || {
+            echo "ERREUR : FirebaseMessaging absent."
+            exit 1
+          }
+          echo "FirebaseCore OK"
+          echo "FirebaseMessaging OK"
+          # ========================================================
+          # 11. Workspace
+          # ========================================================
+          WORKSPACE_PATH="$PROJ_DIR/fcvv.xcworkspace"
+          if [ ! -d "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : fcvv.xcworkspace introuvable."
+            find "$PROJ_DIR" \
+              -maxdepth 1 \
+              -name "*.xcworkspace" \
+              -print
+            exit 1
+          fi
+          echo "Workspace = $WORKSPACE_PATH"
+          # ========================================================
+          # 12. Liste Xcode
+          # ========================================================
+          xcodebuild \
+            -list \
+            -workspace "$WORKSPACE_PATH"
+          # ========================================================
+          # 13. xcconfig CocoaPods
+          # ========================================================
+          DEBUG_XCCONFIG="$PROJ_DIR/Pods/Target Support Files/Pods-fcvv/Pods-fcvv.debug.xcconfig"
+          RELEASE_XCCONFIG="$PROJ_DIR/Pods/Target Support Files/Pods-fcvv/Pods-fcvv.release.xcconfig"
+          test -f "$DEBUG_XCCONFIG" || {
+            echo "ERREUR : xcconfig Debug absent."
+            exit 1
+          }
+          test -f "$RELEASE_XCCONFIG" || {
+            echo "ERREUR : xcconfig Release absent."
+            exit 1
+          }
+          echo "===== DEBUG XCCONFIG ====="
+          cat "$DEBUG_XCCONFIG"
+          echo "===== RELEASE XCCONFIG ====="
+          cat "$RELEASE_XCCONFIG"
+          # ========================================================
+          # 14. $(inherited)
+          # ========================================================
+          echo "===== Correction des build settings ====="
+          ruby - "$PROJECT_FILE" <<'RUBY'
+          require 'xcodeproj'
+          project_path = ARGV[0]
+          project =
+            Xcodeproj::Project.open(project_path)
+          target =
+            project.targets.find { |t| t.name == 'fcvv' }
+          raise 'Target fcvv introuvable' unless target
+          puts "Target fcvv trouvé."
+          target.build_configurations.each do |config|
+            settings = config.build_settings
+            puts "===== #{config.name} ====="
+            %w[
+              GCC_PREPROCESSOR_DEFINITIONS
+              HEADER_SEARCH_PATHS
+              OTHER_LDFLAGS
+            ].each do |key|
+              value = settings[key]
+              next if value.nil?
+              values =
+                value.is_a?(Array) ? value : [value.to_s]
+              unless values.any? do |v|
+                v.to_s.include?('$(inherited)')
+              end
+                values.unshift('$(inherited)')
+                settings[key] = values
+                puts "Ajout $(inherited) à #{key} pour #{config.name}"
+              end
+            end
+          end
+          project.save
+          puts "Build settings corrigés."
+          RUBY
+          # ========================================================
+          # 15. Vérification finale
+          # ========================================================
+          echo "===== Build settings finaux ====="
+          xcodebuild \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            -configuration Debug \
+            -showBuildSettings \
+            | grep -E \
+              'PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_ENTITLEMENTS|CODE_SIGNING_ALLOWED|OTHER_LDFLAGS|HEADER_SEARCH_PATHS|GCC_PREPROCESSOR_DEFINITIONS' \
+              || true
+          echo "===== CocoaPods configuré avec succès ====="
+      # ============================================================
+      # 12. CONFIGURE LAUNCH SCREEN
+      # ============================================================
+      - name: Configure iOS Launch Screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_FILE="$GITHUB_WORKSPACE/fcvv-ios/fcvv.xcodeproj"
+          if [ ! -d "$PROJECT_FILE" ]; then
+            echo "ERREUR : projet Xcode introuvable : $PROJECT_FILE"
+            find "$GITHUB_WORKSPACE" \
+              -name "*.xcodeproj" \
+              -print
+            exit 1
+          fi
+          PROJ_DIR="$(dirname "$PROJECT_FILE")"
+          echo "PROJECT_FILE=$PROJECT_FILE"
+          echo "PROJ_DIR=$PROJ_DIR"
+          APP_DIR="$PROJ_DIR/fcvv"
+          ASSETS_DIR="$APP_DIR/Images.xcassets"
+          IMAGESET_DIR="$ASSETS_DIR/fcvv_launch_logo.imageset"
+          IMAGE_DEST="$IMAGESET_DIR/fcvv_launch_logo.png"
+          PRESPLASH_SOURCE="$GITHUB_WORKSPACE/assets/logo_apk_fcvv.png"
+          LAUNCH_STORYBOARD="$PROJ_DIR/LaunchScreen.storyboard"
+          # --------------------------------------------------------
+          # Vérification image
+          # --------------------------------------------------------
+          if [ ! -f "$PRESPLASH_SOURCE" ]; then
+            echo "ERREUR : image introuvable : $PRESPLASH_SOURCE"
+            exit 1
+          fi
+          python3 - "$PRESPLASH_SOURCE" <<'PY'
+          from PIL import Image
+          import sys
+          image = Image.open(sys.argv[1])
+          if image.size != (512, 512):
+              raise SystemExit(
+                  f"ERREUR : dimensions attendues 512x512, "
+                  f"trouvées {image.size}"
+              )
+          PY
+          # --------------------------------------------------------
+          # Nettoyage
+          # --------------------------------------------------------
+          rm -f \
+            "$APP_DIR/logo_apk_fcvv.png" \
+            "$APP_DIR/fcvv_launch_logo.png" \
+            "$PROJ_DIR/logo_apk_fcvv.png" \
+            "$PROJ_DIR/fcvv_launch_logo.png" \
+            "$APP_DIR/LaunchScreen.storyboard" \
+            "$PROJ_DIR/LaunchScreen.storyboard" \
+            "$PROJ_DIR/Storyboards/Launch Screen.storyboard"
+          rm -rf \
+            "$ASSETS_DIR/logo_apk_fcvv.imageset" \
+            "$ASSETS_DIR/fcvv_launch_logo.imageset"
+          mkdir -p "$ASSETS_DIR"
+          mkdir -p "$IMAGESET_DIR"
+          # --------------------------------------------------------
+          # Assets catalog
+          # --------------------------------------------------------
+          if [ ! -f "$ASSETS_DIR/Contents.json" ]; then
+            cat > "$ASSETS_DIR/Contents.json" <<'EOF'
+          {
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
+            }
+          }
+          EOF
+          fi
+          cp "$PRESPLASH_SOURCE" "$IMAGE_DEST"
+          cat > "$IMAGESET_DIR/Contents.json" <<'EOF'
+          {
+            "images" : [
+              {
+                "filename" : "fcvv_launch_logo.png",
+                "idiom" : "universal",
+                "scale" : "1x"
+              }
+            ],
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
+            }
+          }
+          EOF
+          # --------------------------------------------------------
+          # LaunchScreen.storyboard
+          # --------------------------------------------------------
+          cat > "$LAUNCH_STORYBOARD" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <document
+              type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB"
+              version="3.0"
+              toolsVersion="23504"
+              targetRuntime="iOS.CocoaTouch"
+              propertyAccessControl="none"
+              useAutolayout="YES"
+              launchScreen="YES"
+              useTraitCollections="YES"
+              colorMatched="YES"
+              initialViewController="LaunchScreenViewController">
+              <device
+                  id="retina6_12"
+                  orientation="portrait"
+                  appearance="light"/>
+              <dependencies>
+                  <deployment identifier="iOS"/>
+                  <plugIn
+                      identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin"
+                      version="23506"/>
+                  <capability
+                      name="documents saved in the Xcode 8 format"
+                      minToolsVersion="8.0"/>
+              </dependencies>
+              <scenes>
+                  <scene sceneID="LaunchScreenScene">
+                      <objects>
+                          <viewController
+                              id="LaunchScreenViewController"
+                              sceneMemberID="viewController">
+                              <view
+                                  key="view"
+                                  contentMode="scaleToFill"
+                                  id="LaunchScreenView">
+                                  <rect
+                                      key="frame"
+                                      x="0.0"
+                                      y="0.0"
+                                      width="393"
+                                      height="852"/>
+                                  <autoresizingMask
+                                      key="autoresizingMask"
+                                      widthSizable="YES"
+                                      heightSizable="YES"/>
+                                  <subviews>
+                                      <imageView
+                                          clipsSubviews="YES"
+                                          userInteractionEnabled="NO"
+                                          contentMode="scaleAspectFit"
+                                          horizontalHuggingPriority="251"
+                                          verticalHuggingPriority="251"
+                                          image="fcvv_launch_logo"
+                                          translatesAutoresizingMaskIntoConstraints="NO"
+                                          id="LaunchLogo">
+                                          <rect
+                                              key="frame"
+                                              x="96.5"
+                                              y="326"
+                                              width="200"
+                                              height="200"/>
+                                      </imageView>
+                                  </subviews>
+                                  <color
+                                      key="backgroundColor"
+                                      red="0.117647"
+                                      green="0.227451"
+                                      blue="0.541176"
+                                      alpha="1"
+                                      colorSpace="custom"
+                                      customColorSpace="sRGB"/>
+                                  <constraints>
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="centerX"
+                                          secondItem="LaunchScreenView"
+                                          secondAttribute="centerX"
+                                          id="CenterX"/>
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="centerY"
+                                          secondItem="LaunchScreenView"
+                                          secondAttribute="centerY"
+                                          id="CenterY"/>
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="width"
+                                          constant="200"
+                                          id="LogoWidth"/>
+                                      <constraint
+                                          firstItem="LaunchLogo"
+                                          firstAttribute="height"
+                                          constant="200"
+                                          id="LogoHeight"/>
+                                  </constraints>
+                              </view>
+                          </viewController>
+                          <placeholder
+                              placeholderIdentifier="IBFirstResponder"
+                              id="FirstResponder"
+                              sceneMemberID="firstResponder"/>
+                      </objects>
+                      <point
+                          key="canvasLocation"
+                          x="100"
+                          y="100"/>
+                  </scene>
+              </scenes>
+              <resources>
+                  <image
+                      name="fcvv_launch_logo"
+                      width="512"
+                      height="512"/>
+              </resources>
+          </document>
+          EOF
+          # --------------------------------------------------------
+          # Validation storyboard
+          # --------------------------------------------------------
+          VC_COUNT=$(
+            grep -c '<viewController' "$LAUNCH_STORYBOARD" || true
+          )
+          if [ "$VC_COUNT" -ne 1 ]; then
+            echo "ERREUR : LaunchScreen doit avoir 1 viewController."
+            exit 1
+          fi
+          grep -q \
+            'initialViewController="LaunchScreenViewController"' \
+            "$LAUNCH_STORYBOARD"
+          grep -q \
+            'image="fcvv_launch_logo"' \
+            "$LAUNCH_STORYBOARD"
+          # --------------------------------------------------------
+          # Configuration Xcode
+          # --------------------------------------------------------
+          ruby - "$PROJECT_FILE" <<'RUBY'
+          require 'xcodeproj'
+          project_path = ARGV[0]
+          project =
+            Xcodeproj::Project.open(project_path)
+          target =
+            project.targets.find { |t| t.name == 'fcvv' }
+          raise 'Target fcvv introuvable' unless target
+          # Supprimer anciennes références.
+          project.files.to_a.each do |file|
+            basename =
+              File.basename(file.path.to_s)
+            next unless [
+              'logo_apk_fcvv.png',
+              'fcvv_launch_logo.png',
+              'LaunchScreen.storyboard',
+              'Launch Screen.storyboard'
+            ].include?(basename)
+            target.resources_build_phase.files.to_a.each do |build_file|
+              if build_file.file_ref == file
+                target.resources_build_phase.remove_build_file(
+                  build_file
+                )
+              end
+            end
+            file.remove_from_project
+          end
+          # Vérifier si le storyboard existe déjà.
+          storyboard_file =
+            project.files.to_a.find do |file|
+              File.basename(
+                file.path.to_s
+              ) == 'LaunchScreen.storyboard'
+            end
+          unless storyboard_file
+            storyboard_file =
+              project.main_group.new_file(
+                'LaunchScreen.storyboard'
+              )
+          end
+          already_in_resources =
+            target.resources_build_phase.files.to_a.any? do |build_file|
+              build_file.file_ref == storyboard_file
+            end
+          unless already_in_resources
+            target.resources_build_phase.add_file_reference(
+              storyboard_file,
+              true
+            )
+          end
+          target.build_configurations.each do |config|
+            config.build_settings['UILAUNCHSTORYBOARDNAME'] =
+              'LaunchScreen'
+            config.build_settings.delete(
+              'UIMAINSTORYBOARDFILE'
+            )
+          end
+          project.save
+          RUBY
+          # --------------------------------------------------------
+          # Info.plist
+          # --------------------------------------------------------
+          PLIST_FILE=$(
+            find "$PROJ_DIR" \
+              -maxdepth 1 \
+              -name "*-Info.plist" \
+              ! -name "GoogleService-Info.plist" \
+              -type f \
+              -print \
+              -quit
+          )
+          if [ -z "$PLIST_FILE" ]; then
+            echo "ERREUR : Info.plist introuvable."
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy \
+            -c "Delete :UILaunchStoryboardName" \
+            "$PLIST_FILE" 2>/dev/null || true
+          /usr/libexec/PlistBuddy \
+            -c "Add :UILaunchStoryboardName string LaunchScreen" \
+            "$PLIST_FILE"
+          /usr/libexec/PlistBuddy \
+            -c "Delete :UILaunchScreen" \
+            "$PLIST_FILE" 2>/dev/null || true
+          plutil -lint "$PLIST_FILE"
+          # --------------------------------------------------------
+          # Validation ressources
+          # --------------------------------------------------------
+          test -f "$IMAGE_DEST"
+          test -f "$IMAGESET_DIR/Contents.json"
+          test -f "$LAUNCH_STORYBOARD"
+          # --------------------------------------------------------
+          # ibtool
+          # --------------------------------------------------------
+          xcrun ibtool \
+            --warnings \
+            --errors \
+            --notices \
+            "$LAUNCH_STORYBOARD"
+          TEST_STORYBOARD_DIR="/tmp/FCVV-LaunchScreen.storyboardc"
+          rm -rf "$TEST_STORYBOARD_DIR"
+          xcrun ibtool \
+            --compile "$TEST_STORYBOARD_DIR" \
+            "$LAUNCH_STORYBOARD"
+          STORYBOARD_PLIST="$TEST_STORYBOARD_DIR/Info.plist"
+          if [ ! -f "$STORYBOARD_PLIST" ]; then
+            echo "ERREUR : storyboard compilé invalide."
+            exit 1
+          fi
+          plutil -lint "$STORYBOARD_PLIST"
+          echo "Launch Screen configuré avec succès."
+      # ============================================================
+      # 13. VERIFY WORKSPACE / SCHEME
+      # ============================================================
+      - name: Verify Xcode workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ_DIR="$GITHUB_WORKSPACE/fcvv-ios"
+          WORKSPACE_PATH="$PROJ_DIR/fcvv.xcworkspace"
+          if [ ! -d "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : workspace introuvable : $WORKSPACE_PATH"
+            find "$GITHUB_WORKSPACE" \
+              -name "*.xcworkspace" \
+              -print
+            exit 1
+          fi
+          echo "Workspace = $WORKSPACE_PATH"
+          echo "===== TARGETS / SCHEMES ====="
+          xcodebuild \
+            -list \
+            -workspace "$WORKSPACE_PATH"
+          echo "===== BUILD SETTINGS ====="
+          xcodebuild \
+            -showBuildSettings \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            > /tmp/fcvv-build-settings.txt
+          echo "===== SIGNATURE ====="
+          grep \
+            -E \
+            'CODE_SIGN|CODE_SIGN_ENTITLEMENTS|PRODUCT_BUNDLE_IDENTIFIER' \
+            /tmp/fcvv-build-settings.txt \
+            || true
+          echo "===== FIREBASE ====="
+          grep \
+            -E \
+            'Firebase|GoogleService' \
+            /tmp/fcvv-build-settings.txt \
+            || true
+      # ============================================================
+      # 14. BUILD SIMULATOR
+      # ============================================================
+      - name: Build simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "============================================================"
+          echo "             BUILD SIMULATOR FCVV"
+          echo "============================================================"
+          # --------------------------------------------------------
+          # 1. Recherche du workspace
+          # --------------------------------------------------------
+          WORKSPACE_PATH=$(
+            find "$PWD/fcvv-ios" \
+              -name "*.xcworkspace" \
+              -type d \
+              -print \
+              -quit
+          )
+          if [ -z "$WORKSPACE_PATH" ]; then
+            echo "ERREUR : aucun .xcworkspace trouvé dans fcvv-ios."
+            find "$PWD" \
+              -maxdepth 5 \
+              -name "*.xcworkspace" \
+              -print
+            exit 1
+          fi
+          echo "Workspace = $WORKSPACE_PATH"
+          # --------------------------------------------------------
+          # 2. Recherche de l'iPhone 15
+          # --------------------------------------------------------
+          DEVICE_ID=$(
+            xcrun simctl list devices available \
+              | grep -m 1 'iPhone 15 (' \
+              | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/'
+          )
+          if [ -z "$DEVICE_ID" ]; then
+            echo "ERREUR : iPhone 15 indisponible."
+            echo "===== DEVICES DISPONIBLES ====="
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "iPhone 15 = $DEVICE_ID"
+          # --------------------------------------------------------
+          # 3. Vérification état actuel du simulateur
+          # --------------------------------------------------------
+          DEVICE_STATE=$(
+            xcrun simctl list devices \
+              | grep "$DEVICE_ID" \
+              | sed -E 's/.*\(([A-F0-9-]+)\) \(([^)]+)\).*/\2/' \
+              | head -1
+          )
+          echo "État actuel = ${DEVICE_STATE:-UNKNOWN}"
+          # --------------------------------------------------------
+          # 4. ARRÊT OBLIGATOIRE avant erase
+          #
+          # simctl erase échoue si le device est Booted.
+          # --------------------------------------------------------
+          if [ "$DEVICE_STATE" = "Booted" ]; then
+            echo "Simulateur actuellement démarré."
+            echo "Arrêt du simulateur avant nettoyage..."
+            xcrun simctl shutdown "$DEVICE_ID" || true
+            # Attendre réellement l'arrêt.
+            for i in {1..30}; do
+              CURRENT_STATE=$(
+                xcrun simctl list devices \
+                  | grep "$DEVICE_ID" \
+                  | sed -E 's/.*\(([A-F0-9-]+)\) \(([^)]+)\).*/\2/' \
+                  | head -1
+              )
+              if [ "$CURRENT_STATE" != "Booted" ]; then
+                echo "Simulateur arrêté."
+                break
+              fi
+              echo "Attente arrêt simulateur... ($i/30)"
+              sleep 1
+            done
+          fi
+          # --------------------------------------------------------
+          # 5. Nettoyage du simulateur
+          # --------------------------------------------------------
+          echo "Effacement du simulateur..."
+          xcrun simctl erase "$DEVICE_ID"
+          echo "Simulateur effacé avec succès."
+          # --------------------------------------------------------
+          # 6. Démarrage propre
+          # --------------------------------------------------------
+          echo "Démarrage du simulateur..."
+          xcrun simctl boot "$DEVICE_ID"
+          # --------------------------------------------------------
+          # 7. Attente complète du démarrage
+          # --------------------------------------------------------
+          echo "Attente du démarrage complet..."
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          echo "Simulateur complètement démarré."
+          # --------------------------------------------------------
+          # 8. Vérification finale de l'état
+          # --------------------------------------------------------
+          FINAL_STATE=$(
+            xcrun simctl list devices \
+              | grep "$DEVICE_ID" \
+              | sed -E 's/.*\(([A-F0-9-]+)\) \(([^)]+)\).*/\2/' \
+              | head -1
+          )
+          echo "État final = $FINAL_STATE"
+          if [ "$FINAL_STATE" != "Booted" ]; then
+            echo "ERREUR : le simulateur n'est pas Booted."
+            exit 1
+          fi
+          # --------------------------------------------------------
+          # 9. Build Xcode
+          # --------------------------------------------------------
+          echo "============================================================"
+          echo "                    XCODE BUILD"
+          echo "============================================================"
+          xcodebuild clean build \
+            -workspace "$WORKSPACE_PATH" \
+            -scheme fcvv \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            IPHONEOS_DEPLOYMENT_TARGET="${IOS_DEPLOYMENT_TARGET}" \
+            CLANG_ENABLE_MODULES=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+          # --------------------------------------------------------
+          # 10. Recherche de l'application
+          # --------------------------------------------------------
+          APP_PATH=$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" \
+              -path "*/Build/Products/Debug-iphonesimulator/fcvv.app" \
+              -type d \
+              -print \
+              -quit
+          )
+          if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : fcvv.app introuvable après compilation."
+            echo "===== DERIVED DATA ====="
+            find \
+              "$HOME/Library/Developer/Xcode/DerivedData" \
+              -path "*Debug-iphonesimulator*" \
+              -maxdepth 8 \
+              -print \
+              | head -200
+            exit 1
+          fi
+          echo "APP_PATH=$APP_PATH"
+          # --------------------------------------------------------
+          # 11. Vérification Info.plist
+          # --------------------------------------------------------
+          INFO_PLIST="$APP_PATH/Info.plist"
+          if [ ! -f "$INFO_PLIST" ]; then
+            echo "ERREUR : Info.plist de l'application absent."
+            exit 1
+          fi
+          plutil -lint "$INFO_PLIST"
+          echo "===== APP INFO ====="
+          echo "Bundle ID:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleIdentifier" \
+            "$INFO_PLIST"
+          echo "Version:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleShortVersionString" \
+            "$INFO_PLIST"
+          echo "Build:"
+          /usr/libexec/PlistBuddy \
+            -c "Print :CFBundleVersion" \
+            "$INFO_PLIST"
+          # --------------------------------------------------------
+          # 12. Vérification Firebase
+          # --------------------------------------------------------
+          echo "===== FIREBASE ====="
+          if [ ! -f "$APP_PATH/GoogleService-Info.plist" ]; then
+            echo "ERREUR : GoogleService-Info.plist absent de l'app."
+            exit 1
+          fi
+          plutil -lint \
+            "$APP_PATH/GoogleService-Info.plist"
+          echo "GoogleService-Info.plist OK."
+          # --------------------------------------------------------
+          # 13. Vérification LaunchScreen
+          # --------------------------------------------------------
+          echo "===== LAUNCH SCREEN ====="
+          LAUNCH_VALUE=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :UILaunchStoryboardName" \
+              "$INFO_PLIST" \
+              2>/dev/null || true
+          )
+          echo "UILaunchStoryboardName = $LAUNCH_VALUE"
+          if [ "$LAUNCH_VALUE" != "LaunchScreen" ]; then
+            echo "ERREUR : UILaunchStoryboardName != LaunchScreen"
+            exit 1
+          fi
+          # --------------------------------------------------------
+          # 14. Résultat
+          # --------------------------------------------------------
+          echo "============================================================"
+          echo "       BUILD SIMULATOR FCVV RÉUSSI"
+          echo "============================================================"
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "DEVICE_ID=$DEVICE_ID" >> "$GITHUB_ENV"
+      # ============================================================
+      # 15. INSTALL / LAUNCH SMOKE TEST
+      # ============================================================
+      - name: Simulator smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${DEVICE_ID:-}" ]; then
+            echo "ERREUR : DEVICE_ID non défini."
+            exit 1
+          fi
+          if [ -z "${APP_PATH:-}" ]; then
+            echo "ERREUR : APP_PATH non défini."
+            exit 1
+          fi
+          echo "DEVICE_ID=$DEVICE_ID"
+          echo "APP_PATH=$APP_PATH"
+          # Vérifier que le simulateur est bien démarré.
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          # Installer l'application.
+          xcrun simctl install \
+            "$DEVICE_ID" \
+            "$APP_PATH"
+          echo "Application installée."
+          # Lancer l'application.
+          xcrun simctl launch \
+            "$DEVICE_ID" \
+            "${APP_BUNDLE_ID}"
+          echo "Application lancée."
+          sleep 5
+          echo "Application FCVV lancée avec succès sur le simulateur."
+      # ============================================================
+      # 16. PACKAGE APP
+      # ============================================================
+      - name: Package app
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH=$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" \
+              -path "*/Build/Products/Debug-iphonesimulator/fcvv.app" \
+              -type d \
+              -print \
+              -quit
+          )
+          if [ -z "$APP_PATH" ]; then
+            echo "ERREUR : fcvv.app introuvable."
+            exit 1
+          fi
+          rm -f "$GITHUB_WORKSPACE/fcvv.zip"
+          cd "$(dirname "$APP_PATH")"
+          zip -qr \
+            "$GITHUB_WORKSPACE/fcvv.zip" \
+            "fcvv.app"
+          if [ ! -s "$GITHUB_WORKSPACE/fcvv.zip" ]; then
+            echo "ERREUR : archive fcvv.zip vide ou absente."
+            exit 1
+          fi
+          echo "===== PACKAGE ====="
+          ls -lh \
+            "$GITHUB_WORKSPACE/fcvv.zip"
+      # ============================================================
+      # 17. UPLOAD ARTIFACT
+      # ============================================================
+      - name: Upload FCVV simulator artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcvv-app
+          path: fcvv.zip
+          if-no-files-found: error
+          retention-days: 14
