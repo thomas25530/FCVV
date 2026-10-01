@@ -1045,8 +1045,27 @@ class MyApp(App):
         except Exception:
             pass
         from kivy.core.window import Window
+        
         if platform == "ios":
             Window.softinput_mode = "below_target"
+            # ============================================================
+            # Tentative de forcer l'affichage de la Status Bar iOS
+            # ============================================================
+            try:
+                from pyobjus import autoclass
+                UIApplication = autoclass("UIApplication")
+                app = UIApplication.sharedApplication()
+                try:
+                    print(f"[IOS] statusBarHidden avant = {app.isStatusBarHidden()}")
+                except Exception as e:
+                    print(f"[IOS] Lecture statusBarHidden impossible : {e}")
+                try:
+                    app.setStatusBarHidden_(False)
+                    print("[IOS] Demande affichage Status Bar")
+                except Exception as e:
+                    print(f"[IOS] Impossible de modifier Status Bar : {e}")
+            except Exception as e:
+                print(f"[IOS] Erreur UIApplication : {e}")
             def update_ios_safe_area(dt):
                 try:
                     safe_top = self.get_ios_safe_area_top()
@@ -1055,18 +1074,37 @@ class MyApp(App):
                         safe_top = dp(44)
                     print(f"[iOS SAFE AREA] Mise a jour : top = {safe_top}")
                     if hasattr(self, "root") and self.root:
-                        if hasattr(self.root,"update_ios_safe_area"):
+                        if hasattr(self.root, "update_ios_safe_area"):
                             self.root.update_ios_safe_area(safe_top)
                 except Exception as e:
                     print(f"[iOS SAFE AREA] Mise a jour impossible : {e}")
-    
+            def check_status_bar(dt):
+                try:
+                    from pyobjus import autoclass
+                    UIApplication = autoclass("UIApplication")
+                    app = UIApplication.sharedApplication()
+                    try:
+                        print(
+                            f"[IOS] statusBarHidden apres demarrage = "
+                            f"{app.isStatusBarHidden()}"
+                        )
+                    except Exception as e:
+                        print(
+                            f"[IOS] Lecture statusBarHidden apres demarrage impossible : {e}"
+                        )
+                except Exception as e:
+                    print(f"[IOS] check status bar erreur : {e}")
+        
             # Première récupération
             Clock.schedule_once(update_ios_safe_area, 0.5)
             Clock.schedule_once(update_ios_safe_area, 1.0)
             Clock.schedule_once(update_ios_safe_area, 2.0)
-
+        
+            # Vérification après démarrage complet
+            Clock.schedule_once(check_status_bar, 3.0)
         else:
             Window.softinput_mode = "below_target"
+
         Window.bind(on_keyboard=self.on_back_button)
         Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
         if platform in ("android", "ios"):
