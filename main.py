@@ -437,7 +437,7 @@ class RootLayout(FloatLayout):
         self.safe_area_top = max(0, safe_top)
 
         if self.safe_area_top <= 0:
-            self.safe_area_top = dp(50)
+            self.safe_area_top = dp(60)
 
         if not hasattr(self, "top_bar"):
             return
@@ -739,7 +739,7 @@ class MyApp(App):
             safe_top = self.get_ios_safe_area_top()
             if safe_top <= 0:
                 print("[iOS SAFE AREA] Fallback 44")
-                safe_top = dp(50)
+                safe_top = dp(60)
         else:
             safe_top = 0
         print(f"[SAFE AREA] top={safe_top}")
@@ -1071,7 +1071,7 @@ class MyApp(App):
                     safe_top = self.get_ios_safe_area_top()
                     if safe_top <= 0:
                         print("[IOS] Safe Area indisponible -> fallback 44dp")
-                        safe_top = dp(50)
+                        safe_top = dp(60)
                     print(f"[iOS SAFE AREA] Mise a jour : top = {safe_top}")
                     if hasattr(self, "root") and self.root:
                         if hasattr(self.root, "update_ios_safe_area"):
