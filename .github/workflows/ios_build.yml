@@ -111,11 +111,16 @@ jobs:
           set -euo pipefail
           rm -rf build
           rm -rf dist
-          rm -rf ~/.kivy-ios
           rm -rf ~/Library/Caches/pip
+
+          mkdir -p ~/.kivy-ios/packages
+
+          curl -L \
+            https://github.com/glennrp/libpng/archive/refs/tags/v1.6.48.tar.gz \
+            -o ~/.kivy-ios/packages/libpng-1.6.48.tar.gz
           
-          toolchain build python3 kivy openssl pillow pyobjus
-          toolchain pip install pyyaml requests urllib3 plyer pyobjus
+          toolchain build hostpython3 python3 kivy openssl pillow pyobjus
+          toolchain pip install pyyaml requests urllib3 plyer
           
           toolchain pip install defusedxml
           toolchain pip install --no-deps fpdf2
