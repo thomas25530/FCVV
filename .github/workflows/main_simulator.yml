@@ -179,6 +179,20 @@ jobs:
             project.save
           "
           echo "Firebase plist ajouté au projet."
+
+          echo "===== RECHERCHE STATUS BAR ====="
+          grep -R "prefersStatusBarHidden" "$PROJ_DIR" 2>/dev/null || true
+          grep -R "setStatusBarHidden" "$PROJ_DIR" 2>/dev/null || true
+          grep -R "statusBarHidden" "$PROJ_DIR" 2>/dev/null || true
+          grep -R "UIStatusBarHidden" "$PROJ_DIR" 2>/dev/null || true
+          echo "===== FICHIERS OBJECTIVE-C ====="
+          find "$PROJ_DIR" \
+            \( -name "*.m" -o -name "*.mm" -o -name "*.h" \) \
+            | sort
+
+          echo "===== SDL FILES ====="
+          find "$PROJ_DIR" | grep -i sdl || true
+      
       # ============================================================
       # 8. VERIFY PROJECT / TARGET
       # ============================================================
