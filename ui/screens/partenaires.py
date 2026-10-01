@@ -18,19 +18,21 @@ from kivy.clock import Clock
 from kivy.animation import Animation
 from kivy.graphics import Rotate, PushMatrix, PopMatrix
 from kivy.uix.widget import Widget
+from kivy.utils import platform
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class ImageButton(ButtonBehavior, Image):
-    def __init__(self, **kwargs):
+    def __init__(self, screen_ref, **kwargs):
         self.link = kwargs.pop('link', '')
         super().__init__(**kwargs)
         self.opacity = 0 
+        self.screen_ref = screen_ref  # Référence vers PartenairesScreen pour l'ouverture sécurisée
 
     def on_release(self):
         if self.link:
             url = self.link if self.link.startswith("http") else "http://" + self.link
-            webbrowser.open(url)
+            self.screen_ref.open_url(url)
 
 class PartenairesScreen(Screen):
     def __init__(self, **kwargs):
@@ -61,6 +63,29 @@ class PartenairesScreen(Screen):
     def _update_rect(self, instance, value):
         self.rect_bg.pos = instance.pos
         self.rect_bg.size = instance.size
+
+    def open_url(self, url):
+        # Utilisation de Clock.schedule_once pour s'exécuter en sécurité sur le main thread sous iOS
+        Clock.schedule_once(lambda dt: self._open_url(url))
+
+    def _open_url(self, target_url):
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                
+                nsurl = NSURL.URLWithString_(target_url)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne recommandée pour iOS
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
+            else:
+                webbrowser.open(target_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
 
     def download_and_set_image(self, url, img_widget):
         app = App.get_running_app()
@@ -116,7 +141,7 @@ class PartenairesScreen(Screen):
                 text=niv.upper(), 
                 size_hint=(None, 1), 
                 width=max(dp(160), dp(len(niv) * (user_size * 0.7))), # Largeur dynamique
-                font_size=f"{user_size}sp",                            # Taille dynamique
+                font_size=f"{user_size}sp",                         # Taille dynamique
                 background_normal='', 
                 background_color=(0,0,0,0),
                 color=(0,0,0,1) if is_active else (1,1,1,1), 
@@ -135,7 +160,8 @@ class PartenairesScreen(Screen):
         self.content_layout.clear_widgets()
         self.scroll.scroll_y = 1.0
         for p in [p for p in data if p.get('niveau') == self.current_tab]:
-            img = ImageButton(link=p.get('lien', ''), size_hint_y=None, height=dp(150), fit_mode="contain")
+            # Passage de 'self' (PartenairesScreen) pour la gestion iOS
+            img = ImageButton(screen_ref=self, link=p.get('lien', ''), size_hint_y=None, height=dp(150), fit_mode="contain")
             self.content_layout.add_widget(img)
             self.download_and_set_image(p.get('logo', ''), img)
             
