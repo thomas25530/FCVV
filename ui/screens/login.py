@@ -233,6 +233,9 @@ class LoginScreen(Screen):
             print(f"[RESET ERROR] reset_name_input : {e}")
     
     def on_pre_enter(self):
+        if platform == "ios":
+            from kivy.core.window import Window
+            Window.softinput_mode = ""  # ou "pan" selon votre préférence
         app = App.get_running_app()
         self.name_input.focus = False
         self.name_input.disabled = False
@@ -246,6 +249,13 @@ class LoginScreen(Screen):
             self.name_input.readonly = True
             self.name_input.disabled = True
 
+    def on_leave(self):
+        """Quand on quitte l'écran de Login, on remet le mode global de l'app"""
+        super().on_leave()
+        if platform == "ios":
+            from kivy.core.window import Window
+            Window.softinput_mode = "below_target"
+    
     def on_enter(self):
         app = App.get_running_app()
         self.pwd_input.text = ""
