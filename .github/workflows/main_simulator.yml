@@ -192,6 +192,12 @@ jobs:
 
           echo "===== SDL FILES ====="
           find "$PROJ_DIR" | grep -i sdl || true
+
+          echo "===== MAIN.M ====="
+          cat "$PROJ_DIR/main.m"
+
+          echo "===== BRIDGE.M ====="
+          cat "$PROJ_DIR/bridge.m"
       
       # ============================================================
       # 8. VERIFY PROJECT / TARGET
