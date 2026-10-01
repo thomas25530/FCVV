@@ -1103,7 +1103,592 @@ jobs:
 
           echo ""
           echo "✓ Étape 9 terminée sans erreur"
+
+
+          echo ""
+          echo "============================================================"
+          echo "  VERIFICATION CRITIQUE DU LIFECYCLE SDL"
+          echo "============================================================"
+          
+          python3 - "$DELEGATE_M" <<'PY'
+          import sys
+          import re
+          
+          path = sys.argv[1]
+          
+          with open(path, "r", encoding="utf-8") as f:
+              text = f.read()
+          
+          # Recherche de toutes les méthodes didFinishLaunching
+          matches = list(re.finditer(
+              r'-\s*\(BOOL\)\s*application\s*:\s*'
+              r'\(UIApplication\s*\*\)\s*application\s*'
+              r'didFinishLaunchingWithOptions\s*:\s*'
+              r'\(NSDictionary\s*\*\)\s*launchOptions\s*\{',
+              text,
+              re.MULTILINE
+          ))
+          
+          print(f"didFinishLaunchingWithOptions trouvé : {len(matches)}")
+          
+          if not matches:
+              print("❌ Aucune méthode didFinishLaunchingWithOptions")
+              sys.exit(1)
+          
+          call = "[self fcvvConfigureFirebaseAndNotifications];"
+          
+          call_positions = [
+              m.start()
+              for m in re.finditer(
+                  re.escape(call),
+                  text
+              )
+          ]
+          
+          print(f"Appels FCVV trouvés : {len(call_positions)}")
+          
+          if len(call_positions) == 0:
+              print("❌ L'appel FCVV est absent")
+              sys.exit(1)
+          
+          if len(call_positions) > 1:
+              print("⚠️ Plusieurs appels FCVV détectés")
+          
+          # On prend la méthode de lancement
+          launch_start = matches[0].start()
+          launch_body_start = matches[0].end()
+          
+          # Trouver approximativement la fin de la méthode
+          next_method = re.search(
+              r'\n-\s*\(',
+              text[launch_body_start:]
+          )
+          
+          if next_method:
+              launch_end = launch_body_start + next_method.start()
+          else:
+              launch_end = len(text)
+          
+          calls_inside = [
+              pos
+              for pos in call_positions
+              if launch_body_start <= pos < launch_end
+          ]
+          
+          if not calls_inside:
+              print("")
+              print("❌ ERREUR CRITIQUE")
+              print("   L'appel FCVV existe mais n'est PAS dans")
+              print("   didFinishLaunchingWithOptions.")
+              print("")
+              sys.exit(1)
+          
+          print("✓ Appel FCVV situé dans didFinishLaunchingWithOptions")
+          
+          # Affichage du contexte
+          pos = calls_inside[0]
+          
+          start = max(0, pos - 500)
+          end = min(len(text), pos + 800)
+          
+          print("")
+          print("============================================================")
+          print("CONTEXTE")
+          print("============================================================")
+          print(text[start:end])
+          
+          print("")
+          print("✓ Vérification lifecycle OK")
+          PY
+
+      # ============================================================
+      # 9B. DIAGNOSTIC SDL_uikitappdelegate.m APRÈS INJECTION
+      # ============================================================
+      - name: Verify injected SDLUIKitDelegate
+        shell: bash
+        env:
+          TARGET_NAME: fcvv
+        run: |
+          set -euo pipefail
       
+          echo ""
+          echo "============================================================"
+          echo "  DIAGNOSTIC SDL_uikitappdelegate.m"
+          echo "============================================================"
+      
+          # ----------------------------------------------------------
+          # Recherche
+          # ----------------------------------------------------------
+      
+          DELEGATE_M="$(
+            find . \
+              -type f \
+              -name "SDL_uikitappdelegate.m" \
+              -print \
+              -quit
+          )"
+      
+          DELEGATE_H="$(
+            find . \
+              -type f \
+              -name "SDL_uikitappdelegate.h" \
+              -print \
+              -quit
+          )"
+      
+          if [ -z "$DELEGATE_M" ]; then
+            echo "❌ SDL_uikitappdelegate.m introuvable"
+            exit 1
+          fi
+      
+          if [ -z "$DELEGATE_H" ]; then
+            echo "❌ SDL_uikitappdelegate.h introuvable"
+            exit 1
+          fi
+      
+          echo "✓ .m : $DELEGATE_M"
+          echo "✓ .h : $DELEGATE_H"
+      
+          # ----------------------------------------------------------
+          # Informations générales
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  1. INFORMATIONS FICHIER"
+          echo "============================================================"
+      
+          wc -l "$DELEGATE_M"
+          ls -lh "$DELEGATE_M"
+      
+          echo ""
+          echo "SHA256 :"
+          shasum -a 256 "$DELEGATE_M"
+      
+          # ----------------------------------------------------------
+          # Header
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  2. HEADER SDLUIKitDelegate"
+          echo "============================================================"
+      
+          grep -n -A 8 -B 3 \
+            "@interface SDLUIKitDelegate" \
+            "$DELEGATE_H" \
+            || {
+              echo "❌ @interface SDLUIKitDelegate introuvable"
+              exit 1
+            }
+      
+          echo ""
+      
+          grep -n \
+            -E \
+            "UNUserNotificationCenterDelegate|FIRMessagingDelegate" \
+            "$DELEGATE_H" \
+            || {
+              echo "❌ Protocoles Firebase/APNs absents du header"
+              exit 1
+            }
+      
+          echo "✓ Protocoles présents"
+      
+          # ----------------------------------------------------------
+          # Imports
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  3. IMPORTS"
+          echo "============================================================"
+      
+          grep -n \
+            -E \
+            "FirebaseCore|FirebaseMessaging|UserNotifications" \
+            "$DELEGATE_M"
+      
+          # ----------------------------------------------------------
+          # Implémentation
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  4. SDLUIKitDelegate IMPLEMENTATION"
+          echo "============================================================"
+      
+          grep -n \
+            "@implementation SDLUIKitDelegate" \
+            "$DELEGATE_M" \
+            || {
+              echo "❌ @implementation SDLUIKitDelegate absent"
+              exit 1
+            }
+      
+          # ----------------------------------------------------------
+          # didFinishLaunchingWithOptions
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  5. didFinishLaunchingWithOptions"
+          echo "============================================================"
+      
+          grep -n \
+            -A 45 \
+            -B 8 \
+            "didFinishLaunchingWithOptions" \
+            "$DELEGATE_M" \
+            || {
+              echo "❌ didFinishLaunchingWithOptions introuvable"
+              exit 1
+            }
+      
+          # ----------------------------------------------------------
+          # Vérification de l'appel
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  6. APPEL FCVV"
+          echo "============================================================"
+      
+          CALL_LINE="$(
+            grep -n \
+              "\[self fcvvConfigureFirebaseAndNotifications\];" \
+              "$DELEGATE_M" \
+              || true
+          )"
+      
+          if [ -z "$CALL_LINE" ]; then
+            echo "❌ APPEL FCVV ABSENT"
+            exit 1
+          fi
+      
+          echo "✓ Appel trouvé :"
+          echo "$CALL_LINE"
+      
+          # ----------------------------------------------------------
+          # Vérification du contexte de l'appel
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  7. CONTEXTE DE L'APPEL"
+          echo "============================================================"
+      
+          CALL_NUMBER="$(
+            echo "$CALL_LINE" |
+            head -1 |
+            cut -d: -f1
+          )"
+      
+          START_LINE=$((CALL_NUMBER - 15))
+          END_LINE=$((CALL_NUMBER + 20))
+      
+          if [ "$START_LINE" -lt 1 ]; then
+            START_LINE=1
+          fi
+      
+          echo ""
+          echo "----- lignes $START_LINE à $END_LINE -----"
+      
+          sed -n "${START_LINE},${END_LINE}p" "$DELEGATE_M"
+      
+          # ----------------------------------------------------------
+          # Vérifier que l'appel apparaît APRÈS la signature
+          # ----------------------------------------------------------
+      
+          LAUNCH_LINE="$(
+            grep -n \
+              "didFinishLaunchingWithOptions" \
+              "$DELEGATE_M" |
+            head -1 |
+            cut -d: -f1
+          )"
+      
+          if [ -z "$LAUNCH_LINE" ]; then
+            echo "❌ Impossible de déterminer la ligne de lancement"
+            exit 1
+          fi
+      
+          if [ "$CALL_NUMBER" -le "$LAUNCH_LINE" ]; then
+            echo "❌ ERREUR : l'appel FCVV n'est pas situé dans"
+            echo "   didFinishLaunchingWithOptions."
+            exit 1
+          fi
+      
+          echo "✓ L'appel FCVV se trouve après la signature de"
+          echo "  didFinishLaunchingWithOptions"
+      
+          # ----------------------------------------------------------
+          # Méthode de configuration
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  8. MÉTHODE fcvvConfigureFirebaseAndNotifications"
+          echo "============================================================"
+      
+          CONFIG_LINE="$(
+            grep -n \
+              "fcvvConfigureFirebaseAndNotifications" \
+              "$DELEGATE_M" |
+            head -1 |
+            cut -d: -f1
+          )"
+      
+          if [ -z "$CONFIG_LINE" ]; then
+            echo "❌ Méthode de configuration absente"
+            exit 1
+          fi
+      
+          echo "✓ Méthode trouvée ligne $CONFIG_LINE"
+      
+          sed -n \
+            "$((CONFIG_LINE - 5)),$((CONFIG_LINE + 100))p" \
+            "$DELEGATE_M"
+      
+          # ----------------------------------------------------------
+          # Firebase
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  9. FIREBASE"
+          echo "============================================================"
+      
+          for pattern in \
+            "FIRApp configure" \
+            "FIRApp defaultApp" \
+            "FIRMessaging messaging" \
+            "messaging:(FIRMessaging" \
+            "didReceiveRegistrationToken"
+          do
+            if grep -q "$pattern" "$DELEGATE_M"; then
+              echo "✓ $pattern"
+            else
+              echo "❌ $pattern"
+              exit 1
+            fi
+          done
+      
+          # ----------------------------------------------------------
+          # APNs / Notifications
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  10. APNs / NOTIFICATIONS"
+          echo "============================================================"
+      
+          for pattern in \
+            "UNUserNotificationCenter" \
+            "currentNotificationCenter" \
+            "requestAuthorizationWithOptions" \
+            "registerForRemoteNotifications" \
+            "didRegisterForRemoteNotificationsWithDeviceToken" \
+            "didFailToRegisterForRemoteNotificationsWithError" \
+            "willPresentNotification" \
+            "didReceiveNotificationResponse"
+          do
+            if grep -q "$pattern" "$DELEGATE_M"; then
+              echo "✓ $pattern"
+            else
+              echo "❌ $pattern"
+              exit 1
+            fi
+          done
+      
+          # ----------------------------------------------------------
+          # Vérification précise de requestAuthorization
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  11. requestAuthorization"
+          echo "============================================================"
+      
+          AUTH_LINE="$(
+            grep -n \
+              "requestAuthorizationWithOptions" \
+              "$DELEGATE_M" |
+            head -1 |
+            cut -d: -f1
+          )"
+      
+          if [ -z "$AUTH_LINE" ]; then
+            echo "❌ requestAuthorizationWithOptions absent"
+            exit 1
+          fi
+      
+          echo "✓ requestAuthorizationWithOptions ligne $AUTH_LINE"
+      
+          sed -n \
+            "$((AUTH_LINE - 20)),$((AUTH_LINE + 55))p" \
+            "$DELEGATE_M"
+      
+          # ----------------------------------------------------------
+          # Vérification registerForRemoteNotifications
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  12. registerForRemoteNotifications"
+          echo "============================================================"
+      
+          REGISTER_LINE="$(
+            grep -n \
+              "registerForRemoteNotifications" \
+              "$DELEGATE_M" |
+            head -1 |
+            cut -d: -f1
+          )"
+      
+          if [ -z "$REGISTER_LINE" ]; then
+            echo "❌ registerForRemoteNotifications absent"
+            exit 1
+          fi
+      
+          echo "✓ registerForRemoteNotifications ligne $REGISTER_LINE"
+      
+          # ----------------------------------------------------------
+          # Vérification Firebase -> APNs
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  13. ASSOCIATION APNs -> FCM"
+          echo "============================================================"
+      
+          if grep -q \
+            "\[FIRMessaging messaging\] setAPNSToken" \
+            "$DELEGATE_M"; then
+      
+            echo "✓ setAPNSToken présent"
+      
+          else
+      
+            echo "❌ setAPNSToken absent"
+            exit 1
+      
+          fi
+      
+          # ----------------------------------------------------------
+          # Détection de doublons
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  14. DÉTECTION DES DOUBLONS"
+          echo "============================================================"
+      
+          check_duplicates() {
+            local pattern="$1"
+            local label="$2"
+      
+            COUNT="$(
+              grep -c "$pattern" "$DELEGATE_M" || true
+            )"
+      
+            echo "$label : $COUNT occurrence(s)"
+      
+            if [ "$COUNT" -gt 1 ]; then
+              echo "⚠️ Attention : plusieurs occurrences détectées"
+            fi
+          }
+      
+          check_duplicates \
+            "fcvvConfigureFirebaseAndNotifications" \
+            "Configuration FCVV"
+      
+          check_duplicates \
+            "didReceiveRegistrationToken" \
+            "Callback FCM"
+      
+          check_duplicates \
+            "didRegisterForRemoteNotificationsWithDeviceToken" \
+            "Callback APNs"
+      
+          check_duplicates \
+            "requestAuthorizationWithOptions" \
+            "Demande autorisation"
+      
+          # ----------------------------------------------------------
+          # Recherche d'un éventuel bloc injecté hors classe
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  15. STRUCTURE DU FICHIER"
+          echo "============================================================"
+      
+          echo "Interfaces :"
+          grep -n "@interface" "$DELEGATE_M" || true
+      
+          echo ""
+          echo "Implementations :"
+          grep -n "@implementation" "$DELEGATE_M" || true
+      
+          echo ""
+          echo "Ends :"
+          grep -n "^@end" "$DELEGATE_M" || true
+      
+          # ----------------------------------------------------------
+          # Vérification syntaxique basique des marqueurs
+          # ----------------------------------------------------------
+      
+          IMPL_COUNT="$(
+            grep -c \
+              "@implementation SDLUIKitDelegate" \
+              "$DELEGATE_M" ||
+            true
+          )"
+      
+          if [ "$IMPL_COUNT" -ne 1 ]; then
+            echo ""
+            echo "❌ Nombre inattendu de @implementation SDLUIKitDelegate : $IMPL_COUNT"
+            exit 1
+          fi
+      
+          # ----------------------------------------------------------
+          # Dump complet dans GitHub Actions
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  16. EXTRAIT COMPLET FCVV"
+          echo "============================================================"
+      
+          grep -n \
+            -E \
+            -A 8 \
+            -B 5 \
+            "FCVV_FCM_CONFIGURATION_V1|fcvvConfigureFirebaseAndNotifications|requestAuthorizationWithOptions|registerForRemoteNotifications" \
+            "$DELEGATE_M" \
+            || true
+      
+          # ----------------------------------------------------------
+          # Résultat
+          # ----------------------------------------------------------
+      
+          echo ""
+          echo "============================================================"
+          echo "  DIAGNOSTIC TERMINÉ"
+          echo "============================================================"
+      
+          echo "✓ SDLUIKitDelegate présent"
+          echo "✓ Firebase présent"
+          echo "✓ FCM présent"
+          echo "✓ UNUserNotificationCenter présent"
+          echo "✓ requestAuthorization présent"
+          echo "✓ registerForRemoteNotifications présent"
+          echo "✓ Callbacks APNs présents"
+          echo "✓ Callback FCM présent"
+          echo "✓ Appel de configuration présent"
+          echo ""
+          echo "✓ SDL_uikitappdelegate.m semble correctement injecté."
       
       # ============================================================
       # 10. APNs ENTITLEMENTS + CODE SIGNING
