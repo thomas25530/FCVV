@@ -1690,6 +1690,15 @@ jobs:
               -print \
               -quit
           )
+
+          echo "===== APP INFO.PLIST ====="
+          APP_PLIST="$APP_PATH/Info.plist"
+          if [ -f "$APP_PLIST" ]; then
+            plutil -p "$APP_PLIST"
+          else
+            echo "Info.plist introuvable"
+          fi
+          
           if [ -z "$APP_PATH" ]; then
             echo "ERREUR : fcvv.app introuvable."
             exit 1
@@ -1706,6 +1715,35 @@ jobs:
           echo "===== PACKAGE ====="
           ls -lh \
             "$GITHUB_WORKSPACE/fcvv.zip"
+
+          echo "===== INFO.PLIST FILES ====="
+          find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -name "Info.plist" \
+            -type f
+          
+          echo "===== INFO.PLIST CONTENT ====="
+          find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -name "Info.plist" \
+            -type f \
+            -exec sh -c '
+              echo ""
+              echo "========================================"
+              echo "FILE: $1"
+              echo "========================================"
+              plutil -p "$1" || cat "$1"
+              ' sh {} \;
+
+          echo "===== STATUS BAR SETTINGS ====="
+          find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -name "Info.plist" \
+            -type f \
+            -exec sh -c '
+              echo ""
+              echo "FILE: $1"
+              grep -A2 -B2 "UIStatusBar" "$1" || true
+              grep -A2 -B2 "UIViewControllerBasedStatusBarAppearance" "$1" || true
+              ' sh {} \;
+        
       # ============================================================
       # 17. UPLOAD ARTIFACT
       # ============================================================
