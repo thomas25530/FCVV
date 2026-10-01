@@ -871,6 +871,37 @@ jobs:
           fi
           echo "Info.plist = $PLIST_FILE"
           plutil -convert xml1 "$PLIST_FILE"
+          
+          # ========================================================
+          # Status Bar iOS
+          # ========================================================
+          
+          /usr/libexec/PlistBuddy \
+            -c "Delete :UIStatusBarHidden" \
+            "$PLIST_FILE" 2>/dev/null || true
+          
+          /usr/libexec/PlistBuddy \
+            -c "Add :UIStatusBarHidden bool false" \
+            "$PLIST_FILE"
+          
+          /usr/libexec/PlistBuddy \
+            -c "Delete :UIViewControllerBasedStatusBarAppearance" \
+            "$PLIST_FILE" 2>/dev/null || true
+          
+          /usr/libexec/PlistBuddy \
+            -c "Add :UIViewControllerBasedStatusBarAppearance bool false" \
+            "$PLIST_FILE"
+          
+          echo "===== STATUS BAR SETTINGS ====="
+          
+          /usr/libexec/PlistBuddy \
+            -c "Print :UIStatusBarHidden" \
+            "$PLIST_FILE"
+          
+          /usr/libexec/PlistBuddy \
+            -c "Print :UIViewControllerBasedStatusBarAppearance" \
+            "$PLIST_FILE"
+          
           # ========================================================
           # 2. Version
           # ========================================================
