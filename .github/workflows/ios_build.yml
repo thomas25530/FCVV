@@ -119,6 +119,18 @@ jobs:
             https://github.com/glennrp/libpng/archive/refs/tags/v1.6.48.tar.gz \
             -o ~/.kivy-ios/packages/libpng-1.6.48.tar.gz
           
+          echo "=== CACHE ==="
+          ls -lah ~/.kivy-ios/packages
+
+          echo "=== LIBPNG ==="
+          file ~/.kivy-ios/packages/libpng-1.6.48.tar.gz
+
+          echo "=== ARCHIVE CONTENT ==="
+          tar -tzf ~/.kivy-ios/packages/libpng-1.6.48.tar.gz | head
+
+          exit 1
+          
+          
           toolchain build hostpython3 python3 kivy openssl pillow pyobjus
           toolchain pip install pyyaml requests urllib3 plyer
           
