@@ -3207,8 +3207,8 @@ jobs:
           # 🧹 AJOUTER CE NETTOYAGE POUR ÉVITER LES CONFLITS DE SIMULATEUR
           echo "===== NETTOYAGE DES CACHES ET DÉRIVÉS ====="
           rm -rf ~/Library/Developer/Xcode/DerivedData/*
-          rm -rf "$GITHUB_WORKSPACE/build"
-          mkdir -p "$GITHUB_WORKSPACE/build"
+
+
           cd "$GITHUB_WORKSPACE/fcvv-ios"
           echo "============================================================"
           echo "              ARCHIVE IPHONEOS FCVV"
