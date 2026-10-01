@@ -3258,7 +3258,25 @@ jobs:
           echo "Type du rsync trouvé :"
           type -a rsync || true
           
+          echo ""
+          echo "============================================================"
+          echo "      CONTRÔLE SDL JUSTE AVANT XCODEBUILD ARCHIVE"
+          echo "============================================================"
           
+          find "$GITHUB_WORKSPACE" \
+            -type f \
+            -name "SDL_uikitappdelegate.m" \
+            -print
+          
+          echo ""
+          echo "Recherche du code FCVV :"
+          
+          find "$GITHUB_WORKSPACE" \
+            -type f \
+            -name "SDL_uikitappdelegate.m" \
+            -exec grep -Hn \
+              "fcvvConfigureFirebaseAndNotifications" {} \; \
+            || true
           
           echo "===== ARCHIVE ====="
           xcodebuild archive \
@@ -3291,6 +3309,73 @@ jobs:
           echo "============================================================"
           echo "Archive créée : $ARCHIVE_PATH"
           echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
+
+          echo ""
+          echo "============================================================"
+          echo "       VÉRIFICATION DU BINAIRE FINAL FCVV"
+          echo "============================================================"
+
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
+          APP_BINARY="$APP_PATH/fcvv"
+
+          if [ ! -f "$APP_BINARY" ]; then
+            echo "❌ ERREUR : binaire final introuvable : $APP_BINARY"
+            exit 1
+          fi
+
+          echo "✓ Binaire final trouvé : $APP_BINARY"
+          echo ""
+          echo "===== STRINGS FCVV ====="
+
+          FCVV_STRINGS=$(
+            strings "$APP_BINARY" \
+              | grep '\[FCVV\]' \
+              | sort -u \
+              || true
+          )
+
+          if [ -z "$FCVV_STRINGS" ]; then
+            echo "❌ AUCUNE chaîne [FCVV] trouvée dans le binaire"
+            echo ""
+            echo "Cela indique que le code FCVV injecté n'est probablement"
+            echo "pas présent dans le binaire final."
+            exit 1
+          fi
+
+          echo "$FCVV_STRINGS"
+
+          FCVV_COUNT=$(
+            printf '%s\n' "$FCVV_STRINGS" \
+              | grep -c '\[FCVV\]' \
+              || true
+          )
+
+          echo ""
+          echo "✓ Nombre de chaînes [FCVV] : $FCVV_COUNT"
+
+          echo ""
+          echo "===== VÉRIFICATION DES CHAÎNES CRITIQUES ====="
+
+          REQUIRED_STRINGS=(
+            "[FCVV] Initialisation Firebase/APNs"
+            "[FCVV] Delegates Firebase/APNs configurés"
+            "[FCVV] Autorisation notifications"
+            "[FCVV] registerForRemoteNotifications appelé"
+          )
+
+          for REQUIRED in "${REQUIRED_STRINGS[@]}"; do
+              if strings "$APP_BINARY" | grep -Fq "$REQUIRED"; then
+                  echo "✓ $REQUIRED"
+              else
+                  echo "❌ ABSENT : $REQUIRED"
+                  exit 1
+              fi
+          done
+
+          echo ""
+          echo "============================================================"
+          echo "✓ CODE FCVV CONFIRMÉ DANS LE BINAIRE FINAL"
+          echo "============================================================"
           
       
       # ============================================================
