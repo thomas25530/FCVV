@@ -30,13 +30,14 @@ def _(key):
     return app._(key) if hasattr(app, '_') else key
 
 class ClickableImage(ButtonBehavior, Image):
-    def __init__(self, **kwargs):
+    def __init__(self, screen_ref, **kwargs):
         super().__init__(**kwargs)
         self.url = None
+        self.screen_ref = screen_ref  # Référence vers AboutScreen pour appeler l'ouverture sécurisée
     
     def on_release(self):
         if self.url:
-            webbrowser.open(self.url)
+            self.screen_ref.open_url(self.url)
 
 class AboutScreen(Screen):
     def __init__(self, **kwargs):
@@ -56,7 +57,10 @@ class AboutScreen(Screen):
         self.intro_label.bind(width=lambda s, w: s.setter('text_size')(s, (w, None)))
         self.intro_label.bind(texture_size=lambda s, z: s.setter('height')(s, z[1]))
         img_h = dp(300) if self.is_mobile else dp(220)
-        self.img_offert = ClickableImage(size_hint=(1, None), height=img_h, fit_mode="contain", opacity=0)
+        
+        # Passage de 'self' (AboutScreen) pour l'ouverture sécurisée de l'image
+        self.img_offert = ClickableImage(screen_ref=self, size_hint=(1, None), height=img_h, fit_mode="contain", opacity=0)
+        
         self.info_list = BoxLayout(orientation='vertical', spacing=dp(15), size_hint_y=None)
         self.info_list.bind(minimum_height=self.info_list.setter('height'))
         self.scroll_content.add_widget(self.intro_label)
@@ -75,7 +79,27 @@ class AboutScreen(Screen):
         self.update_ui_from_config()
     
     def open_url(self, url):
-        webbrowser.open(url)
+        # Utilisation de Clock.schedule_once pour garantir l'exécution sur le main thread sous iOS
+        Clock.schedule_once(lambda dt: self._open_url(url))
+
+    def _open_url(self, target_url):
+        try:
+            if platform == "ios":
+                from pyobjus import autoclass
+
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                
+                nsurl = NSURL.URLWithString_(target_url)
+                app_instance = UIApplication.sharedApplication()
+                
+                # Méthode moderne recommandée pour iOS
+                app_instance.openURL_options_completionHandler_(nsurl, None, None)
+            else:
+                webbrowser.open(target_url)
+
+        except Exception as e:
+            print(f"Erreur ouverture URL : {e}")
 
     def bind_label(self, lbl):
         lbl.bind(width=lambda s, w: s.setter('text_size')(s, (w, None)))
@@ -121,7 +145,6 @@ class AboutScreen(Screen):
         remote_version = str(about_data.get(version_key, current_version)).strip()
         current_version_clean = str(current_version).strip()
         
-        # Affiche uniquement "Version actuelle"
         lbl_curr = Label(
             text=f"[color=bbbbbb]Version actuelle :[/color] [b]{current_version_clean}[/b]", 
             markup=True, font_size=f"{user_size + 2}sp", halign='center', size_hint_y=None
@@ -129,7 +152,6 @@ class AboutScreen(Screen):
         self.bind_label(lbl_curr)
         self.info_list.add_widget(lbl_curr)
         
-        # Message rouge si différente du YAML
         if remote_version and current_version_clean != remote_version:
             lbl_alert = Label(
                 text=f"[color=FF4500][b]Une mise à jour est nécessaire ({remote_version})[/b][/color]", 
@@ -138,7 +160,7 @@ class AboutScreen(Screen):
             self.bind_label(lbl_alert)
             self.info_list.add_widget(lbl_alert)
 
-        # 4. Autres détails (en ignorant tout libellé de version résiduel)
+        # 4. Autres détails
         for item in about_data.get("details", []):
             label_text = str(item.get('label', '')).strip().lower()
             if label_text in ('version', 'version actuelle', 'version android', 'version ios'):
