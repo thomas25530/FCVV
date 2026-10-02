@@ -114,27 +114,62 @@ jobs:
           rm -rf ~/Library/Caches/pip
           
           toolchain build hostpython3 python3 kivy openssl pillow pyobjus
-          
-          echo "============================================================"
-          echo "SDL SOURCE DISPONIBLE"
-          echo "============================================================"
-          
-          find build/sdl2 \
-            -name "SDL_uikitappdelegate.m" \
-            -print
-          
-          echo ""
-          echo "============================================================"
-          echo "FIN SDL_uikitappdelegate.m"
-          echo "============================================================"
-          
-          SDL_FILE=$(find build/sdl2 -name SDL_uikitappdelegate.m | head -1)
-          
-          tail -150 "$SDL_FILE"
 
+          echo "============================================================"
+          echo "PATCH SDL TEST"
+          echo "============================================================"
+          
+          SDL_FILES=$(find build/sdl2 -name SDL_uikitappdelegate.m)
+          
+          for FILE in $SDL_FILES
+          do
+            echo "PATCHING $FILE"
+          
+            perl -0pi -e '
+              s/SDL_SetMainReady\(\);/SDL_SetMainReady();\n\n    NSLog(@"\[FCVV\] PATCH SDL EXECUTE");/
+            ' "$FILE"
+          
+            grep -n "FCVV" "$FILE"
+          done
+          echo "============================================================"
+          echo "REBUILD SDL IOS"
+          echo "============================================================"
+          
+          pushd build/sdl2/iphoneos-arm64/SDL2-2.28.5
+          
+          xcodebuild \
+            -project Xcode/SDL/SDL.xcodeproj \
+            -target "Static Library-iOS" \
+            -configuration Release \
+            -sdk iphoneos
+          
+          popd
+          
+          pushd build/sdl2/iphonesimulator-arm64/SDL2-2.28.5
+
+          xcodebuild \
+            -project Xcode/SDL/SDL.xcodeproj \
+            -target "Static Library-iOS" \
+            -configuration Release \
+            -sdk iphonesimulator
+          
+          popd
+          find build \
+            -name SDL_uikitappdelegate.o \
+            | while read OBJ
+          do
+              echo "===== $OBJ ====="
+          
+              strings "$OBJ" \
+                | grep FCVV \
+                || true
+          done
+          
+          echo "============================================================"
+          echo "============================================================"
+          echo "============================================================"
+          
           exit 1
-
-
           
           toolchain pip install pyyaml requests urllib3 plyer
           
