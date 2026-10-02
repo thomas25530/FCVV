@@ -2390,12 +2390,17 @@ jobs:
           }
       
           # ------------------------------------------------------------
-          # 9.2 Recherche du projet Xcode
+          # 9.2 Projet Xcode PRINCIPAL
           # ------------------------------------------------------------
-          XCODEPROJ="$(find . -name "*.xcodeproj" -print -quit)"
+          # IMPORTANT :
+          # Ne pas utiliser "find . -name '*.xcodeproj' -print -quit"
+          # car CocoaPods contient également Pods.xcodeproj.
+          # ------------------------------------------------------------
       
-          [ -n "$XCODEPROJ" ] || {
-            echo "❌ Aucun .xcodeproj trouvé"
+          XCODEPROJ="./fcvv-ios/fcvv.xcodeproj"
+      
+          [ -d "$XCODEPROJ" ] || {
+            echo "❌ Projet Xcode introuvable : $XCODEPROJ"
             exit 1
           }
       
@@ -2411,10 +2416,10 @@ jobs:
           echo "  $PROJECT_DIR"
       
           # ------------------------------------------------------------
-          # 9.3 Détection du target Xcode
+          # 9.3 Recherche du vrai target dans le projet PRINCIPAL
           # ------------------------------------------------------------
           echo
-          echo "=== TARGETS XCODE DISPONIBLES ==="
+          echo "=== TARGETS XCODE DU PROJET PRINCIPAL ==="
       
           TARGETS_OUTPUT="$(
             xcodebuild \
@@ -2424,7 +2429,11 @@ jobs:
       
           echo "$TARGETS_OUTPUT"
       
-          # Récupération des targets situés après "Targets:"
+          # ------------------------------------------------------------
+          # Détection du target applicatif
+          #
+          # On cherche d'abord "fcvv" sans tenir compte de la casse.
+          # ------------------------------------------------------------
           TARGET_NAME="$(
             printf '%s\n' "$TARGETS_OUTPUT" |
             awk '
@@ -2434,20 +2443,31 @@ jobs:
               }
       
               in_targets && /^[[:space:]]+[A-Za-z0-9_.-]+$/ {
-                gsub(/^[[:space:]]+/, "", $0)
-                print
+                target=$0
+                gsub(/^[[:space:]]+/, "", target)
+      
+                lower=target
+                gsub(/[A-Z]/, "&", lower)
+                if (tolower(target) == "fcvv") {
+                  print target
+                  exit
+                }
               }
       
               in_targets && /^[^[:space:]]/ {
                 exit
               }
-            ' |
-            head -n 1
+            '
           )"
       
           if [ -z "$TARGET_NAME" ]; then
             echo
-            echo "❌ Impossible de détecter le target Xcode"
+            echo "❌ Target applicatif 'fcvv' introuvable dans :"
+            echo "   $XCODEPROJ"
+            echo
+            echo "Targets détectés dans le projet principal :"
+            printf '%s\n' "$TARGETS_OUTPUT" |
+              sed -n '/^Targets:/,/^Build Configurations:/p'
             exit 1
           fi
       
@@ -2488,7 +2508,7 @@ jobs:
           project = Xcodeproj::Project.open(ENV['XCODEPROJ'])
           
           target = project.targets.find do |t|
-            t.name == ENV['TARGET_NAME']
+            t.name.downcase == ENV['TARGET_NAME'].downcase
           end
           
           unless target
@@ -2594,9 +2614,10 @@ jobs:
           echo " ✓ CONFIGURATION APNs TERMINEE AVEC SUCCES"
           echo "============================================================"
           echo
-          echo "Target       : $TARGET_NAME"
-          echo "APNs          : $APNS_ENVIRONMENT"
-          echo "Entitlements  : $ENTITLEMENTS"
+          echo "Projet      : $XCODEPROJ"
+          echo "Target      : $TARGET_NAME"
+          echo "APNs        : $APNS_ENVIRONMENT"
+          echo "Entitlements: $ENTITLEMENTS"
       # ============================================================
       # 12. CONFIGURE LAUNCH SCREEN
       # ============================================================
