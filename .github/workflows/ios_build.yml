@@ -195,6 +195,25 @@ jobs:
           else
             echo "Recette SDL2 introuvable"
           fi
+      
+      - name: Inspect SDL patches
+        shell: bash
+        run: |
+          set -euo pipefail
+      
+          SDL_RECIPE_DIR="/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios/recipes/sdl2"
+      
+          echo "============================================================"
+          echo "PATCHES SDL2"
+          echo "============================================================"
+      
+          ls -la "$SDL_RECIPE_DIR"
+      
+          echo ""
+          echo "===== uikit-transparent.patch ====="
+      
+          sed -n '1,250p' \
+            "$SDL_RECIPE_DIR/uikit-transparent.patch"
 
           exit 1
       
