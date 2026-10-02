@@ -97,9 +97,9 @@ jobs:
                   f"❌ Fichier inattendu : {m_path.name}"
               )
 
-          # --------------------------------------------------------
-          # Recherche du header compagnon
-          # --------------------------------------------------------
+          # ============================================================
+          # RECHERCHE DU HEADER COMPAGNON
+          # ============================================================
 
           h_path = m_path.with_suffix(".h")
 
@@ -118,16 +118,16 @@ jobs:
           print(f"✓ SDL .m : {m_path}")
           print(f"✓ SDL .h : {h_path}")
 
-          # --------------------------------------------------------
-          # Lecture
-          # --------------------------------------------------------
+          # ============================================================
+          # LECTURE
+          # ============================================================
 
           h_text = h_path.read_text(encoding="utf-8")
           m_text = m_path.read_text(encoding="utf-8")
 
-          # --------------------------------------------------------
-          # Vérification SDLUIKitDelegate
-          # --------------------------------------------------------
+          # ============================================================
+          # VERIFICATION SDLUIKitDelegate
+          # ============================================================
 
           if not re.search(
               r"@interface\s+SDLUIKitDelegate\b",
@@ -150,38 +150,64 @@ jobs:
                   "❌ didFinishLaunchingWithOptions absent du .m"
               )
 
-          # --------------------------------------------------------
-          # Imports HEADER
-          # --------------------------------------------------------
+          # ============================================================
+          # HEADER
+          #
+          # IMPORTANT :
+          # NE PAS importer Firebase dans SDL_uikitappdelegate.h.
+          #
+          # Ce header est inclus par plusieurs fichiers SDL :
+          # SDL_uikitwindow.m
+          # SDL_uikitview.m
+          # SDL_uikitvideo.m
+          # etc.
+          #
+          # Les imports Firebase doivent rester exclusivement dans .m.
+          # ============================================================
 
-          header_imports = [
-              "#import <UIKit/UIKit.h>",
-              "#import <UserNotifications/UserNotifications.h>",
-              "#import <FirebaseMessaging/FirebaseMessaging.h>",
-          ]
-
-          for imp in header_imports:
-              if imp not in h_text:
-                  h_text = imp + "\n" + h_text
-
-          # --------------------------------------------------------
-          # Imports IMPLEMENTATION
-          # --------------------------------------------------------
-
-          implementation_imports = [
-              "#import <UIKit/UIKit.h>",
-              "#import <UserNotifications/UserNotifications.h>",
+          header_imports_to_remove = [
               "#import <FirebaseCore/FirebaseCore.h>",
               "#import <FirebaseMessaging/FirebaseMessaging.h>",
           ]
 
-          for imp in implementation_imports:
-              if imp not in m_text:
-                  m_text = imp + "\n" + m_text
+          for imp in header_imports_to_remove:
+              h_text = h_text.replace(imp + "\n", "")
+              h_text = h_text.replace(imp, "")
 
-          # --------------------------------------------------------
-          # Protocoles
-          # --------------------------------------------------------
+          # UIKit est normalement déjà présent dans le header SDL.
+          # On le conserve s'il existe et on l'ajoute uniquement
+          # s'il est nécessaire.
+          if "#import <UIKit/UIKit.h>" not in h_text:
+              h_text = (
+                  "#import <UIKit/UIKit.h>\n"
+                  + h_text
+              )
+
+          # ============================================================
+          # FORWARD DECLARATIONS DES PROTOCOLES
+          # ============================================================
+
+          protocol_declarations = (
+              "@protocol UNUserNotificationCenterDelegate;\n"
+              "@protocol FIRMessagingDelegate;\n"
+          )
+
+          if "@protocol UNUserNotificationCenterDelegate;" not in h_text:
+              h_text = (
+                  protocol_declarations
+                  + "\n"
+                  + h_text
+              )
+
+          elif "@protocol FIRMessagingDelegate;" not in h_text:
+              h_text = (
+                  "@protocol FIRMessagingDelegate;\n"
+                  + h_text
+              )
+
+          # ============================================================
+          # PROTOCOLES SDLUIKitDelegate
+          # ============================================================
 
           interface_match = re.search(
               r"(@interface\s+SDLUIKitDelegate\b[^\n]*)(\n)",
@@ -216,6 +242,8 @@ jobs:
               if protocol not in protocols:
                   protocols.append(protocol)
 
+          # Supprime une éventuelle ancienne liste de protocoles
+          # avant de la reconstruire proprement.
           interface_without_protocols = re.sub(
               r"\s*<[^>]*>",
               "",
@@ -235,9 +263,26 @@ jobs:
               + h_text[interface_match.end(1):]
           )
 
-          # --------------------------------------------------------
-          # Bloc Firebase / APNs
-          # --------------------------------------------------------
+          # ============================================================
+          # IMPLEMENTATION (.m)
+          #
+          # Les imports Firebase sont UNIQUEMENT ici.
+          # ============================================================
+
+          implementation_imports = [
+              "#import <UIKit/UIKit.h>",
+              "#import <UserNotifications/UserNotifications.h>",
+              "#import <FirebaseCore/FirebaseCore.h>",
+              "#import <FirebaseMessaging/FirebaseMessaging.h>",
+          ]
+
+          for imp in implementation_imports:
+              if imp not in m_text:
+                  m_text = imp + "\n" + m_text
+
+          # ============================================================
+          # BLOC FIREBASE / APNs
+          # ============================================================
 
           if MARKER not in m_text:
 
@@ -248,8 +293,11 @@ jobs:
 
           - (void)fcvvConfigureFirebaseAndNotifications {
 
+              NSLog(@"[FCVV] Configuration Firebase/APNs");
+
               if ([FIRApp defaultApp] == nil) {
                   [FIRApp configure];
+                  NSLog(@"[FCVV] Firebase configuré");
               }
 
               [FIRMessaging messaging].delegate = self;
@@ -264,7 +312,20 @@ jobs:
                    UNAuthorizationOptionSound |
                    UNAuthorizationOptionBadge)
 
-                  completionHandler:^(BOOL granted, NSError * _Nullable error) {
+                  completionHandler:^(BOOL granted,
+                                      NSError * _Nullable error) {
+
+                      if (error) {
+                          NSLog(
+                              @"[FCVV] ❌ Erreur autorisation notifications : %@",
+                              error
+                          );
+                      }
+
+                      NSLog(
+                          @"[FCVV] Autorisation notifications : %@",
+                          granted ? @"GRANTED" : @"DENIED"
+                      );
 
                       dispatch_async(
                           dispatch_get_main_queue(),
@@ -275,13 +336,17 @@ jobs:
 
                           }
                       );
-
                   }
               ];
           }
 
           - (void)messaging:(FIRMessaging *)messaging
               didReceiveRegistrationToken:(NSString *)fcmToken {
+
+              NSLog(
+                  @"[FCVV] FCM token reçu : %@",
+                  fcmToken
+              );
 
               if (fcmToken.length > 0) {
 
@@ -298,7 +363,12 @@ jobs:
           - (void)application:(UIApplication *)application
               didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
 
+              NSLog(
+                  @"[FCVV] APNs device token reçu"
+              );
+
               if (deviceToken) {
+
                   [[FIRMessaging messaging]
                       setAPNSToken:deviceToken];
               }
@@ -315,7 +385,13 @@ jobs:
 
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
               willPresentNotification:(UNNotification *)notification
-              withCompletionHandler:(void (^)(UNNotificationPresentationOptions options))completionHandler {
+              withCompletionHandler:
+                  (void (^)(UNNotificationPresentationOptions options))
+                      completionHandler {
+
+              NSLog(
+                  @"[FCVV] Notification reçue au premier plan"
+              );
 
               completionHandler(
                   UNNotificationPresentationOptionAlert |
@@ -328,12 +404,22 @@ jobs:
               didReceiveNotificationResponse:(UNNotificationResponse *)response
               withCompletionHandler:(void (^)(void))completionHandler {
 
+              NSLog(
+                  @"[FCVV] Réponse à une notification reçue"
+              );
+
               completionHandler();
           }
 
           - (void)application:(UIApplication *)application
               didReceiveRemoteNotification:(NSDictionary *)userInfo
-              fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
+              fetchCompletionHandler:
+                  (void (^)(UIBackgroundFetchResult))
+                      completionHandler {
+
+              NSLog(
+                  @"[FCVV] Notification distante reçue"
+              );
 
               completionHandler(
                   UIBackgroundFetchResultNoData
@@ -341,7 +427,10 @@ jobs:
           }
           '''
 
-              # Insérer avant le @end final.
+              # --------------------------------------------------------
+              # Insérer avant le @end FINAL.
+              # --------------------------------------------------------
+
               end_matches = list(
                   re.finditer(
                       r"\n@end\s*$",
@@ -370,9 +459,9 @@ jobs:
           else:
               print("✓ Bloc Firebase déjà présent")
 
-          # --------------------------------------------------------
-          # Appel depuis didFinishLaunchingWithOptions
-          # --------------------------------------------------------
+          # ============================================================
+          # APPEL DEPUIS didFinishLaunchingWithOptions
+          # ============================================================
 
           if CALL not in m_text:
 
@@ -408,13 +497,80 @@ jobs:
           else:
               print("✓ Appel Firebase déjà présent")
 
-          # --------------------------------------------------------
-          # Écriture
-          # --------------------------------------------------------
+          # ============================================================
+          # ECRITURE
+          # ============================================================
 
-          h_path.write_text(h_text, encoding="utf-8")
-          m_path.write_text(m_text, encoding="utf-8")
+          h_path.write_text(
+              h_text,
+              encoding="utf-8"
+          )
 
+          m_path.write_text(
+              m_text,
+              encoding="utf-8"
+          )
+
+          # ============================================================
+          # VERIFICATIONS FINALES
+          # ============================================================
+
+          final_h = h_path.read_text(
+              encoding="utf-8"
+          )
+
+          final_m = m_path.read_text(
+              encoding="utf-8"
+          )
+
+          # Firebase NE DOIT PAS être dans le header.
+          if "FirebaseCore/FirebaseCore.h" in final_h:
+              raise SystemExit(
+                  "❌ ERREUR : FirebaseCore est encore importé dans le .h"
+              )
+
+          if "FirebaseMessaging/FirebaseMessaging.h" in final_h:
+              raise SystemExit(
+                  "❌ ERREUR : FirebaseMessaging est encore importé dans le .h"
+              )
+
+          # Firebase DOIT être dans le .m.
+          if "FirebaseCore/FirebaseCore.h" not in final_m:
+              raise SystemExit(
+                  "❌ ERREUR : FirebaseCore absent du .m"
+              )
+
+          if "FirebaseMessaging/FirebaseMessaging.h" not in final_m:
+              raise SystemExit(
+                  "❌ ERREUR : FirebaseMessaging absent du .m"
+              )
+
+          if MARKER not in final_m:
+              raise SystemExit(
+                  "❌ ERREUR : marqueur Firebase absent du .m"
+              )
+
+          if CALL not in final_m:
+              raise SystemExit(
+                  "❌ ERREUR : appel Firebase absent du lancement"
+              )
+
+          if "UNUserNotificationCenterDelegate" not in final_h:
+              raise SystemExit(
+                  "❌ ERREUR : UNUserNotificationCenterDelegate absent du .h"
+              )
+
+          if "FIRMessagingDelegate" not in final_h:
+              raise SystemExit(
+                  "❌ ERREUR : FIRMessagingDelegate absent du .h"
+              )
+
+          print("✓ Header : aucun import Firebase")
+          print("✓ Header : protocoles Firebase/APNs déclarés")
+          print("✓ .m : FirebaseCore importé")
+          print("✓ .m : FirebaseMessaging importé")
+          print("✓ Bloc Firebase/APNs présent")
+          print("✓ Appel Firebase au lancement présent")
           print("✓ SDLUIKitDelegate patché avec succès")
           PY
 
@@ -955,23 +1111,28 @@ jobs:
           echo ""
           echo "✓ Tous les SDLUIKitDelegate ont été patchés"
 
+      # ============================================================
       # 8 REBUILD SDL2 + SYNCHRONISATION DU LIBSDL2.A FINAL
+      # ============================================================
       - name: Rebuild SDL2 and sync libSDL2.a with fcvv.xcodeproj
         shell: bash
         env:
           TARGET_NAME: fcvv
+          IOS_DEPLOYMENT_TARGET: "15.0"
         run: |
           set -euo pipefail
 
           echo "============================================================"
-          echo " REBUILD SDL2 + VERIFICATION DU LIBSDL2.A FINAL"
+          echo " REBUILD SDL2 + SYNCHRONISATION DU LIBSDL2.A FINAL"
           echo "============================================================"
+
+          # --------------------------------------------------------
+          # Recherche du projet FCVV
+          # --------------------------------------------------------
 
           echo
           echo "=== RECHERCHE DU PROJET XCODE ==="
 
-          # IMPORTANT :
-          # .xcodeproj est un REPERTOIRE, pas un fichier.
           PROJECT_FILE=$(find "$GITHUB_WORKSPACE" \
             -type d \
             -name "fcvv.xcodeproj" \
@@ -979,46 +1140,80 @@ jobs:
             | head -n 1)
 
           if [ -z "$PROJECT_FILE" ]; then
-            echo "ERREUR : fcvv.xcodeproj introuvable."
+            echo "❌ ERREUR : fcvv.xcodeproj introuvable."
+
             echo
-            echo "Projets Xcode présents dans le workspace :"
+            echo "Projets Xcode présents :"
             find "$GITHUB_WORKSPACE" \
               -type d \
               -name "*.xcodeproj" \
               -print \
               | sort || true
 
-            echo
-            echo "Contenu de la racine :"
-            ls -la "$GITHUB_WORKSPACE"
-
             exit 1
           fi
 
           PROJ_DIR="$(dirname "$PROJECT_FILE")"
           PROJECT_PBXPROJ="$PROJECT_FILE/project.pbxproj"
+          PODS_DIR="$PROJ_DIR/Pods"
 
-          echo "✓ Projet Xcode trouvé :"
+          echo "✓ Projet Xcode :"
           echo "  $PROJECT_FILE"
 
           echo "✓ Répertoire projet :"
           echo "  $PROJ_DIR"
 
+          echo "✓ Pods :"
+          echo "  $PODS_DIR"
+
           [ -f "$PROJECT_PBXPROJ" ] || {
-            echo "ERREUR : project.pbxproj introuvable :"
-            echo "  $PROJECT_PBXPROJ"
+            echo "❌ project.pbxproj introuvable : $PROJECT_PBXPROJ"
             exit 1
           }
 
+          # --------------------------------------------------------
+          # Vérification CocoaPods
+          # --------------------------------------------------------
+
           echo
-          echo "=== PROJETS SDL ==="
+          echo "=== VERIFICATION DES HEADERS FIREBASE ==="
+
+          [ -d "$PODS_DIR" ] || {
+            echo "❌ Répertoire Pods introuvable : $PODS_DIR"
+            exit 1
+          }
+
+          FIREBASE_HEADERS="$PODS_DIR/Headers/Public"
+
+          [ -d "$FIREBASE_HEADERS" ] || {
+            echo "❌ Headers Firebase introuvables : $FIREBASE_HEADERS"
+            exit 1
+          }
+
+          echo "✓ Firebase headers :"
+          echo "  $FIREBASE_HEADERS"
+
+          find "$FIREBASE_HEADERS" \
+            -maxdepth 2 \
+            -type f \
+            \( -name "FirebaseCore.h" -o -name "FirebaseMessaging.h" \) \
+            -print \
+            | sort || true
+
+          # --------------------------------------------------------
+          # Rebuild SDL2 pour device + simulator
+          # --------------------------------------------------------
 
           for sdk in iphoneos iphonesimulator; do
 
             echo
-            echo "------------------------------------------------------------"
+            echo "============================================================"
             echo " SDK : $sdk"
-            echo "------------------------------------------------------------"
+            echo "============================================================"
+
+            # ------------------------------------------------------
+            # Recherche du projet SDL correspondant
+            # ------------------------------------------------------
 
             SDL_PROJECT=$(find "$GITHUB_WORKSPACE/build/sdl2" \
               -type d \
@@ -1026,35 +1221,84 @@ jobs:
               -print \
               | head -n 1)
 
-            [ -n "$SDL_PROJECT" ] || {
-              echo "ERREUR : projet SDL introuvable pour $sdk."
+            if [ -z "$SDL_PROJECT" ]; then
+              echo "❌ Projet SDL introuvable pour $sdk."
+
+              echo
+              echo "Projets SDL disponibles :"
+              find "$GITHUB_WORKSPACE/build/sdl2" \
+                -type d \
+                -name "SDL.xcodeproj" \
+                -print \
+                | sort || true
+
               exit 1
-            }
+            fi
+
+            SDL_DIR="$(dirname "$SDL_PROJECT")"
 
             echo "✓ Projet SDL :"
             echo "  $SDL_PROJECT"
 
+            echo "✓ Répertoire SDL :"
+            echo "  $SDL_DIR"
+
+            # ------------------------------------------------------
+            # Vérification que le SDL .m contient bien Firebase
+            # ------------------------------------------------------
+
+            SDL_M=$(find "$(dirname "$SDL_PROJECT")/../../.." \
+              -type f \
+              -name "SDL_uikitappdelegate.m" \
+              -print \
+              | head -n 1 || true)
+
+            if [ -n "$SDL_M" ]; then
+              echo
+              echo "=== VERIFICATION SDL_uikitappdelegate.m ==="
+              echo "  $SDL_M"
+
+              grep -n \
+                "FirebaseCore/FirebaseCore.h" \
+                "$SDL_M" || true
+
+              grep -n \
+                "FirebaseMessaging/FirebaseMessaging.h" \
+                "$SDL_M" || true
+            fi
+
+            # ------------------------------------------------------
+            # Recompilation SDL2
+            # ------------------------------------------------------
+
             echo
-            echo "=== RECOMPILATION SDL2 ($sdk) ==="
+            echo "=== RECOMPILATION SDL2 : $sdk ==="
 
             xcodebuild \
               -project "$SDL_PROJECT" \
               -target "Static Library-iOS" \
               -configuration Release \
               -sdk "$sdk" \
+              IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
               HEADER_SEARCH_PATHS="\
                 \$(inherited) \
-                $GITHUB_WORKSPACE/Pods/Headers/Public \
-                $GITHUB_WORKSPACE/Pods/FirebaseCore \
-                $GITHUB_WORKSPACE/Pods/FirebaseMessaging \
+                \"$FIREBASE_HEADERS\" \
+                \"$PODS_DIR/FirebaseCore\" \
+                \"$PODS_DIR/FirebaseMessaging\" \
               " \
               USER_HEADER_SEARCH_PATHS="\
                 \$(inherited) \
-                $GITHUB_WORKSPACE/Pods/Headers/Public \
-                $GITHUB_WORKSPACE/Pods/FirebaseCore \
-                $GITHUB_WORKSPACE/Pods/FirebaseMessaging \
+                \"$FIREBASE_HEADERS\" \
+                \"$PODS_DIR/FirebaseCore\" \
+                \"$PODS_DIR/FirebaseMessaging\" \
               " \
-              ONLY_ACTIVE_ARCH=NO
+              ONLY_ACTIVE_ARCH=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO
+
+            # ------------------------------------------------------
+            # Recherche du libSDL2.a fraîchement compilé
+            # ------------------------------------------------------
 
             echo
             echo "=== RECHERCHE DU LIBSDL2.A RECOMPILE ==="
@@ -1064,45 +1308,246 @@ jobs:
               -name "libSDL2.a" \
               -path "*/${sdk}-arm64/*" \
               -print \
+              | sort \
               | head -n 1)
 
-            [ -n "$SDL_LIB" ] || {
-              echo "ERREUR : libSDL2.a recompilé introuvable pour $sdk."
+            if [ -z "$SDL_LIB" ]; then
+              echo "❌ libSDL2.a recompilé introuvable pour $sdk."
+
+              echo
+              echo "Tous les libSDL2.a trouvés :"
+              find "$GITHUB_WORKSPACE/build/sdl2" \
+                -type f \
+                -name "libSDL2.a" \
+                -print \
+                | sort || true
+
               exit 1
-            }
+            fi
 
             echo "✓ libSDL2.a recompilé :"
             echo "  $SDL_LIB"
 
             echo
-            echo "=== ARCHITECTURES ==="
+            echo "=== ARCHITECTURES DU LIB RECOMPILE ==="
+
             lipo -info "$SDL_LIB"
 
-            echo
-            echo "=== HASH DU LIBSDL2.A RECOMPILE ==="
+            # ------------------------------------------------------
+            # Hash du nouveau SDL
+            # ------------------------------------------------------
+
             SHA_REBUILT=$(shasum -a 256 "$SDL_LIB" | awk '{print $1}')
-            echo "$SHA_REBUILT"
 
             echo
-            echo "=== RECHERCHE DES LIBSDL2.A DANS LE PROJET FINAL ==="
+            echo "✓ SHA256 libSDL2.a recompilé :"
+            echo "  $SHA_REBUILT"
 
-            find "$PROJ_DIR" \
-              -type f \
-              -name "libSDL2.a" \
-              -print \
-              | sort || true
+            # ------------------------------------------------------
+            # Recherche des libSDL2.a réellement présents dans
+            # le projet FCVV
+            # ------------------------------------------------------
+
+            echo
+            echo "=== LIBSDL2.A PRESENTS DANS LE PROJET FCVV ==="
+
+            mapfile -t PROJECT_LIBS < <(
+              find "$PROJ_DIR" \
+                -type f \
+                -name "libSDL2.a" \
+                -print \
+                | sort
+            )
+
+            if [ "${#PROJECT_LIBS[@]}" -eq 0 ]; then
+              echo "⚠️ Aucun libSDL2.a trouvé physiquement dans $PROJ_DIR."
+            else
+              for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
+                echo
+                echo "libSDL2.a :"
+                echo "  $PROJECT_LIB"
+
+                echo "Architecture :"
+                lipo -info "$PROJECT_LIB" || true
+
+                echo "SHA256 :"
+                shasum -a 256 "$PROJECT_LIB" | awk '{print $1}'
+              done
+            fi
+
+            # ------------------------------------------------------
+            # Recherche des références libSDL2.a dans le pbxproj
+            # ------------------------------------------------------
 
             echo
             echo "=== REFERENCES LIBSDL2.A DANS PROJECT.PBXPROJ ==="
 
-            grep -n -B 5 -A 8 "libSDL2.a" "$PROJECT_PBXPROJ" || true
+            grep -n \
+              -B 8 \
+              -A 12 \
+              "libSDL2.a" \
+              "$PROJECT_PBXPROJ" || true
+
+            # ------------------------------------------------------
+            # Extraction des chemins référencés par Xcode
+            # ------------------------------------------------------
+
+            echo
+            echo "=== SYNCHRONISATION DU LIBSDL2.A ==="
+
+            mapfile -t REFERENCED_PATHS < <(
+              grep -E \
+                'path = [^;]*libSDL2\.a;' \
+                "$PROJECT_PBXPROJ" \
+                | sed -E 's/.*path = ([^;]*libSDL2\.a);.*/\1/' \
+                | sort -u
+            )
+
+            if [ "${#REFERENCED_PATHS[@]}" -eq 0 ]; then
+              echo "⚠️ Aucune référence explicite path=...libSDL2.a trouvée."
+              echo "Le projet peut utiliser un chemin provenant de sourceTree."
+            fi
+
+            # ------------------------------------------------------
+            # Pour chaque référence Xcode, recherche du fichier réel
+            # ------------------------------------------------------
+
+            SYNC_COUNT=0
+
+            while IFS= read -r -d '' PBX_FILE_REF; do
+
+              FILE_NAME="$(basename "$PBX_FILE_REF")"
+
+              if [ "$FILE_NAME" != "libSDL2.a" ]; then
+                continue
+              fi
+
+              echo
+              echo "Référence Xcode détectée :"
+              echo "  $PBX_FILE_REF"
+
+              # sourceTree = BUILT_PRODUCTS_DIR / SDKROOT / etc.
+              # On ne remplace que les fichiers physiques existants
+              # dans le projet FCVV.
+
+            done < <(
+              grep -l \
+                "libSDL2.a" \
+                "$PROJECT_PBXPROJ" \
+                | tr '\n' '\0'
+            )
+
+            # ------------------------------------------------------
+            # Synchronisation robuste :
+            #
+            # 1. Tous les libSDL2.a présents sous le projet FCVV
+            #    sont comparés au nouveau SDL.
+            #
+            # 2. Les copies physiques sont remplacées si elles
+            #    existent.
+            # ------------------------------------------------------
+
+            while IFS= read -r -d '' DEST; do
+
+              echo
+              echo "→ Synchronisation :"
+              echo "  SOURCE : $SDL_LIB"
+              echo "  DEST   : $DEST"
+
+              if cmp -s "$SDL_LIB" "$DEST"; then
+                echo "  ✓ Déjà identique"
+              else
+                cp -f "$SDL_LIB" "$DEST"
+                echo "  ✓ libSDL2.a remplacé"
+              fi
+
+              DEST_SHA=$(shasum -a 256 "$DEST" | awk '{print $1}')
+
+              if [ "$DEST_SHA" != "$SHA_REBUILT" ]; then
+                echo "❌ ERREUR : hash destination différent."
+                echo "  attendu : $SHA_REBUILT"
+                echo "  obtenu  : $DEST_SHA"
+                exit 1
+              fi
+
+              echo "  ✓ Hash vérifié : $DEST_SHA"
+
+              SYNC_COUNT=$((SYNC_COUNT + 1))
+
+            done < <(
+              find "$PROJ_DIR" \
+                -type f \
+                -name "libSDL2.a" \
+                -print0
+            )
+
+            # ------------------------------------------------------
+            # Si aucune copie n'existe dans le projet final,
+            # on affiche clairement les références Xcode.
+            # ------------------------------------------------------
+
+            if [ "$SYNC_COUNT" -eq 0 ]; then
+              echo
+              echo "⚠️ Aucun libSDL2.a physique à synchroniser sous :"
+              echo "  $PROJ_DIR"
+
+              echo
+              echo "Références trouvées dans pbxproj :"
+              grep -n \
+                -B 8 \
+                -A 12 \
+                "libSDL2.a" \
+                "$PROJECT_PBXPROJ" || true
+
+              echo
+              echo "❌ Impossible de garantir que fcvv.xcodeproj"
+              echo "   utilise le SDL fraîchement recompilé."
+              exit 1
+            fi
+
+            # ------------------------------------------------------
+            # Vérification finale des copies synchronisées
+            # ------------------------------------------------------
+
+            echo
+            echo "=== VERIFICATION FINALE : $sdk ==="
+
+            while IFS= read -r -d '' DEST; do
+
+              echo
+              echo "→ $DEST"
+
+              lipo -info "$DEST"
+
+              DEST_SHA=$(shasum -a 256 "$DEST" | awk '{print $1}')
+
+              echo "SHA256 :"
+              echo "  $DEST_SHA"
+
+              if [ "$DEST_SHA" != "$SHA_REBUILT" ]; then
+                echo "❌ Hash incorrect."
+                exit 1
+              fi
+
+              echo "✓ libSDL2.a identique au build SDL2"
+
+            done < <(
+              find "$PROJ_DIR" \
+                -type f \
+                -name "libSDL2.a" \
+                -print0
+            )
 
           done
 
           echo
           echo "============================================================"
-          echo " RECHERCHE DU PROJET XCODE TERMINEE"
+          echo " ✓ SDL2 REBUILD + SYNCHRONISATION TERMINES"
           echo "============================================================"
+
+          echo
+          echo "Le projet fcvv.xcodeproj contient maintenant les"
+          echo "copies libSDL2.a synchronisées avec le SDL recompilé."
       # ============================================================
       # 9. APNs ENTITLEMENTS + CODE SIGNING
       # ============================================================
