@@ -103,6 +103,32 @@ jobs:
       #      ${{ runner.os }}-kivy-ios-v5-
 
       # ============================================================
+      # 4B. PATCH SDL RECIPE AVANT COMPILATION
+      # ============================================================
+      - name: Patch SDL recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+      
+          echo "===== Recherche SDL_uikitappdelegate.m ====="
+      
+          find ~/.kivy-ios -name SDL_uikitappdelegate.m -print || true
+      
+          python3 - <<'PY'
+          import kivy_ios
+          import pathlib
+      
+          root = pathlib.Path(kivy_ios.__file__).parent
+      
+          print("kivy-ios =", root)
+      
+          for f in root.rglob("SDL_uikitappdelegate.m"):
+              print("FOUND:", f)
+          PY
+
+          exit 1
+      
+      # ============================================================
       # 5. BUILD KIVY-IOS RECIPES
       # ============================================================
       - name: Build kivy-ios
@@ -1778,8 +1804,6 @@ jobs:
                 || true
           
           done
-
-          exit 1
       
       # ============================================================
       # 10. APNs ENTITLEMENTS + CODE SIGNING
