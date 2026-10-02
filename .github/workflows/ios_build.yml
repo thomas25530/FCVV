@@ -214,8 +214,66 @@ jobs:
       
           sed -n '1,250p' \
             "$SDL_RECIPE_DIR/uikit-transparent.patch"
-
-          exit 1
+      
+      # ============================================================
+      # 4C. TEST PATCH SDL AVANT COMPILATION
+      # ============================================================
+      - name: Add FCVV patch to SDL recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+      
+          SDL_RECIPE_DIR="/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios/recipes/sdl2"
+      
+          echo "============================================================"
+          echo "  AJOUT PATCH FCVV SDL"
+          echo "============================================================"
+      
+          cat > "$SDL_RECIPE_DIR/fcvv-test.patch" <<'EOF'
+          --- a/src/video/uikit/SDL_uikitappdelegate.m
+          +++ b/src/video/uikit/SDL_uikitappdelegate.m
+          @@ -525,6 +525,9 @@
+           @end
+          
+          +static const char* FCVV_MARKER =
+          +    "[FCVV] PATCH APPLIQUE AVANT COMPILATION";
+          +
+           EOF
+          
+              echo "Patch créé :"
+              ls -l "$SDL_RECIPE_DIR/fcvv-test.patch"
+          
+              echo ""
+              echo "Modification recette SDL..."
+          
+              python3 <<'PY'
+          from pathlib import Path
+          
+          recipe = Path("/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios/recipes/sdl2/__init__.py")
+          
+          text = recipe.read_text()
+          
+          marker = 'self.apply_patch("disable-hidapi.patch")'
+          
+          replacement = '''
+          self.apply_patch("disable-hidapi.patch")
+          self.apply_patch("fcvv-test.patch")
+          '''
+          
+          if 'fcvv-test.patch' not in text:
+              text = text.replace(marker, replacement)
+          
+          recipe.write_text(text)
+          
+          print("OK recette modifiée")
+          PY
+      
+          echo ""
+          echo "===== VERIFICATION ====="
+      
+          grep -n "fcvv-test.patch" \
+            "$SDL_RECIPE_DIR/__init__.py"
+      
       
       # ============================================================
       # 5. BUILD KIVY-IOS RECIPES
