@@ -1689,81 +1689,97 @@ jobs:
           echo "✓ Appel de configuration présent"
           echo ""
           echo "✓ SDL_uikitappdelegate.m semble correctement injecté."
-
-
+      
+          echo ""
           echo "============================================================"
-          echo "  SDL RECONSTRUIT APRES MODIFICATION"
+          echo "  TOUTES LES COPIES DE SDL_uikitappdelegate.m"
           echo "============================================================"
-          toolchain recipes | grep sdl
-
-          toolchain clean sdl2
-          toolchain build sdl2
+          
+          find . \
+            -name "SDL_uikitappdelegate.m" \
+            -print
           
           echo ""
           echo "============================================================"
-          echo "  VERIFICATION SDL_uikitappdelegate.o"
+          echo "  FICHIERS FCVV TROUVES"
+          echo "============================================================"
+          find . \
+            -name "SDL_uikitappdelegate.m" \
+            -exec grep -Hn "FCVV_FCM_CONFIGURATION_V1" {} \; \
+            || true
+            
+          echo ""
+          echo "============================================================"
+          echo "  ETAT DES OBJETS SDL"
+          echo "============================================================"
+          
+          find build \
+            \( \
+              -name "SDL_uikitappdelegate.o" \
+              -o -name "libSDL2.a" \
+            \) \
+            -exec ls -lh {} \;
+            
+          echo ""
+          echo "============================================================"
+          echo "  TIMESTAMPS SDL"
+          echo "============================================================"
+          
+          echo ""
+          echo "===== SDL_uikitappdelegate.m ====="
+          
+          find . \
+            -name "SDL_uikitappdelegate.m" \
+            -exec stat -f "%Sm %N" {} \;
+          
+          echo ""
+          echo "===== SDL_uikitappdelegate.o ====="
+          
+          find build \
+            -name "SDL_uikitappdelegate.o" \
+            -exec stat -f "%Sm %N" {} \; \
+            || true
+          
+          echo ""
+          echo "===== libSDL2.a ====="
+          
+          find build \
+            -name "libSDL2.a" \
+            -exec stat -f "%Sm %N" {} \; \
+            || true
+          
+          echo ""
+          echo "============================================================"
+          echo "  RECHERCHE SDL_uikitappdelegate.o"
           echo "============================================================"
           
           find build \
             -name "SDL_uikitappdelegate.o" \
-            | while read OBJ; do
+            | while read OBJ
+          do
+              echo ""
+              echo "========================================================"
+              echo "$OBJ"
+              echo "========================================================"
           
-                echo ""
-                echo "OBJET : $OBJ"
+              echo "----- FCVV -----"
           
-                echo "----- STRINGS FCVV -----"
-                strings "$OBJ" \
-                  | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|Firebase configuré|registerForRemoteNotifications" \
-                  || true
+              strings "$OBJ" \
+                | grep -E \
+                  "FCVV|Firebase configuré|registerForRemoteNotifications|fcvvConfigureFirebaseAndNotifications" \
+                || true
           
-                echo ""
-                echo "----- SYMBOLES FCVV -----"
-                nm "$OBJ" \
-                  | grep -i fcvv \
-                  || true
+              echo ""
           
-              done
-              
-          echo ""
-          echo "============================================================"
-          echo "  VERIFICATION libSDL2.a"
-          echo "============================================================"
+              echo "----- NM -----"
           
-          find build \
-            -name "libSDL2.a" \
-            | while read LIB; do
+              nm "$OBJ" \
+                | grep -i fcvv \
+                || true
           
-                echo ""
-                echo "LIBRAIRIE : $LIB"
-          
-                echo "----- STRINGS FCVV -----"
-          
-                strings "$LIB" \
-                  | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|Firebase configuré|registerForRemoteNotifications" \
-                  || true
-          
-              done
-          
-          echo ""
-          echo "============================================================"
-          echo "  VERIFICATION XCFRAMEWORK"
-          echo "============================================================"
-          
-          find dist/xcframework/libSDL2.xcframework \
-            -name "*.a" \
-            | while read LIB; do
-          
-                echo ""
-                echo "LIB : $LIB"
-          
-                strings "$LIB" \
-                  | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|Firebase configuré|registerForRemoteNotifications" \
-                  || true
-          
-              done
+          done
 
           exit 1
-          
       
       # ============================================================
       # 10. APNs ENTITLEMENTS + CODE SIGNING
