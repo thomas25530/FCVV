@@ -702,21 +702,21 @@ class EventManager:
                 
                 def save_match(x):
                     print("\n" + "=" * 80)
-                    print("🔵 [SAVE] CLIC SUR 'Enregistrer le match'")
-                    print(f"🔵 [SAVE] platform = {platform}")
-                    print(f"🔵 [SAVE] match_id = {match_id!r}")
-                    print(f"🔵 [SAVE] current_cat = {screen_instance.current_cat!r}")
+                    print("[SAVE] CLIC SUR 'Enregistrer le match'")
+                    print(f"[SAVE] platform = {platform}")
+                    print(f"[SAVE] match_id = {match_id!r}")
+                    print(f"[SAVE] current_cat = {screen_instance.current_cat!r}")
                     print("=" * 80)
                 
                     date_val = ti_date.text.strip()
                 
-                    print(f"🔵 [SAVE] Date saisie = {date_val!r}")
+                    print(f"[SAVE] Date saisie = {date_val!r}")
                 
                     try:
                         datetime.strptime(date_val, "%d/%m/%Y")
-                        print("🟢 [SAVE] Date valide")
+                        print("[SAVE] Date valide")
                     except ValueError:
-                        print("🔴 [SAVE] Date invalide -> ouverture popup erreur")
+                        print("[SAVE] Date invalide -> ouverture popup erreur")
                 
                         p_err = Popup(
                             title="Erreur de format",
@@ -740,21 +740,21 @@ class EventManager:
                 
                     est_une_modification = bool(match_id) and match_id in calendrier_actuel
                 
-                    print(f"🔵 [SAVE] est_une_modification = {est_une_modification}")
-                    print(f"🔵 [SAVE] calendrier contient match_id = {match_id in calendrier_actuel}")
+                    print(f"[SAVE] est_une_modification = {est_une_modification}")
+                    print(f"[SAVE] calendrier contient match_id = {match_id in calendrier_actuel}")
                 
                     def executer_sauvegarde(commit_message=""):
                 
                         print("\n" + "-" * 80)
-                        print("🟣 [EXEC] >>> ENTREE executer_sauvegarde()")
-                        print(f"🟣 [EXEC] platform = {platform}")
-                        print(f"🟣 [EXEC] commit_message = {commit_message!r}")
+                        print("[EXEC] >>> ENTREE executer_sauvegarde()")
+                        print(f"[EXEC] platform = {platform}")
+                        print(f"[EXEC] commit_message = {commit_message!r}")
                         print("-" * 80)
                 
                         joueurs_convoques = []
                 
-                        print(f"🟣 [EXEC] chk_convocation.active = {chk_convocation.active}")
-                        print(f"🟣 [EXEC] Nombre checkboxes = {len(checkboxes_joueurs)}")
+                        print(f"[EXEC] chk_convocation.active = {chk_convocation.active}")
+                        print(f"[EXEC] Nombre checkboxes = {len(checkboxes_joueurs)}")
                 
                         if chk_convocation.active:
                 
@@ -768,7 +768,7 @@ class EventManager:
                                     est_manuel = getattr(cb, "est_manuel", False)
                 
                                     print(
-                                        f"🟣 [EXEC] Joueur selectionne: "
+                                        f"[EXEC] Joueur selectionne: "
                                         f"{nom} {prenom} | "
                                         f"cat={cat_joueur} | "
                                         f"manuel={est_manuel}"
@@ -789,7 +789,7 @@ class EventManager:
                                             joueurs_convoques.append(nom_complet)
                 
                         print(
-                            f"🟣 [EXEC] Nombre joueurs_convoques = "
+                            f"[EXEC] Nombre joueurs_convoques = "
                             f"{len(joueurs_convoques)}"
                         )
                 
@@ -815,23 +815,23 @@ class EventManager:
                             "est_modification": est_une_modification
                         })
                 
-                        print("🟢 [EXEC] match_info_match construit")
-                        print(f"🟢 [EXEC] titre = {match_info_match.get('titre')!r}")
-                        print(f"🟢 [EXEC] adversaire = {match_info_match.get('adversaire')!r}")
-                        print(f"🟢 [EXEC] date = {match_info_match.get('date')!r}")
-                        print(f"🟢 [EXEC] commit = {match_info_match.get('dernier_commit')!r}")
+                        print("[EXEC] match_info_match construit")
+                        print(f"[EXEC] titre = {match_info_match.get('titre')!r}")
+                        print(f"[EXEC] adversaire = {match_info_match.get('adversaire')!r}")
+                        print(f"[EXEC] date = {match_info_match.get('date')!r}")
+                        print(f"[EXEC] commit = {match_info_match.get('dernier_commit')!r}")
                 
                         # ---------------------------------------------------------
                         # PDF
                         # ---------------------------------------------------------
                 
                         print(
-                            f"🟡 [PDF] chk_exporter_pdf.active = "
+                            f"[PDF] chk_exporter_pdf.active = "
                             f"{chk_exporter_pdf.active}"
                         )
                 
                         if chk_exporter_pdf.active:
-                            print("🟡 [PDF] Debut generation PDF")
+                            print("[PDF] Debut generation PDF")
                 
                             try:
                                 generer_pdf_convocation(
@@ -839,11 +839,11 @@ class EventManager:
                                     liste_joueurs
                                 )
                 
-                                print("🟢 [PDF] Generation PDF terminee")
+                                print("[PDF] Generation PDF terminee")
                 
                             except Exception as e_pdf:
                                 print(
-                                    f"🔴 [PDF] ERREUR generation PDF : "
+                                    f"[PDF] ERREUR generation PDF : "
                                     f"{type(e_pdf).__name__}: {e_pdf}"
                                 )
                 
@@ -854,7 +854,7 @@ class EventManager:
                         if est_une_modification:
                             key = match_id
                 
-                            print(f"🟣 [EXEC] Modification -> key = {key!r}")
+                            print(f"[EXEC] Modification -> key = {key!r}")
                 
                         else:
                             adv_clean = (
@@ -880,7 +880,7 @@ class EventManager:
                                 f"{heure_clean}"
                             )
                 
-                            print(f"🟣 [EXEC] Creation -> key = {key!r}")
+                            print(f"[EXEC] Creation -> key = {key!r}")
                 
                         # ---------------------------------------------------------
                         # CACHE LOCAL
@@ -892,7 +892,7 @@ class EventManager:
                         )
                 
                         if "calendrier" not in data:
-                            print("🟡 [CACHE] calendrier absent -> creation")
+                            print("[CACHE] calendrier absent -> creation")
                             data["calendrier"] = {}
                 
                         if est_une_modification and match_id in data["calendrier"]:
@@ -900,7 +900,7 @@ class EventManager:
                             if match_id != key:
                 
                                 print(
-                                    f"🟡 [CACHE] Suppression ancienne cle : "
+                                    f"[CACHE] Suppression ancienne cle : "
                                     f"{match_id!r}"
                                 )
                 
@@ -911,10 +911,10 @@ class EventManager:
                 
                         data["calendrier"][key] = match_info_match
                 
-                        print("🟢 [CACHE] evenement enregistre dans le cache")
-                        print(f"🟢 [CACHE] key = {key!r}")
+                        print("[CACHE] evenement enregistre dans le cache")
+                        print(f"[CACHE] key = {key!r}")
                         print(
-                            f"🟢 [CACHE] Nombre evenements = "
+                            f"[CACHE] Nombre evenements = "
                             f"{len(data['calendrier'])}"
                         )
                 
@@ -929,7 +929,7 @@ class EventManager:
                             f"{key}"
                         )
                 
-                        print("\n🌐 [API] URL PUT :")
+                        print("\n[API] URL PUT :")
                         print(url)
                 
                         # ---------------------------------------------------------
@@ -939,9 +939,9 @@ class EventManager:
                         def do_api_save():
                 
                             print("\n" + "=" * 80)
-                            print("🌐 [THREAD API] DeMARRAGE")
-                            print(f"🌐 [THREAD API] platform = {platform}")
-                            print(f"🌐 [THREAD API] key = {key!r}")
+                            print("[THREAD API] DeMARRAGE")
+                            print(f"[THREAD API] platform = {platform}")
+                            print(f"[THREAD API] key = {key!r}")
                             print("=" * 80)
                 
                             try:
@@ -953,13 +953,13 @@ class EventManager:
                                 )
                 
                                 print(
-                                    f"🌐 [THREAD API] headers presents = "
+                                    f"[THREAD API] headers presents = "
                                     f"{bool(headers)}"
                                 )
                 
                                 if headers:
                                     print(
-                                        f"🌐 [THREAD API] header keys = "
+                                        f"[THREAD API] header keys = "
                                         f"{list(headers.keys())}"
                                     )
                 
@@ -969,7 +969,7 @@ class EventManager:
                                 # PUT
                                 # -------------------------------------------------
                 
-                                print("🌐 [PUT] Envoi de la requete...")
+                                print("[PUT] Envoi de la requete...")
                 
                                 response = requests.put(
                                     url,
@@ -980,18 +980,18 @@ class EventManager:
                                 )
                 
                                 print(
-                                    f"🌐 [PUT] status_code = "
+                                    f"[PUT] status_code = "
                                     f"{response.status_code}"
                                 )
                 
                                 print(
-                                    f"🌐 [PUT] response = "
+                                    f"[PUT] response = "
                                     f"{response.text[:1000]!r}"
                                 )
                 
                                 response.raise_for_status()
                 
-                                print("🟢 [PUT] PUT reussi")
+                                print("[PUT] PUT reussi")
                 
                                 # -------------------------------------------------
                                 # POST HISTORIQUE
@@ -1004,7 +1004,7 @@ class EventManager:
                                     f"{key}"
                                 )
                 
-                                print("\n🌐 [POST] URL historique :")
+                                print("\n[POST] URL historique :")
                                 print(stats_url)
                 
                                 response_stats = requests.post(
@@ -1015,32 +1015,32 @@ class EventManager:
                                 )
                 
                                 print(
-                                    f"🌐 [POST] status_code = "
+                                    f"[POST] status_code = "
                                     f"{response_stats.status_code}"
                                 )
                 
                                 print(
-                                    f"🌐 [POST] response = "
+                                    f"[POST] response = "
                                     f"{response_stats.text[:1000]!r}"
                                 )
                 
                                 response_stats.raise_for_status()
                 
-                                print("🟢 [POST] POST historique reussi")
+                                print("[POST] POST historique reussi")
                 
                                 # -------------------------------------------------
                                 # REFRESH UI
                                 # -------------------------------------------------
                 
                                 print(
-                                    "🟡 [API] Programmation de "
+                                    "[API] Programmation de "
                                     "fetch_convocations_from_firebase()"
                                 )
                 
                                 Clock.schedule_once(
                                     lambda dt: (
                                         print(
-                                            "🟢 [CLOCK] Execution "
+                                            "[CLOCK] Execution "
                                             "fetch_convocations_from_firebase()"
                                         ),
                                         screen_instance.fetch_convocations_from_firebase(
@@ -1049,19 +1049,19 @@ class EventManager:
                                     )
                                 )
                 
-                                print("🟢 [THREAD API] FIN NORMALE")
+                                print("[THREAD API] FIN NORMALE")
                 
                             except Exception as e:
                 
                                 print("\n" + "!" * 80)
-                                print("🔴 [THREAD API] ERREUR")
-                                print(f"🔴 type = {type(e).__name__}")
-                                print(f"🔴 message = {e}")
+                                print("[THREAD API] ERREUR")
+                                print(f"type = {type(e).__name__}")
+                                print(f"message = {e}")
                                 print("!" * 80)
                 
                                 Clock.schedule_once(
                                     lambda dt: (
-                                        print("🟡 [CLOCK] update_ui() après erreur API"),
+                                        print("[CLOCK] update_ui() après erreur API"),
                                         screen_instance.update_ui()
                                     )
                                 )
@@ -1070,7 +1070,7 @@ class EventManager:
                         # DÉMARRAGE THREAD
                         # ---------------------------------------------------------
                 
-                        print("🟡 [THREAD] Creation du thread API")
+                        print("[THREAD] Creation du thread API")
                 
                         thread = threading.Thread(
                             target=do_api_save,
@@ -1080,7 +1080,7 @@ class EventManager:
                         thread.start()
                 
                         print(
-                            f"🟢 [THREAD] Thread demarre : "
+                            f"[THREAD] Thread demarre : "
                             f"{thread.name}"
                         )
                 
@@ -1089,36 +1089,36 @@ class EventManager:
                         # ---------------------------------------------------------
                 
                         print(
-                            f"🟡 [POPUP MAIN] popup_ref = {popup_ref!r}"
+                            f"[POPUP MAIN] popup_ref = {popup_ref!r}"
                         )
                 
                         if popup_ref:
                 
                             print(
-                                "🟡 [POPUP MAIN] Appel popup_ref[0].dismiss()"
+                                "[POPUP MAIN] Appel popup_ref[0].dismiss()"
                             )
                 
                             try:
                                 popup_ref[0].dismiss()
                 
                                 print(
-                                    "🟢 [POPUP MAIN] dismiss() appele"
+                                    "[POPUP MAIN] dismiss() appele"
                                 )
                 
                             except Exception as e_popup:
                 
                                 print(
-                                    f"🔴 [POPUP MAIN] ERREUR dismiss : "
+                                    f"[POPUP MAIN] ERREUR dismiss : "
                                     f"{type(e_popup).__name__}: {e_popup}"
                                 )
                 
                         else:
                 
                             print(
-                                "🔴 [POPUP MAIN] popup_ref est VIDE !"
+                                "[POPUP MAIN] popup_ref est VIDE !"
                             )
                 
-                        print("🟣 [EXEC] <<< SORTIE executer_sauvegarde()")
+                        print("[EXEC] <<< SORTIE executer_sauvegarde()")
                 
                     # =============================================================
                     # MODIFICATION
@@ -1127,8 +1127,8 @@ class EventManager:
                     if est_une_modification:
                 
                         print("\n" + "=" * 80)
-                        print("🟠 [COMMIT] MODE MODIFICATION")
-                        print("🟠 [COMMIT] Creation popup 'Motif de modification'")
+                        print("[COMMIT] MODE MODIFICATION")
+                        print("[COMMIT] Creation popup 'Motif de modification'")
                         print("=" * 80)
                 
                         content_commit = BoxLayout(
@@ -1189,14 +1189,14 @@ class EventManager:
                         # ---------------------------------------------------------
                 
                         def debug_popup_open(*args):
-                            print("🟢 [POPUP COMMIT] on_open")
+                            print("[POPUP COMMIT] on_open")
                 
                         def debug_popup_dismiss(*args):
-                            print("🟢 [POPUP COMMIT] on_dismiss")
+                            print("[POPUP COMMIT] on_dismiss")
                 
                         def debug_popup_touch_down(instance, touch):
                             print(
-                                "👆 [POPUP COMMIT] touch_down "
+                                "[POPUP COMMIT] touch_down "
                                 f"pos={touch.pos}"
                             )
                 
@@ -1212,18 +1212,18 @@ class EventManager:
                         def valider_avec_commit(instance):
                 
                             print("\n" + "=" * 80)
-                            print("🔴 [COMMIT BUTTON] CLIC SUR CONFIRMER")
-                            print(f"🔴 [COMMIT BUTTON] platform = {platform}")
+                            print("[COMMIT BUTTON] CLIC SUR CONFIRMER")
+                            print(f"[COMMIT BUTTON] platform = {platform}")
                             print(
-                                f"🔴 [COMMIT BUTTON] popup_commit="
+                                f"[COMMIT BUTTON] popup_commit="
                                 f"{popup_commit}"
                             )
                             print(
-                                f"🔴 [COMMIT BUTTON] popup_commit._is_open = "
+                                f"[COMMIT BUTTON] popup_commit._is_open = "
                                 f"{getattr(popup_commit, '_is_open', 'N/A')}"
                             )
                             print(
-                                f"🔴 [COMMIT BUTTON] ti_commit.text = "
+                                f"[COMMIT BUTTON] ti_commit.text = "
                                 f"{ti_commit.text!r}"
                             )
                             print("=" * 80)
@@ -1231,7 +1231,7 @@ class EventManager:
                             msg = ti_commit.text.strip()
                 
                             print(
-                                f"🟡 [COMMIT BUTTON] msg = {msg!r}"
+                                f"[COMMIT BUTTON] msg = {msg!r}"
                             )
                 
                             # -----------------------------------------------------
@@ -1241,7 +1241,7 @@ class EventManager:
                             # -----------------------------------------------------
                 
                             print(
-                                "🟡 [COMMIT BUTTON] Appel "
+                                "[COMMIT BUTTON] Appel "
                                 "popup_commit.dismiss()"
                             )
                 
@@ -1249,13 +1249,13 @@ class EventManager:
                                 popup_commit.dismiss()
                 
                                 print(
-                                    "🟢 [COMMIT BUTTON] dismiss() appele"
+                                    "[COMMIT BUTTON] dismiss() appele"
                                 )
                 
                             except Exception as e:
                 
                                 print(
-                                    f"🔴 [COMMIT BUTTON] ERREUR dismiss : "
+                                    f"[COMMIT BUTTON] ERREUR dismiss : "
                                     f"{type(e).__name__}: {e}"
                                 )
                 
@@ -1263,11 +1263,11 @@ class EventManager:
                 
                                 print("\n" + "-" * 80)
                                 print(
-                                    "🟣 [CLOCK COMMIT] "
+                                    "[CLOCK COMMIT] "
                                     "lancer_sauvegarde()"
                                 )
                                 print(
-                                    f"🟣 [CLOCK COMMIT] msg = {msg!r}"
+                                    f"[CLOCK COMMIT] msg = {msg!r}"
                                 )
                                 print("-" * 80)
                 
@@ -1275,19 +1275,19 @@ class EventManager:
                                     executer_sauvegarde(msg)
                 
                                     print(
-                                        "🟢 [CLOCK COMMIT] "
+                                        "[CLOCK COMMIT] "
                                         "executer_sauvegarde() terminee"
                                     )
                 
                                 except Exception as e:
                 
                                     print(
-                                        f"🔴 [CLOCK COMMIT] ERREUR : "
+                                        f"[CLOCK COMMIT] ERREUR : "
                                         f"{type(e).__name__}: {e}"
                                     )
                 
                             print(
-                                "🟡 [COMMIT BUTTON] "
+                                "[COMMIT BUTTON] "
                                 "schedule executer_sauvegarde"
                             )
                 
@@ -1297,7 +1297,7 @@ class EventManager:
                             )
                 
                             print(
-                                "🟢 [COMMIT BUTTON] FIN on_release"
+                                "[COMMIT BUTTON] FIN on_release"
                             )
                 
                         btn_valider_commit.bind(
@@ -1305,13 +1305,13 @@ class EventManager:
                         )
                 
                         print(
-                            "🟡 [COMMIT] Ouverture popup_commit"
+                            "[COMMIT] Ouverture popup_commit"
                         )
                 
                         popup_commit.open()
                 
                         print(
-                            "🟢 [COMMIT] popup_commit.open() termine"
+                            "[COMMIT] popup_commit.open() termine"
                         )
                 
                     # =============================================================
@@ -1321,8 +1321,8 @@ class EventManager:
                     else:
                 
                         print("\n" + "=" * 80)
-                        print("🟢 [SAVE] MODE CReATION")
-                        print("🟢 [SAVE] Appel executer_sauvegarde() direct")
+                        print("[SAVE] MODE CReATION")
+                        print("[SAVE] Appel executer_sauvegarde() direct")
                         print("=" * 80)
                 
                         executer_sauvegarde(
