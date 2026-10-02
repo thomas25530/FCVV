@@ -3227,7 +3227,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "              ARCHIVE IPHONEOS FCVV"
+          echo "             ARCHIVE IPHONEOS FCVV"
           echo "============================================================"
 
           echo ""
@@ -3267,7 +3267,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "                    VERIFICATION RSYNC"
+          echo "                     VERIFICATION RSYNC"
           echo "============================================================"
 
           echo "PATH = $PATH"
@@ -3282,7 +3282,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "              SDL SOURCE AVANT ARCHIVE"
+          echo "             SDL SOURCE AVANT ARCHIVE"
           echo "============================================================"
 
           echo ""
@@ -3314,21 +3314,45 @@ jobs:
             || true
 
           # ============================================================
-          # ARTEFACTS SDL2
-          #
-          # C'EST LE DIAGNOSTIC IMPORTANT
-          #
-          # SDL_uikitappdelegate.m
-          #        ↓
-          #      SDL2
-          #        ↓
-          #      Xcode
-          #        ↓
-          #     fcvv.app
+          # OBJET SDL_uikitappdelegate.o
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "              ARTEFACTS SDL2 IPHONEOS"
+          echo "             SDL_UKITAPPDELEGATE.O"
+          echo "============================================================"
+
+          SDL_OBJ="$GITHUB_WORKSPACE/build/sdl2/iphoneos-arm64/SDL2-2.28.5/Xcode/SDL/build/SDL.build/Release-iphoneos/Static Library-iOS.build/Objects-normal/arm64/SDL_uikitappdelegate.o"
+
+          if [ -f "$SDL_OBJ" ]; then
+
+            echo ""
+            echo "Objet trouvé :"
+            echo "$SDL_OBJ"
+
+            echo ""
+            echo "===== CHAÎNES FCVV DANS .O ====="
+
+            strings "$SDL_OBJ" \
+              | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|Firebase|APNs" \
+              || true
+
+            echo ""
+            echo "===== SYMBOLES FCVV DANS .O ====="
+
+            nm "$SDL_OBJ" \
+              | grep -i fcvv \
+              || true
+
+          else
+            echo "⚠️ SDL_uikitappdelegate.o introuvable"
+          fi
+
+          # ============================================================
+          # ARTEFACTS SDL2
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "             ARTEFACTS SDL2 IPHONEOS"
           echo "============================================================"
 
           SDL_DEVICE_DIR="$GITHUB_WORKSPACE/build/sdl2/iphoneos-arm64"
@@ -3363,7 +3387,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "              RECHERCHE LIBRAIRIES SDL"
+          echo "             RECHERCHE LIBRAIRIES SDL"
           echo "============================================================"
 
           find "$GITHUB_WORKSPACE/build" \
@@ -3379,12 +3403,6 @@ jobs:
 
           # ============================================================
           # STRINGS FCVV DANS LES ARTEFACTS SDL
-          #
-          # SI ON TROUVE [FCVV] ICI :
-          #   SDL est bien compilé avec notre code
-          #
-          # SI ON NE TROUVE RIEN :
-          #   notre .m modifié n'a pas été recompilé dans SDL2
           # ============================================================
           echo ""
           echo "============================================================"
@@ -3433,11 +3451,48 @@ jobs:
           fi
 
           # ============================================================
+          # XCFRAMEWORK SDL UTILISÉ PAR XCODE
+          # ============================================================
+          echo ""
+          echo "============================================================"
+          echo "             XCFRAMEWORK UTILISÉ PAR XCODE"
+          echo "============================================================"
+
+          SDL_XCFRAMEWORK="$GITHUB_WORKSPACE/dist/xcframework/libSDL2.xcframework"
+
+          echo ""
+          echo "===== CONTENU XCFRAMEWORK ====="
+
+          find "$SDL_XCFRAMEWORK" \
+            -type f \
+            | sort \
+            || true
+
+          echo ""
+          echo "===== FCVV DANS LES .A DU XCFRAMEWORK ====="
+
+          find "$SDL_XCFRAMEWORK" \
+            -type f \
+            -name "*.a" \
+            | while read -r LIB; do
+
+                echo ""
+                echo "------------------------------------------------------------"
+                echo "$LIB"
+                echo "------------------------------------------------------------"
+
+                strings "$LIB" \
+                  | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|registerForRemoteNotifications" \
+                  || true
+
+              done
+
+          # ============================================================
           # REFERENCES SDL DANS XCODE
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "              REFERENCES SDL DANS XCODE"
+          echo "             REFERENCES SDL DANS XCODE"
           echo "============================================================"
 
           echo ""
@@ -3471,7 +3526,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "                    XCODEBUILD ARCHIVE"
+          echo "                     XCODEBUILD ARCHIVE"
           echo "============================================================"
 
           echo "Log complet : $ARCHIVE_LOG"
@@ -3503,7 +3558,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "              VERIFICATION ARCHIVE"
+          echo "             VERIFICATION ARCHIVE"
           echo "============================================================"
 
           if [ ! -d "$ARCHIVE_PATH" ]; then
@@ -3615,7 +3670,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "                    FIREBASE FINAL"
+          echo "                     FIREBASE FINAL"
           echo "============================================================"
 
           strings "$APP_BINARY" \
@@ -3643,7 +3698,7 @@ jobs:
           # ============================================================
           echo ""
           echo "============================================================"
-          echo "                    DIAGNOSTIC FINAL"
+          echo "                     DIAGNOSTIC FINAL"
           echo "============================================================"
 
           echo ""
@@ -3665,8 +3720,49 @@ jobs:
 
           echo ""
           echo "============================================================"
-          echo "                     CHEMINS FINAUX"
+          echo "                      CHEMINS FINAUX"
           echo "============================================================"
+
+          echo ""
+          echo "============================================================"
+          echo "               COMPARAISON SDL COMPLETE"
+          echo "============================================================"
+          echo ""
+          echo "source SDL_uikitappdelegate.m : OUI"
+
+          echo ""
+          echo "Recherche FCVV dans SDL_uikitappdelegate.o"
+
+          strings "$SDL_OBJ" 2>/dev/null \
+            | grep -q "\[FCVV\]"
+
+          if [ $? -eq 0 ]; then
+            echo "✓ FCVV présent dans SDL_uikitappdelegate.o"
+          else
+            echo "❌ FCVV absent de SDL_uikitappdelegate.o"
+          fi
+
+          echo ""
+          echo "Recherche FCVV dans libSDL2.a"
+
+          SDL_LIB="$GITHUB_WORKSPACE/build/sdl2/iphoneos-arm64/SDL2-2.28.5/Xcode/SDL/build/Release-iphoneos/libSDL2.a"
+          strings "$SDL_LIB" 2>/dev/null \
+            | grep -q "\[FCVV\]"
+
+          if [ $? -eq 0 ]; then
+            echo "✓ FCVV présent dans libSDL2.a"
+          else
+            echo "❌ FCVV absent de libSDL2.a"
+          fi
+
+          echo ""
+          echo "Recherche FCVV dans le binaire final"
+
+          if [ -n "$FCVV_STRINGS" ]; then
+            echo "✓ FCVV présent dans fcvv.app"
+          else
+            echo "❌ FCVV absent dans fcvv.app"
+          fi
 
           echo ""
           echo "Archive :"
