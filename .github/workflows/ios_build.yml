@@ -1796,16 +1796,16 @@ jobs:
 
             # ======================================================
             # 8.3.10 RECHERCHE DES LIBSDL2.A DU PROJET
-            #
-            # IMPORTANT :
-            # mapfile/readarray n'existent pas dans Bash 3.2.
-            # On utilise donc une boucle while compatible macOS.
             # ======================================================
 
             echo
-            echo "=== LIBSDL2.A PRESENTS DANS FCVV ==="
+            echo "=== RECHERCHE DES LIBSDL2.A DANS FCVV ==="
 
             PROJECT_LIBS=()
+
+            # ------------------------------------------------------
+            # Recherche physique classique
+            # ------------------------------------------------------
 
             while IFS= read -r PROJECT_LIB; do
               [ -n "$PROJECT_LIB" ] || continue
@@ -1820,82 +1820,284 @@ jobs:
                 | sort
             )
 
-            if [ "${#PROJECT_LIBS[@]}" -eq 0 ]; then
-
-              echo "❌ Aucun libSDL2.a trouvé dans :"
-              echo "  $PROJ_DIR"
-
-              echo
-              echo "=== REFERENCES LIBSDL2.A DANS PBXPROJ ==="
-
-              grep -n \
-                -B 10 \
-                -A 15 \
-                "libSDL2.a" \
-                "$PROJECT_PBXPROJ" || true
-
-              exit 1
-            fi
-
             echo
-            echo "✓ ${#PROJECT_LIBS[@]} libSDL2.a trouvé(s)"
+            echo "Nombre de libSDL2.a physiques trouvés : ${#PROJECT_LIBS[@]}"
 
             for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
-              echo "  - $PROJECT_LIB"
+              echo "  ✓ $PROJECT_LIB"
             done
 
 
             # ======================================================
-            # 8.3.11 DETECTION DU LIBSDL2.A CIBLE POUR LE SDK
-            #
-            # IMPORTANT :
-            #
-            # Sur Apple Silicon :
-            #
-            #   iphoneos       = arm64
-            #   iphonesimulator = arm64
-            #
-            # Donc l'architecture seule NE permet PAS de distinguer
-            # device et simulator.
-            #
-            # On utilise d'abord le chemin du fichier.
+            # 8.3.11 SI AUCUN FICHIER PHYSIQUE :
+            #        ANALYSE DU PROJECT.PBXPROJ
+            # ======================================================
+
+            if [ "${#PROJECT_LIBS[@]}" -eq 0 ]; then
+
+              echo
+              echo "⚠ Aucun libSDL2.a physique trouvé dans le projet."
+
+              echo
+              echo "=== RECHERCHE DES REFERENCES LIBSDL2.A DANS PBXPROJ ==="
+
+              PBX_LIB_REFERENCES="$(
+                grep -n \
+                  -B 12 \
+                  -A 12 \
+                  "libSDL2.a" \
+                  "$PROJECT_PBXPROJ" \
+                  || true
+              )"
+
+              if [ -z "$PBX_LIB_REFERENCES" ]; then
+
+                echo
+                echo "❌ Aucune référence libSDL2.a trouvée dans :"
+                echo "  $PROJECT_PBXPROJ"
+
+                echo
+                echo "Recherche générale SDL :"
+
+                grep -ni \
+                  "SDL2\|SDL" \
+                  "$PROJECT_PBXPROJ" \
+                  | head -n 200 \
+                  || true
+
+                exit 1
+              fi
+
+              echo
+              echo "$PBX_LIB_REFERENCES"
+
+
+              # ==================================================
+              # Extraction des lignes :
+              #
+              # path = ".../libSDL2.a";
+              #
+              # ou :
+              #
+              # path = libSDL2.a;
+              # ==================================================
+
+              PBX_PATHS=()
+
+              while IFS= read -r PBX_PATH; do
+
+                [ -n "$PBX_PATH" ] || continue
+
+                # Nettoyage
+                PBX_PATH="${PBX_PATH#*=}"
+                PBX_PATH="${PBX_PATH%;}"
+                PBX_PATH="$(printf '%s' "$PBX_PATH" | sed 's/^[[:space:]]*//')"
+                PBX_PATH="$(printf '%s' "$PBX_PATH" | sed 's/[[:space:]]*$//')"
+
+                # Suppression des guillemets
+                PBX_PATH="${PBX_PATH#\"}"
+                PBX_PATH="${PBX_PATH%\"}"
+
+                case "$PBX_PATH" in
+                  *libSDL2.a)
+                    PBX_PATHS+=("$PBX_PATH")
+                    ;;
+                esac
+
+              done < <(
+                grep \
+                  "path = .*libSDL2\.a" \
+                  "$PROJECT_PBXPROJ" \
+                  | sed 's/.*path = /path = /' \
+                  | sed 's/^path = //'
+              )
+
+
+              echo
+              echo "=== CHEMINS SDL TROUVES DANS PBXPROJ ==="
+
+              if [ "${#PBX_PATHS[@]}" -eq 0 ]; then
+
+                echo "❌ Aucun path = ...libSDL2.a détecté."
+
+                echo
+                echo "Références brutes :"
+
+                grep -n \
+                  "libSDL2.a" \
+                  "$PROJECT_PBXPROJ" \
+                  || true
+
+                exit 1
+              fi
+
+              for PBX_PATH in "${PBX_PATHS[@]}"; do
+                echo "  → $PBX_PATH"
+              done
+
+
+              # ==================================================
+              # 8.3.12 RESOLUTION DES CHEMINS PBX
+              # ==================================================
+
+              echo
+              echo "=== RESOLUTION DES CHEMINS LIBSDL2.A ==="
+
+              for PBX_PATH in "${PBX_PATHS[@]}"; do
+
+                RESOLVED_LIB=""
+
+                # ------------------------------------------------
+                # Cas 1 :
+                # chemin absolu
+                # ------------------------------------------------
+
+                case "$PBX_PATH" in
+
+                  /*)
+
+                    RESOLVED_LIB="$PBX_PATH"
+
+                    ;;
+
+                  *)
+
+                    # --------------------------------------------
+                    # Cas 2 :
+                    # chemin relatif au projet Xcode
+                    # --------------------------------------------
+
+                    RESOLVED_LIB="$PROJ_DIR/$PBX_PATH"
+
+                    ;;
+
+                esac
+
+
+                echo
+                echo "Référence PBX :"
+                echo "  $PBX_PATH"
+
+                echo "Chemin résolu :"
+                echo "  $RESOLVED_LIB"
+
+
+                # ------------------------------------------------
+                # On mémorise la destination même si elle
+                # n'existe pas encore.
+                # ------------------------------------------------
+
+                case "$RESOLVED_LIB" in
+
+                  *libSDL2.a)
+
+                    PROJECT_LIBS+=("$RESOLVED_LIB")
+
+                    echo "  ✓ Destination libSDL2.a retenue"
+
+                    ;;
+
+                esac
+
+              done
+
+            fi
+
+
+            # ======================================================
+            # 8.3.13 VERIFICATION DES DESTINATIONS
             # ======================================================
 
             echo
-            echo "=== DETECTION DES LIBSDL2.A COMPATIBLES ==="
+            echo "=== DESTINATIONS LIBSDL2.A ==="
+
+            if [ "${#PROJECT_LIBS[@]}" -eq 0 ]; then
+
+              echo
+              echo "❌ Aucune destination libSDL2.a déterminée."
+
+              echo
+              echo "project.pbxproj :"
+              echo "  $PROJECT_PBXPROJ"
+
+              exit 1
+
+            fi
+
+
+            # ------------------------------------------------------
+            # Suppression des doublons
+            # Compatible Bash 3.2
+            # ------------------------------------------------------
+
+            UNIQUE_PROJECT_LIBS=()
+
+            for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
+
+              ALREADY_PRESENT=0
+
+              for EXISTING_LIB in "${UNIQUE_PROJECT_LIBS[@]}"; do
+
+                if [ "$PROJECT_LIB" = "$EXISTING_LIB" ]; then
+                  ALREADY_PRESENT=1
+                  break
+                fi
+
+              done
+
+              if [ "$ALREADY_PRESENT" -eq 0 ]; then
+                UNIQUE_PROJECT_LIBS+=("$PROJECT_LIB")
+              fi
+
+            done
+
+            PROJECT_LIBS=("${UNIQUE_PROJECT_LIBS[@]}")
+
+
+            echo
+            echo "✓ ${#PROJECT_LIBS[@]} destination(s) trouvée(s)"
+
+            for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
+
+              echo
+              echo "→ $PROJECT_LIB"
+
+              if [ -f "$PROJECT_LIB" ]; then
+
+                PROJECT_LIPO_INFO="$(
+                  lipo -info "$PROJECT_LIB" 2>/dev/null || true
+                )"
+
+                echo "  Architecture actuelle :"
+                echo "  $PROJECT_LIPO_INFO"
+
+              else
+
+                echo "  ⚠ Le fichier n'existe pas encore."
+                echo "  ✓ Il sera créé par la synchronisation."
+
+              fi
+
+            done
+
+
+            # ======================================================
+            # 8.3.14 VERIFICATION DEVICE / SIMULATOR
+            # ======================================================
+
+            echo
+            echo "=== VERIFICATION DE LA DESTINATION POUR $sdk ==="
 
             SDK_PROJECT_LIBS=()
 
             for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
 
-              if [ ! -f "$PROJECT_LIB" ]; then
-                continue
-              fi
+              DEST_MATCH=0
 
-              PROJECT_LIPO_INFO="$(
-                lipo -info "$PROJECT_LIB" 2>/dev/null || true
-              )"
-
-              echo
-              echo "libSDL2.a :"
-              echo "  $PROJECT_LIB"
-
-              echo "Architecture :"
-              echo "  $PROJECT_LIPO_INFO"
-
-              if ! echo "$PROJECT_LIPO_INFO" | grep -q "$EXPECTED_ARCH"; then
-
-                echo "  - Architecture $EXPECTED_ARCH absente"
-                continue
-
-              fi
-
-
-              # ----------------------------------------------------
-              # Classification par chemin
-              # ----------------------------------------------------
-
-              IS_SDK_MATCH=0
+              # --------------------------------------------------
+              # Si le chemin contient explicitement le SDK,
+              # on l'utilise.
+              # --------------------------------------------------
 
               case "$sdk" in
 
@@ -1903,7 +2105,7 @@ jobs:
 
                   case "$PROJECT_LIB" in
                     *iphoneos*|*iPhoneOS*|*IPHONEOS*|*device*|*Device*)
-                      IS_SDK_MATCH=1
+                      DEST_MATCH=1
                       ;;
                   esac
 
@@ -1913,7 +2115,7 @@ jobs:
 
                   case "$PROJECT_LIB" in
                     *iphonesimulator*|*iPhoneSimulator*|*IPHONESIMULATOR*|*simulator*|*Simulator*)
-                      IS_SDK_MATCH=1
+                      DEST_MATCH=1
                       ;;
                   esac
 
@@ -1922,29 +2124,65 @@ jobs:
               esac
 
 
-              if [ "$IS_SDK_MATCH" -eq 1 ]; then
+              # --------------------------------------------------
+              # Si le fichier existe déjà, on peut aussi vérifier
+              # son architecture.
+              #
+              # Attention :
+              # arm64 seul ne distingue PAS device/simulator.
+              # --------------------------------------------------
 
-                SDK_PROJECT_LIBS+=("$PROJECT_LIB")
+              if [ -f "$PROJECT_LIB" ]; then
 
-                echo "  ✓ Compatible avec $sdk"
+                DEST_LIPO="$(
+                  lipo -info "$PROJECT_LIB" 2>/dev/null || true
+                )"
+
+                if echo "$DEST_LIPO" | grep -q "$EXPECTED_ARCH"; then
+
+                  echo
+                  echo "libSDL2.a :"
+                  echo "  $PROJECT_LIB"
+
+                  echo "Architecture :"
+                  echo "  $DEST_LIPO"
+
+                  if [ "$DEST_MATCH" -eq 1 ]; then
+                    echo "  ✓ Chemin compatible avec $sdk"
+                  else
+                    echo "  ⚠ Architecture compatible mais SDK non explicite"
+                  fi
+
+                fi
 
               else
 
-                echo "  - Architecture compatible mais SDK non identifiable par le chemin"
+                echo
+                echo "Destination inexistante :"
+                echo "  $PROJECT_LIB"
 
+                if [ "$DEST_MATCH" -eq 1 ]; then
+                  echo "  ✓ Chemin compatible avec $sdk"
+                else
+                  echo "  ⚠ SDK non identifiable dans le chemin"
+                fi
+
+              fi
+
+
+              # --------------------------------------------------
+              # Pour une destination explicitement liée au SDK :
+              # --------------------------------------------------
+
+              if [ "$DEST_MATCH" -eq 1 ]; then
+                SDK_PROJECT_LIBS+=("$PROJECT_LIB")
               fi
 
             done
 
 
             # ======================================================
-            # 8.3.12 FALLBACK SECURISE
-            #
-            # Si un seul libSDL2.a existe dans le projet et qu'il
-            # n'existe aucun autre candidat, on peut l'utiliser.
-            #
-            # Sinon on refuse de deviner afin d'éviter de remplacer
-            # un lib simulator par un lib device ou inversement.
+            # 8.3.15 FALLBACK SECURISE
             # ======================================================
 
             if [ "${#SDK_PROJECT_LIBS[@]}" -eq 0 ]; then
@@ -1952,8 +2190,9 @@ jobs:
               if [ "${#PROJECT_LIBS[@]}" -eq 1 ]; then
 
                 echo
-                echo "⚠ Un seul libSDL2.a existe dans le projet."
-                echo "  Utilisation de cette destination :"
+                echo "⚠ Une seule destination libSDL2.a existe."
+
+                echo "  Destination utilisée :"
                 echo "  ${PROJECT_LIBS[0]}"
 
                 SDK_PROJECT_LIBS=("${PROJECT_LIBS[0]}")
@@ -1961,32 +2200,19 @@ jobs:
               else
 
                 echo
-                echo "❌ Impossible de déterminer automatiquement"
-                echo "   la destination de libSDL2.a pour : $sdk"
+                echo "❌ Plusieurs destinations libSDL2.a existent,"
+                echo "   mais aucune ne permet d'identifier le SDK."
 
                 echo
-                echo "LibSDL2.a détectés :"
+                echo "Destinations détectées :"
 
                 for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
                   echo "  $PROJECT_LIB"
                 done
 
                 echo
-                echo "Architecture recherchée :"
-                echo "  $EXPECTED_ARCH"
-
-                echo
-                echo "Références libSDL2.a dans project.pbxproj :"
-
-                grep -n \
-                  -B 10 \
-                  -A 15 \
-                  "libSDL2.a" \
-                  "$PROJECT_PBXPROJ" || true
-
-                echo
-                echo "❌ Synchronisation interrompue pour éviter"
-                echo "   de mélanger device et simulator."
+                echo "Pour éviter de mélanger device et simulator,"
+                echo "la synchronisation est arrêtée."
 
                 exit 1
 
@@ -1996,7 +2222,7 @@ jobs:
 
 
             # ======================================================
-            # 8.3.13 SYNCHRONISATION
+            # 8.3.16 SYNCHRONISATION DU LIBSDL2.A
             # ======================================================
 
             echo
@@ -2007,45 +2233,72 @@ jobs:
             for DEST in "${SDK_PROJECT_LIBS[@]}"; do
 
               echo
+              echo "============================================================"
+              echo " SYNCHRONISATION"
+              echo "============================================================"
+
+              echo
               echo "→ SOURCE :"
               echo "  $SDL_LIB"
 
+              echo
               echo "→ DESTINATION :"
               echo "  $DEST"
 
 
               # ----------------------------------------------------
-              # Vérification architecture destination avant copie
+              # Création du dossier destination si nécessaire
               # ----------------------------------------------------
 
-              DEST_BEFORE_LIPO="$(
-                lipo -info "$DEST" 2>/dev/null || true
-              )"
+              DEST_DIR="$(dirname "$DEST")"
 
-              echo
-              echo "Architecture destination avant copie :"
-              echo "  $DEST_BEFORE_LIPO"
+              if [ ! -d "$DEST_DIR" ]; then
+
+                echo
+                echo "Création du dossier destination :"
+                echo "  $DEST_DIR"
+
+                mkdir -p "$DEST_DIR"
+
+              fi
 
 
               # ----------------------------------------------------
               # Copie
               # ----------------------------------------------------
 
-              if cmp -s "$SDL_LIB" "$DEST"; then
+              if [ -f "$DEST" ] && cmp -s "$SDL_LIB" "$DEST"; then
 
-                echo "  ✓ Déjà identique"
+                echo
+                echo "✓ libSDL2.a déjà identique"
 
               else
 
                 cp -f "$SDL_LIB" "$DEST"
 
-                echo "  ✓ libSDL2.a remplacé"
+                echo
+                echo "✓ libSDL2.a copié"
 
               fi
 
 
               # ----------------------------------------------------
-              # Vérification hash
+              # Vérification existence
+              # ----------------------------------------------------
+
+              if [ ! -f "$DEST" ]; then
+
+                echo
+                echo "❌ libSDL2.a absent après copie :"
+                echo "  $DEST"
+
+                exit 1
+
+              fi
+
+
+              # ----------------------------------------------------
+              # Vérification SHA256
               # ----------------------------------------------------
 
               DEST_SHA="$(
@@ -2053,21 +2306,25 @@ jobs:
                   | awk '{print $1}'
               )"
 
+              echo
+              echo "SHA256 destination :"
+              echo "  $DEST_SHA"
+
+              echo "SHA256 source :"
+              echo "  $SHA_REBUILT"
+
+
               if [ "$DEST_SHA" != "$SHA_REBUILT" ]; then
 
                 echo
                 echo "❌ ERREUR : hash destination incorrect."
 
-                echo "  attendu :"
-                echo "  $SHA_REBUILT"
-
-                echo "  obtenu :"
-                echo "  $DEST_SHA"
-
                 exit 1
+
               fi
 
-              echo "  ✓ SHA256 vérifié"
+              echo
+              echo "✓ SHA256 vérifié"
 
 
               # ----------------------------------------------------
@@ -2087,19 +2344,78 @@ jobs:
                 echo
                 echo "❌ Architecture finale incorrecte."
 
-                echo "  SDK :"
+                echo "SDK :"
                 echo "  $sdk"
 
-                echo "  architecture attendue :"
+                echo "Architecture attendue :"
                 echo "  $EXPECTED_ARCH"
 
                 exit 1
+
               fi
 
-              echo "  ✓ Architecture finale vérifiée"
-              echo "  ✓ SDL final identique au SDL recompilé"
+              echo
+              echo "✓ Architecture finale vérifiée"
+              echo "✓ SDL final identique au SDL recompilé"
 
               SYNC_COUNT=$((SYNC_COUNT + 1))
+
+            done
+
+
+            # ======================================================
+            # 8.3.17 VERIFICATION FINALE DU SDK
+            # ======================================================
+
+            echo
+            echo "=== VERIFICATION FINALE $sdk ==="
+
+            if [ "$SYNC_COUNT" -eq 0 ]; then
+
+              echo "❌ Aucune synchronisation effectuée."
+              exit 1
+
+            fi
+
+            for DEST in "${SDK_PROJECT_LIBS[@]}"; do
+
+              FINAL_SHA="$(
+                shasum -a 256 "$DEST" \
+                  | awk '{print $1}'
+              )"
+
+              FINAL_LIPO="$(
+                lipo -info "$DEST"
+              )"
+
+              echo
+              echo "✓ libSDL2.a :"
+              echo "  $DEST"
+
+              echo
+              echo "✓ SHA256 :"
+              echo "  $FINAL_SHA"
+
+              echo
+              echo "✓ Architecture :"
+              echo "  $FINAL_LIPO"
+
+              if [ "$FINAL_SHA" != "$SHA_REBUILT" ]; then
+
+                echo "❌ libSDL2.a final différent du rebuild."
+                exit 1
+
+              fi
+
+              if ! echo "$FINAL_LIPO" | grep -q "$EXPECTED_ARCH"; then
+
+                echo "❌ Architecture finale incorrecte."
+                exit 1
+
+              fi
+
+              echo
+              echo "✓ SDL final identique au SDL recompilé"
 
             done
 
