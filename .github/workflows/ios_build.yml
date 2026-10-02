@@ -955,7 +955,7 @@ jobs:
           echo ""
           echo "✓ Tous les SDLUIKitDelegate ont été patchés"
 
-      # 8 REBUILD SDL2 + SYNCHRONISER LE LIBSDL2.A UTILISÉ PAR FCVV
+      # 8 REBUILD SDL2 + SYNCHRONISATION DU LIBSDL2.A FINAL
       - name: Rebuild SDL2 and sync libSDL2.a with fcvv.xcodeproj
         shell: bash
         env:
@@ -967,54 +967,75 @@ jobs:
           echo " REBUILD SDL2 + VERIFICATION DU LIBSDL2.A FINAL"
           echo "============================================================"
 
-          PROJECT_FILE=$(find "$GITHUB_WORKSPACE" \
-            -maxdepth 4 \
-            -type f \
-            -name "fcvv.xcodeproj" \
-            -print -quit)
+          echo
+          echo "=== RECHERCHE DU PROJET XCODE ==="
 
-          [ -n "$PROJECT_FILE" ] || {
-            echo "ERREUR: fcvv.xcodeproj introuvable."
+          # IMPORTANT :
+          # .xcodeproj est un REPERTOIRE, pas un fichier.
+          PROJECT_FILE=$(find "$GITHUB_WORKSPACE" \
+            -type d \
+            -name "fcvv.xcodeproj" \
+            -print \
+            | head -n 1)
+
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERREUR : fcvv.xcodeproj introuvable."
+            echo
+            echo "Projets Xcode présents dans le workspace :"
+            find "$GITHUB_WORKSPACE" \
+              -type d \
+              -name "*.xcodeproj" \
+              -print \
+              | sort || true
+
+            echo
+            echo "Contenu de la racine :"
+            ls -la "$GITHUB_WORKSPACE"
+
             exit 1
-          }
+          fi
 
           PROJ_DIR="$(dirname "$PROJECT_FILE")"
-
-          echo "Projet Xcode : $PROJECT_FILE"
-          echo "Répertoire   : $PROJ_DIR"
-
           PROJECT_PBXPROJ="$PROJECT_FILE/project.pbxproj"
 
+          echo "✓ Projet Xcode trouvé :"
+          echo "  $PROJECT_FILE"
+
+          echo "✓ Répertoire projet :"
+          echo "  $PROJ_DIR"
+
           [ -f "$PROJECT_PBXPROJ" ] || {
-            echo "ERREUR: $PROJECT_PBXPROJ introuvable."
+            echo "ERREUR : project.pbxproj introuvable :"
+            echo "  $PROJECT_PBXPROJ"
             exit 1
           }
 
           echo
-          echo "=== 1. RECHERCHE DES PROJETS SDL ==="
+          echo "=== PROJETS SDL ==="
 
           for sdk in iphoneos iphonesimulator; do
 
+            echo
+            echo "------------------------------------------------------------"
+            echo " SDK : $sdk"
+            echo "------------------------------------------------------------"
+
             SDL_PROJECT=$(find "$GITHUB_WORKSPACE/build/sdl2" \
-              -type f \
+              -type d \
               -path "*/${sdk}-arm64/SDL2-*/Xcode/SDL/SDL.xcodeproj" \
-              -print -quit)
+              -print \
+              | head -n 1)
 
             [ -n "$SDL_PROJECT" ] || {
-              echo "ERREUR: projet SDL introuvable pour $sdk."
+              echo "ERREUR : projet SDL introuvable pour $sdk."
               exit 1
             }
 
-            echo
-            echo "------------------------------------------------------------"
-            echo "SDK : $sdk"
-            echo "SDL : $SDL_PROJECT"
-            echo "------------------------------------------------------------"
-
-            SDL_PROJECT_DIR="$(dirname "$SDL_PROJECT")"
+            echo "✓ Projet SDL :"
+            echo "  $SDL_PROJECT"
 
             echo
-            echo "=== 2. RECOMPILATION SDL ==="
+            echo "=== RECOMPILATION SDL2 ($sdk) ==="
 
             xcodebuild \
               -project "$SDL_PROJECT" \
@@ -1036,7 +1057,7 @@ jobs:
               ONLY_ACTIVE_ARCH=NO
 
             echo
-            echo "=== 3. RECHERCHE DU LIBSDL2.A RECOMPILE ==="
+            echo "=== RECHERCHE DU LIBSDL2.A RECOMPILE ==="
 
             SDL_LIB=$(find "$GITHUB_WORKSPACE/build/sdl2" \
               -type f \
@@ -1046,179 +1067,41 @@ jobs:
               | head -n 1)
 
             [ -n "$SDL_LIB" ] || {
-              echo "ERREUR: libSDL2.a recompilé introuvable pour $sdk."
+              echo "ERREUR : libSDL2.a recompilé introuvable pour $sdk."
               exit 1
             }
 
-            echo "libSDL2.a recompilé :"
+            echo "✓ libSDL2.a recompilé :"
             echo "  $SDL_LIB"
 
             echo
-            echo "Architecture :"
+            echo "=== ARCHITECTURES ==="
             lipo -info "$SDL_LIB"
 
             echo
-            echo "Hash du libSDL2.a recompilé :"
+            echo "=== HASH DU LIBSDL2.A RECOMPILE ==="
             SHA_REBUILT=$(shasum -a 256 "$SDL_LIB" | awk '{print $1}')
             echo "$SHA_REBUILT"
 
             echo
-            echo "=== 4. RECHERCHE DES LIBSDL2.A DANS LE PROJET FINAL ==="
+            echo "=== RECHERCHE DES LIBSDL2.A DANS LE PROJET FINAL ==="
 
-            mapfile -t PROJECT_SDL_LIBS < <(
-              find "$PROJ_DIR" \
-                -type f \
-                -name "libSDL2.a" \
-                -print
-            )
-
-            if [ "${#PROJECT_SDL_LIBS[@]}" -eq 0 ]; then
-              echo "Aucun libSDL2.a trouvé directement dans $PROJ_DIR."
-              echo
-              echo "Références présentes dans project.pbxproj :"
-              grep -n -i "libSDL2.a" "$PROJECT_PBXPROJ" || true
-            fi
-
-            echo
-            echo "=== 5. SYNCHRONISATION DU LIBSDL2.A FINAL ==="
-
-            SYNC_COUNT=0
-
-            for PROJECT_SDL_LIB in "${PROJECT_SDL_LIBS[@]}"; do
-
-              echo
-              echo "Fichier trouvé dans le projet :"
-              echo "  $PROJECT_SDL_LIB"
-
-              # Ne remplace que les archives compatibles avec le SDK courant.
-              # On utilise l'architecture comme garde-fou.
-              PROJECT_ARCHS=$(lipo -info "$PROJECT_SDL_LIB" 2>/dev/null || true)
-              REBUILT_ARCHS=$(lipo -info "$SDL_LIB" 2>/dev/null || true)
-
-              echo "Architectures projet :  $PROJECT_ARCHS"
-              echo "Architectures rebuild : $REBUILT_ARCHS"
-
-              if [[ "$PROJECT_SDL_LIB" == *"iphoneos"* ]] || \
-                 [[ "$PROJECT_SDL_LIB" == *"device"* ]]; then
-
-                if [ "$sdk" = "iphoneos" ]; then
-                  echo "Synchronisation device..."
-                  cp -f "$SDL_LIB" "$PROJECT_SDL_LIB"
-                  SYNC_COUNT=$((SYNC_COUNT + 1))
-                fi
-
-              elif [[ "$PROJECT_SDL_LIB" == *"iphonesimulator"* ]] || \
-                   [[ "$PROJECT_SDL_LIB" == *"simulator"* ]]; then
-
-                if [ "$sdk" = "iphonesimulator" ]; then
-                  echo "Synchronisation simulator..."
-                  cp -f "$SDL_LIB" "$PROJECT_SDL_LIB"
-                  SYNC_COUNT=$((SYNC_COUNT + 1))
-                fi
-
-              else
-                # Si le chemin ne permet pas de distinguer le SDK,
-                # on compare les architectures.
-                if [ "$sdk" = "iphoneos" ] && \
-                   echo "$PROJECT_ARCHS" | grep -q "arm64"; then
-                  echo "Synchronisation archive compatible device..."
-                  cp -f "$SDL_LIB" "$PROJECT_SDL_LIB"
-                  SYNC_COUNT=$((SYNC_COUNT + 1))
-
-                elif [ "$sdk" = "iphonesimulator" ] && \
-                     echo "$PROJECT_ARCHS" | grep -q "x86_64\|arm64"; then
-                  echo "Synchronisation archive compatible simulator..."
-                  cp -f "$SDL_LIB" "$PROJECT_SDL_LIB"
-                  SYNC_COUNT=$((SYNC_COUNT + 1))
-                fi
-              fi
-
-            done
-
-            echo
-            echo "Nombre de libSDL2.a synchronisés : $SYNC_COUNT"
-
-            if [ "$SYNC_COUNT" -eq 0 ]; then
-              echo "ATTENTION: aucun libSDL2.a n'a été synchronisé automatiquement."
-              echo
-              echo "Le projet Xcode référence probablement une archive située"
-              echo "ailleurs. Références détectées :"
-              grep -n -i "libSDL2.a" "$PROJECT_PBXPROJ" || true
-            fi
-
-          done
-
-          echo
-          echo "============================================================"
-          echo " 6. VERIFICATION DES LIBSDL2.A DU PROJET FINAL"
-          echo "============================================================"
-
-          mapfile -t FINAL_SDL_LIBS < <(
             find "$PROJ_DIR" \
               -type f \
               -name "libSDL2.a" \
-              -print
-          )
-
-          [ "${#FINAL_SDL_LIBS[@]}" -gt 0 ] || {
-            echo "ERREUR: aucun libSDL2.a dans le projet final."
-            exit 1
-          }
-
-          for FINAL_LIB in "${FINAL_SDL_LIBS[@]}"; do
-            echo
-            echo "------------------------------------------------------------"
-            echo "FINAL LIB : $FINAL_LIB"
-            echo "------------------------------------------------------------"
-
-            echo "Architectures :"
-            lipo -info "$FINAL_LIB"
+              -print \
+              | sort || true
 
             echo
-            echo "SHA-256 :"
-            shasum -a 256 "$FINAL_LIB"
+            echo "=== REFERENCES LIBSDL2.A DANS PROJECT.PBXPROJ ==="
 
-            echo
-            echo "Recherche du patch FCVV :"
-            strings "$FINAL_LIB" | grep -E \
-              "FCVV_FCM_CONFIGURATION_V1|FCVV.*PATCH|FirebaseCore|FirebaseMessaging" \
-              || true
+            grep -n -B 5 -A 8 "libSDL2.a" "$PROJECT_PBXPROJ" || true
+
           done
 
           echo
           echo "============================================================"
-          echo " 7. VERIFICATION DES REFERENCES XCODE"
-          echo "============================================================"
-
-          echo
-          echo "Références libSDL2.a dans project.pbxproj :"
-
-          grep -n -B 4 -A 8 "libSDL2.a" "$PROJECT_PBXPROJ" || {
-            echo "ERREUR: aucune référence libSDL2.a trouvée dans project.pbxproj."
-            exit 1
-          }
-
-          echo
-          echo "=== 8. VERIFICATION DU WORKSPACE XCODE ==="
-
-          WORKSPACE_PATH="$PROJ_DIR/fcvv.xcworkspace"
-
-          [ -d "$WORKSPACE_PATH" ] || {
-            echo "ERREUR: $WORKSPACE_PATH introuvable."
-            exit 1
-          }
-
-          xcodebuild \
-            -workspace "$WORKSPACE_PATH" \
-            -scheme "$TARGET_NAME" \
-            -showBuildSettings \
-            | grep -E \
-              "TARGET_NAME|PRODUCT_BUNDLE_IDENTIFIER|LIBRARY_SEARCH_PATHS|HEADER_SEARCH_PATHS|OTHER_LDFLAGS" \
-            || true
-
-          echo
-          echo "============================================================"
-          echo " VERIFICATION SDL2 TERMINEE"
+          echo " RECHERCHE DU PROJET XCODE TERMINEE"
           echo "============================================================"
       # ============================================================
       # 9. APNs ENTITLEMENTS + CODE SIGNING
