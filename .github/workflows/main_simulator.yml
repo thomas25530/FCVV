@@ -58,6 +58,7 @@ jobs:
             plyer \
             pyobjus
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
+          
       # ============================================================
       # 4. CACHE KIVY-IOS
       # ============================================================
@@ -91,6 +92,10 @@ jobs:
             fonttools \
             plyer \
             pyobjus
+
+          echo "  FIX FONTTOOLS BEZIERTOOLS CYTHON CRASH ON IOS"
+          find dist/root/python3/lib/python3.11/site-packages/fontTools/misc/ -name "bezierTools*" -not -name "*.py" -delete
+          rm -f dist/root/python3/lib/python3.11/site-packages/fontTools/misc/*bezierTools*.so
       # ============================================================
       # 6. PREPARE IOS SOURCES
       # ============================================================
