@@ -1416,6 +1416,22 @@ jobs:
           echo "✓ FirebaseMessaging headers :"
           echo "  $FIREBASE_MESSAGING_HEADERS"
 
+          echo
+          echo "=== PODS HEADERS ==="
+
+          find "$PODS_DIR" \
+            -type f \
+            | grep "FirebaseMessaging.h" \
+            | sort
+
+          echo "=== PUBLIC HEADERS ==="
+
+          find "$PODS_DIR/Headers" \
+            -type f \
+            | grep Firebase \
+            | sort || true
+          
+          
           # ========================================================
           # 8.3 REBUILD DEVICE + SIMULATOR
           # ========================================================
@@ -1548,6 +1564,13 @@ jobs:
             echo
             echo "=== RECOMPILATION SDL2 : $sdk ==="
 
+            echo
+            echo "=== TEST INCLUDE FIREBASE ==="
+
+            ls -la "$PODS_DIR/Headers/Public" || true
+            ls -la "$PODS_DIR/Headers/Public/FirebaseMessaging" || true
+            ls -la "$PODS_DIR/Headers/Public/FirebaseCore" || true
+
             xcodebuild \
               -project "$SDL_PROJECT" \
               -target "Static Library-iOS" \
@@ -1556,11 +1579,17 @@ jobs:
               IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
               HEADER_SEARCH_PATHS="\
                 \$(inherited) \
+                \"$PODS_DIR/Headers/Public\" \
+                \"$PODS_DIR/Headers/Public/FirebaseCore\" \
+                \"$PODS_DIR/Headers/Public/FirebaseMessaging\" \
                 \"$FIREBASE_CORE_HEADERS\" \
                 \"$FIREBASE_MESSAGING_HEADERS\" \
               " \
               USER_HEADER_SEARCH_PATHS="\
                 \$(inherited) \
+                \"$PODS_DIR/Headers/Public\" \
+                \"$PODS_DIR/Headers/Public/FirebaseCore\" \
+                \"$PODS_DIR/Headers/Public/FirebaseMessaging\" \
                 \"$FIREBASE_CORE_HEADERS\" \
                 \"$FIREBASE_MESSAGING_HEADERS\" \
               " \
