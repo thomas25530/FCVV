@@ -1210,104 +1210,33 @@ class EventManager:
                         # ---------------------------------------------------------
                 
                         def valider_avec_commit(instance):
-                
-                            print("\n" + "=" * 80)
                             print("[COMMIT BUTTON] CLIC SUR CONFIRMER")
-                            print(f"[COMMIT BUTTON] platform = {platform}")
-                            print(
-                                f"[COMMIT BUTTON] popup_commit="
-                                f"{popup_commit}"
-                            )
-                            print(
-                                f"[COMMIT BUTTON] popup_commit._is_open = "
-                                f"{getattr(popup_commit, '_is_open', 'N/A')}"
-                            )
-                            print(
-                                f"[COMMIT BUTTON] ti_commit.text = "
-                                f"{ti_commit.text!r}"
-                            )
-                            print("=" * 80)
-                
+                        
                             msg = ti_commit.text.strip()
-                
-                            print(
-                                f"[COMMIT BUTTON] msg = {msg!r}"
-                            )
-                
-                            # -----------------------------------------------------
-                            # IMPORTANT :
-                            # On revient ici à la stratégie avec Clock,
-                            # mais avec énormément de debug.
-                            # -----------------------------------------------------
-                
-                            print(
-                                "[COMMIT BUTTON] Appel "
-                                "popup_commit.dismiss()"
-                            )
-                
-                            try:
-                                popup_commit.dismiss()
-                
-                                print(
-                                    "[COMMIT BUTTON] dismiss() appele"
-                                )
-                
-                            except Exception as e:
-                
-                                print(
-                                    f"[COMMIT BUTTON] ERREUR dismiss : "
-                                    f"{type(e).__name__}: {e}"
-                                )
-                
-                            def lancer_sauvegarde(dt):
-                
-                                print("\n" + "-" * 80)
-                                print(
-                                    "[CLOCK COMMIT] "
-                                    "lancer_sauvegarde()"
-                                )
-                                print(
-                                    f"[CLOCK COMMIT] msg = {msg!r}"
-                                )
-                                print("-" * 80)
-                
-                                try:
+                            print("[COMMIT BUTTON] msg =", repr(msg))
+                        
+                            # Important sur iOS :
+                            # retirer le focus du TextInput avant de fermer le Popup.
+                            ti_commit.focus = False
+                        
+                            def fermer_popup_et_sauvegarder(dt):
+                                print("[COMMIT BUTTON] Fermeture popup_commit")
+                        
+                                if popup_commit._is_open:
+                                    popup_commit.dismiss()
+                        
+                                def lancer_sauvegarde(dt2):
+                                    print("[CLOCK COMMIT] Lancement executer_sauvegarde")
                                     executer_sauvegarde(msg)
+                        
+                                Clock.schedule_once(lancer_sauvegarde, 0.15)
+                        
+                            # Laisser iOS terminer la gestion du clavier virtuel
+                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.15)
+
                 
-                                    print(
-                                        "[CLOCK COMMIT] "
-                                        "executer_sauvegarde() terminee"
-                                    )
-                
-                                except Exception as e:
-                
-                                    print(
-                                        f"[CLOCK COMMIT] ERREUR : "
-                                        f"{type(e).__name__}: {e}"
-                                    )
-                
-                            print(
-                                "[COMMIT BUTTON] "
-                                "schedule executer_sauvegarde"
-                            )
-                
-                            Clock.schedule_once(
-                                lancer_sauvegarde,
-                                0.15
-                            )
-                
-                            print(
-                                "[COMMIT BUTTON] FIN on_release"
-                            )
-                
-                        btn_valider_commit.bind(
-                            on_release=valider_avec_commit
-                        )
-                
-                        print(
-                            "[COMMIT] Ouverture popup_commit"
-                        )
-                
+                        btn_valider_commit.bind(on_release=valider_avec_commit)
+                        print("[COMMIT] Ouverture popup_commit")
                         popup_commit.open()
                 
                         print(
@@ -1570,10 +1499,34 @@ class EventManager:
                         
                         popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
+                        # ---------------------------------------------------------
+                        # CLIC CONFIRMATION
+                        # ---------------------------------------------------------
+                
                         def valider_avec_commit(instance):
+                            print("[COMMIT BUTTON] CLIC SUR CONFIRMER")
+                        
                             msg = ti_commit.text.strip()
-                            popup_commit.dismiss()
-                            executer_sauvegarde(msg)
+                            print("[COMMIT BUTTON] msg =", repr(msg))
+                        
+                            # Important sur iOS :
+                            # retirer le focus du TextInput avant de fermer le Popup.
+                            ti_commit.focus = False
+                        
+                            def fermer_popup_et_sauvegarder(dt):
+                                print("[COMMIT BUTTON] Fermeture popup_commit")
+                        
+                                if popup_commit._is_open:
+                                    popup_commit.dismiss()
+                        
+                                def lancer_sauvegarde(dt2):
+                                    print("[CLOCK COMMIT] Lancement executer_sauvegarde")
+                                    executer_sauvegarde(msg)
+                        
+                                Clock.schedule_once(lancer_sauvegarde, 0.15)
+                        
+                            # Laisser iOS terminer la gestion du clavier virtuel
+                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.15)
                             
                         btn_valider_commit.bind(on_release=valider_avec_commit)
                         popup_commit.open()
@@ -1808,10 +1761,34 @@ class EventManager:
                         
                         popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
                         
+                        # ---------------------------------------------------------
+                        # CLIC CONFIRMATION
+                        # ---------------------------------------------------------
+                
                         def valider_avec_commit(instance):
+                            print("[COMMIT BUTTON] CLIC SUR CONFIRMER")
+                        
                             msg = ti_commit.text.strip()
-                            popup_commit.dismiss()
-                            executer_sauvegarde(msg)
+                            print("[COMMIT BUTTON] msg =", repr(msg))
+                        
+                            # Important sur iOS :
+                            # retirer le focus du TextInput avant de fermer le Popup.
+                            ti_commit.focus = False
+                        
+                            def fermer_popup_et_sauvegarder(dt):
+                                print("[COMMIT BUTTON] Fermeture popup_commit")
+                        
+                                if popup_commit._is_open:
+                                    popup_commit.dismiss()
+                        
+                                def lancer_sauvegarde(dt2):
+                                    print("[CLOCK COMMIT] Lancement executer_sauvegarde")
+                                    executer_sauvegarde(msg)
+                        
+                                Clock.schedule_once(lancer_sauvegarde, 0.15)
+                        
+                            # Laisser iOS terminer la gestion du clavier virtuel
+                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.15)
                             
                         btn_valider_commit.bind(on_release=valider_avec_commit)
                         popup_commit.open()
