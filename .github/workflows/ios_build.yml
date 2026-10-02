@@ -1278,18 +1278,18 @@ jobs:
           IOS_DEPLOYMENT_TARGET: "15.0"
         run: |
           set -euo pipefail
-      
+
           echo "============================================================"
           echo " REBUILD SDL2 + SYNCHRONISATION DU LIBSDL2.A FINAL"
           echo "============================================================"
-      
+
           # ========================================================
           # 8.1 RECHERCHE DU PROJET FCVV
           # ========================================================
-      
+
           echo
           echo "=== RECHERCHE DU PROJET XCODE ==="
-      
+
           PROJECT_FILE="$(
             find "$GITHUB_WORKSPACE" \
               -type d \
@@ -1297,55 +1297,55 @@ jobs:
               -print \
               -quit
           )"
-      
+
           if [ -z "$PROJECT_FILE" ]; then
             echo "❌ ERREUR : fcvv.xcodeproj introuvable."
-      
+
             echo
             echo "Projets Xcode présents :"
-      
+
             find "$GITHUB_WORKSPACE" \
               -type d \
               -name "*.xcodeproj" \
               -print \
               | sort || true
-      
+
             exit 1
           fi
-      
+
           PROJ_DIR="$(dirname "$PROJECT_FILE")"
           PROJECT_PBXPROJ="$PROJECT_FILE/project.pbxproj"
           PODS_DIR="$PROJ_DIR/Pods"
-      
+
           echo "✓ PROJECT_FILE :"
           echo "  $PROJECT_FILE"
-      
+
           echo "✓ PROJ_DIR :"
           echo "  $PROJ_DIR"
-      
+
           echo "✓ PODS_DIR :"
           echo "  $PODS_DIR"
-      
+
           if [ ! -f "$PROJECT_PBXPROJ" ]; then
             echo "❌ project.pbxproj introuvable :"
             echo "  $PROJECT_PBXPROJ"
             exit 1
           fi
-      
+
           if [ ! -d "$PODS_DIR" ]; then
             echo "❌ Répertoire Pods introuvable :"
             echo "  $PODS_DIR"
             exit 1
           fi
-      
-      
+
+
           # ========================================================
           # 8.2 RECHERCHE REELLE DES HEADERS FIREBASE
           # ========================================================
-      
+
           echo
           echo "=== RECHERCHE DES HEADERS FIREBASE ==="
-      
+
           FIREBASE_CORE_HEADER="$(
             find "$PODS_DIR" \
               -type f \
@@ -1353,7 +1353,7 @@ jobs:
               -print \
               -quit
           )"
-      
+
           FIREBASE_MESSAGING_HEADER="$(
             find "$PODS_DIR" \
               -type f \
@@ -1361,14 +1361,14 @@ jobs:
               -print \
               -quit
           )"
-      
+
           if [ -z "$FIREBASE_CORE_HEADER" ]; then
             echo
             echo "❌ FirebaseCore.h introuvable."
-      
+
             echo
             echo "Headers Firebase disponibles :"
-      
+
             find "$PODS_DIR" \
               -type f \
               -name "*.h" \
@@ -1376,17 +1376,17 @@ jobs:
               | grep -Ei 'Firebase|FIR' \
               | sort \
               | head -n 200 || true
-      
+
             exit 1
           fi
-      
+
           if [ -z "$FIREBASE_MESSAGING_HEADER" ]; then
             echo
             echo "❌ FirebaseMessaging.h introuvable."
-      
+
             echo
             echo "Headers Firebase disponibles :"
-      
+
             find "$PODS_DIR" \
               -type f \
               -name "*.h" \
@@ -1394,11 +1394,11 @@ jobs:
               | grep -Ei 'Firebase|FIR' \
               | sort \
               | head -n 200 || true
-      
+
             exit 1
           fi
-      
-      
+
+
           # --------------------------------------------------------
           # IMPORTANT
           #
@@ -1416,67 +1416,66 @@ jobs:
           #
           # Même principe pour FirebaseMessaging.
           # --------------------------------------------------------
-      
+
           FIREBASE_CORE_PUBLIC_DIR="$(
             dirname "$(dirname "$FIREBASE_CORE_HEADER")"
           )"
-      
+
           FIREBASE_MESSAGING_PUBLIC_DIR="$(
             dirname "$(dirname "$FIREBASE_MESSAGING_HEADER")"
           )"
-      
-      
+
           echo
           echo "✓ FirebaseCore.h :"
           echo "  $FIREBASE_CORE_HEADER"
-      
+
           echo "✓ FirebaseCore PUBLIC DIR :"
           echo "  $FIREBASE_CORE_PUBLIC_DIR"
-      
+
           echo
           echo "✓ FirebaseMessaging.h :"
           echo "  $FIREBASE_MESSAGING_HEADER"
-      
+
           echo "✓ FirebaseMessaging PUBLIC DIR :"
           echo "  $FIREBASE_MESSAGING_PUBLIC_DIR"
-      
-      
+
+
           # ========================================================
           # 8.2.1 VERIFICATION DES CHEMINS D'INCLUDE
           # ========================================================
-      
+
           echo
           echo "=== VERIFICATION DES INCLUDE FIREBASE ==="
-      
+
           EXPECTED_CORE_HEADER="$FIREBASE_CORE_PUBLIC_DIR/FirebaseCore/FirebaseCore.h"
           EXPECTED_MESSAGING_HEADER="$FIREBASE_MESSAGING_PUBLIC_DIR/FirebaseMessaging/FirebaseMessaging.h"
-      
+
           if [ ! -f "$EXPECTED_CORE_HEADER" ]; then
             echo "❌ FirebaseCore include target introuvable :"
             echo "  $EXPECTED_CORE_HEADER"
             exit 1
           fi
-      
+
           if [ ! -f "$EXPECTED_MESSAGING_HEADER" ]; then
             echo "❌ FirebaseMessaging include target introuvable :"
             echo "  $EXPECTED_MESSAGING_HEADER"
             exit 1
           fi
-      
+
           echo "✓ FirebaseCore include target :"
           echo "  $EXPECTED_CORE_HEADER"
-      
+
           echo "✓ FirebaseMessaging include target :"
           echo "  $EXPECTED_MESSAGING_HEADER"
-      
-      
+
+
           # ========================================================
           # 8.2.2 AFFICHAGE DES HEADERS FIREBASE
           # ========================================================
-      
+
           echo
           echo "=== HEADERS FIREBASE TROUVES ==="
-      
+
           find "$PODS_DIR" \
             -type f \
             \( \
@@ -1486,67 +1485,63 @@ jobs:
             \) \
             -print \
             | sort
-      
-      
+
+
           # ========================================================
           # 8.2.3 VERIFICATION DU LAYOUT PODS
           # ========================================================
-      
+
           echo
           echo "=== LAYOUT FIREBASE PODS ==="
-      
+
           echo
           echo "FirebaseCore :"
-      
+
           find "$PODS_DIR/FirebaseCore" \
             -maxdepth 6 \
             -type f \
             -name "FirebaseCore.h" \
             -print \
             2>/dev/null || true
-      
+
           echo
           echo "FirebaseMessaging :"
-      
+
           find "$PODS_DIR/FirebaseMessaging" \
             -maxdepth 6 \
             -type f \
             -name "FirebaseMessaging.h" \
             -print \
             2>/dev/null || true
-      
-      
+
+
           # ========================================================
           # 8.3 REBUILD DEVICE + SIMULATOR
           # ========================================================
-      
+
           for sdk in iphoneos iphonesimulator; do
-      
+
             echo
             echo "============================================================"
             echo " SDK : $sdk"
             echo "============================================================"
-      
-      
+
+
             # ======================================================
             # 8.3.1 DETERMINATION ARCHITECTURE ATTENDUE
             # ======================================================
-      
-            if [ "$sdk" = "iphoneos" ]; then
-              EXPECTED_ARCH="arm64"
-            else
-              EXPECTED_ARCH="arm64"
-            fi
-      
+
+            EXPECTED_ARCH="arm64"
+
             echo
             echo "✓ Architecture attendue :"
             echo "  $EXPECTED_ARCH"
-      
-      
+
+
             # ======================================================
             # 8.3.2 RECHERCHE DU PROJET SDL
             # ======================================================
-      
+
             SDL_PROJECT="$(
               find "$GITHUB_WORKSPACE/build/sdl2" \
                 -type d \
@@ -1554,44 +1549,44 @@ jobs:
                 -print \
                 -quit
             )"
-      
+
             if [ -z "$SDL_PROJECT" ]; then
-      
+
               echo "❌ Projet SDL introuvable pour $sdk."
-      
+
               echo
               echo "Projets SDL disponibles :"
-      
+
               find "$GITHUB_WORKSPACE/build/sdl2" \
                 -type d \
                 -name "SDL.xcodeproj" \
                 -print \
                 | sort || true
-      
+
               exit 1
             fi
-      
+
             SDL_DIR="$(dirname "$SDL_PROJECT")"
             SDL_PBXPROJ="$SDL_PROJECT/project.pbxproj"
-      
+
             echo
             echo "✓ SDL_PROJECT :"
             echo "  $SDL_PROJECT"
-      
+
             echo "✓ SDL_DIR :"
             echo "  $SDL_DIR"
-      
+
             if [ ! -f "$SDL_PBXPROJ" ]; then
               echo "❌ project.pbxproj SDL introuvable :"
               echo "  $SDL_PBXPROJ"
               exit 1
             fi
-      
-      
+
+
             # ======================================================
             # 8.3.3 RECHERCHE DU SDLUIKitDelegate
             # ======================================================
-      
+
             SDL_M="$(
               find "$GITHUB_WORKSPACE/build/sdl2" \
                 -type f \
@@ -1600,107 +1595,103 @@ jobs:
                 -print \
                 | head -n 1 || true
             )"
-      
+
             if [ -z "$SDL_M" ]; then
               echo "❌ SDL_uikitappdelegate.m introuvable pour $sdk."
               exit 1
             fi
-      
+
             SDL_H="$(dirname "$SDL_M")/SDL_uikitappdelegate.h"
-      
+
             if [ ! -f "$SDL_H" ]; then
               echo "❌ SDL_uikitappdelegate.h introuvable :"
               echo "  $SDL_H"
               exit 1
             fi
-      
+
             echo
             echo "=== VERIFICATION SDLUIKitDelegate ==="
-      
+
             echo "✓ .m :"
             echo "  $SDL_M"
-      
+
             echo "✓ .h :"
             echo "  $SDL_H"
-      
-      
+
+
             # ======================================================
             # 8.3.4 VERIFICATION DES IMPORTS FIREBASE
             # ======================================================
-      
+
             echo
             echo "=== VERIFICATION DES IMPORTS FIREBASE ==="
-      
-            # ------------------------------------------------------
-            # Firebase doit être importé UNIQUEMENT dans le .m.
-            # ------------------------------------------------------
-      
+
             if grep -q \
               "FirebaseCore/FirebaseCore.h" \
               "$SDL_H"; then
-      
+
               echo "❌ FirebaseCore est encore importé dans le .h."
               exit 1
             fi
-      
+
             if grep -q \
               "FirebaseMessaging/FirebaseMessaging.h" \
               "$SDL_H"; then
-      
+
               echo "❌ FirebaseMessaging est encore importé dans le .h."
               exit 1
             fi
-      
+
             grep -q \
               "FirebaseCore/FirebaseCore.h" \
               "$SDL_M" || {
-      
+
               echo "❌ FirebaseCore absent du .m."
               exit 1
             }
-      
+
             grep -q \
               "FirebaseMessaging/FirebaseMessaging.h" \
               "$SDL_M" || {
-      
+
               echo "❌ FirebaseMessaging absent du .m."
               exit 1
             }
-      
+
             echo "✓ Aucun import Firebase dans SDL_uikitappdelegate.h"
             echo "✓ FirebaseCore présent dans SDL_uikitappdelegate.m"
             echo "✓ FirebaseMessaging présent dans SDL_uikitappdelegate.m"
-      
-      
+
+
             # ======================================================
             # 8.3.5 VERIFICATION PHYSIQUE DES HEADERS
             # ======================================================
-      
+
             echo
             echo "=== TEST PHYSIQUE DES HEADERS FIREBASE ==="
-      
+
             echo
             echo "FirebaseCore :"
             ls -la "$FIREBASE_CORE_PUBLIC_DIR/FirebaseCore/FirebaseCore.h"
-      
+
             echo
             echo "FirebaseMessaging :"
             ls -la "$FIREBASE_MESSAGING_PUBLIC_DIR/FirebaseMessaging/FirebaseMessaging.h"
-      
-      
+
+
             # ======================================================
             # 8.3.6 RECOMPILATION SDL2
             # ======================================================
-      
+
             echo
             echo "=== RECOMPILATION SDL2 : $sdk ==="
-      
+
             echo
             echo "HEADER_SEARCH_PATHS utilisés :"
-      
+
             echo "  $FIREBASE_CORE_PUBLIC_DIR"
             echo "  $FIREBASE_MESSAGING_PUBLIC_DIR"
-      
+
             xcodebuild \
               -project "$SDL_PROJECT" \
               -target "Static Library-iOS" \
@@ -1720,19 +1711,19 @@ jobs:
               ONLY_ACTIVE_ARCH=NO \
               CODE_SIGNING_ALLOWED=NO \
               CODE_SIGNING_REQUIRED=NO
-      
-      
+
+
             echo
             echo "✓ SDL2 compilé avec succès pour $sdk"
-      
-      
+
+
             # ======================================================
             # 8.3.7 RECHERCHE DU LIBSDL2.A RECOMPILE
             # ======================================================
-      
+
             echo
             echo "=== RECHERCHE DU LIBSDL2.A RECOMPILE ==="
-      
+
             SDL_LIB_CANDIDATES="$(
               find "$GITHUB_WORKSPACE/build/sdl2" \
                 -type f \
@@ -1741,76 +1732,85 @@ jobs:
                 -print \
                 | sort
             )"
-      
+
             if [ -z "$SDL_LIB_CANDIDATES" ]; then
-      
+
               echo "❌ libSDL2.a recompilé introuvable pour $sdk."
-      
+
               echo
               echo "Tous les libSDL2.a trouvés :"
-      
+
               find "$GITHUB_WORKSPACE/build/sdl2" \
                 -type f \
                 -name "libSDL2.a" \
                 -print \
                 | sort || true
-      
+
               exit 1
             fi
-      
+
             SDL_LIB="$(
               printf '%s\n' "$SDL_LIB_CANDIDATES" \
                 | head -n 1
             )"
-      
+
             echo
             echo "✓ libSDL2.a recompilé :"
             echo "  $SDL_LIB"
-      
-      
+
+
             # ======================================================
             # 8.3.8 VERIFICATION ARCHITECTURE LIBSDL2
             # ======================================================
-      
+
             echo
             echo "=== ARCHITECTURES DU LIBSDL2.A RECOMPILE ==="
-      
+
             SDL_LIPO_INFO="$(lipo -info "$SDL_LIB")"
-      
+
             echo "$SDL_LIPO_INFO"
-      
+
             if ! echo "$SDL_LIPO_INFO" | grep -q "$EXPECTED_ARCH"; then
               echo
               echo "❌ Architecture $EXPECTED_ARCH absente du libSDL2.a."
               exit 1
             fi
-      
+
             echo
             echo "✓ Architecture $EXPECTED_ARCH présente"
-      
-      
+
+
             # ======================================================
             # 8.3.9 HASH DU SDL RECOMPILE
             # ======================================================
-      
+
             SHA_REBUILT="$(
               shasum -a 256 "$SDL_LIB" \
                 | awk '{print $1}'
             )"
-      
+
             echo
             echo "✓ SHA256 SDL recompilé :"
             echo "  $SHA_REBUILT"
-      
-      
+
+
             # ======================================================
             # 8.3.10 RECHERCHE DES LIBSDL2.A DU PROJET
+            #
+            # IMPORTANT :
+            # mapfile/readarray n'existent pas dans Bash 3.2.
+            # On utilise donc une boucle while compatible macOS.
             # ======================================================
-      
+
             echo
             echo "=== LIBSDL2.A PRESENTS DANS FCVV ==="
-      
-            mapfile -t PROJECT_LIBS < <(
+
+            PROJECT_LIBS=()
+
+            while IFS= read -r PROJECT_LIB; do
+              [ -n "$PROJECT_LIB" ] || continue
+              PROJECT_LIBS+=("$PROJECT_LIB")
+            done < <(
               find "$PROJ_DIR" \
                 -type f \
                 -name "libSDL2.a" \
@@ -1819,328 +1819,419 @@ jobs:
                 -print \
                 | sort
             )
-      
+
             if [ "${#PROJECT_LIBS[@]}" -eq 0 ]; then
-      
+
               echo "❌ Aucun libSDL2.a trouvé dans :"
               echo "  $PROJ_DIR"
-      
+
               echo
               echo "=== REFERENCES LIBSDL2.A DANS PBXPROJ ==="
-      
+
               grep -n \
                 -B 10 \
                 -A 15 \
                 "libSDL2.a" \
                 "$PROJECT_PBXPROJ" || true
-      
+
               exit 1
             fi
-      
-      
+
+            echo
+            echo "✓ ${#PROJECT_LIBS[@]} libSDL2.a trouvé(s)"
+
+            for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
+              echo "  - $PROJECT_LIB"
+            done
+
+
             # ======================================================
             # 8.3.11 DETECTION DU LIBSDL2.A CIBLE POUR LE SDK
+            #
+            # IMPORTANT :
+            #
+            # Sur Apple Silicon :
+            #
+            #   iphoneos       = arm64
+            #   iphonesimulator = arm64
+            #
+            # Donc l'architecture seule NE permet PAS de distinguer
+            # device et simulator.
+            #
+            # On utilise d'abord le chemin du fichier.
             # ======================================================
-      
+
             echo
             echo "=== DETECTION DES LIBSDL2.A COMPATIBLES ==="
-      
-            declare -a SDK_PROJECT_LIBS=()
-      
+
+            SDK_PROJECT_LIBS=()
+
             for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
-      
+
               if [ ! -f "$PROJECT_LIB" ]; then
                 continue
               fi
-      
+
               PROJECT_LIPO_INFO="$(
                 lipo -info "$PROJECT_LIB" 2>/dev/null || true
               )"
-      
+
               echo
               echo "libSDL2.a :"
               echo "  $PROJECT_LIB"
-      
+
               echo "Architecture :"
               echo "  $PROJECT_LIPO_INFO"
-      
-              if echo "$PROJECT_LIPO_INFO" | grep -q "$EXPECTED_ARCH"; then
-      
-                SDK_PROJECT_LIBS+=("$PROJECT_LIB")
-      
-                echo "  ✓ Compatible avec $sdk"
-      
-              else
-      
-                echo "  - Non compatible avec $sdk"
-      
+
+              if ! echo "$PROJECT_LIPO_INFO" | grep -q "$EXPECTED_ARCH"; then
+
+                echo "  - Architecture $EXPECTED_ARCH absente"
+                continue
+
               fi
-      
+
+
+              # ----------------------------------------------------
+              # Classification par chemin
+              # ----------------------------------------------------
+
+              IS_SDK_MATCH=0
+
+              case "$sdk" in
+
+                iphoneos)
+
+                  case "$PROJECT_LIB" in
+                    *iphoneos*|*iPhoneOS*|*IPHONEOS*|*device*|*Device*)
+                      IS_SDK_MATCH=1
+                      ;;
+                  esac
+
+                  ;;
+
+                iphonesimulator)
+
+                  case "$PROJECT_LIB" in
+                    *iphonesimulator*|*iPhoneSimulator*|*IPHONESIMULATOR*|*simulator*|*Simulator*)
+                      IS_SDK_MATCH=1
+                      ;;
+                  esac
+
+                  ;;
+
+              esac
+
+
+              if [ "$IS_SDK_MATCH" -eq 1 ]; then
+
+                SDK_PROJECT_LIBS+=("$PROJECT_LIB")
+
+                echo "  ✓ Compatible avec $sdk"
+
+              else
+
+                echo "  - Architecture compatible mais SDK non identifiable par le chemin"
+
+              fi
+
             done
-      
-      
+
+
             # ======================================================
-            # 8.3.12 FALLBACK SI LE LIB N'EST PAS ARCHITECTURALEMENT
-            #         DETECTABLE
+            # 8.3.12 FALLBACK SECURISE
+            #
+            # Si un seul libSDL2.a existe dans le projet et qu'il
+            # n'existe aucun autre candidat, on peut l'utiliser.
+            #
+            # Sinon on refuse de deviner afin d'éviter de remplacer
+            # un lib simulator par un lib device ou inversement.
             # ======================================================
-      
+
             if [ "${#SDK_PROJECT_LIBS[@]}" -eq 0 ]; then
-      
-              echo
-              echo "⚠ Aucun libSDL2.a existant ne contient $EXPECTED_ARCH."
-      
-              echo
-              echo "Références libSDL2.a dans project.pbxproj :"
-      
-              grep -n \
-                -B 10 \
-                -A 15 \
-                "libSDL2.a" \
-                "$PROJECT_PBXPROJ" || true
-      
-              echo
-              echo "❌ Impossible de déterminer automatiquement la destination."
-              exit 1
+
+              if [ "${#PROJECT_LIBS[@]}" -eq 1 ]; then
+
+                echo
+                echo "⚠ Un seul libSDL2.a existe dans le projet."
+                echo "  Utilisation de cette destination :"
+                echo "  ${PROJECT_LIBS[0]}"
+
+                SDK_PROJECT_LIBS=("${PROJECT_LIBS[0]}")
+
+              else
+
+                echo
+                echo "❌ Impossible de déterminer automatiquement"
+                echo "   la destination de libSDL2.a pour : $sdk"
+
+                echo
+                echo "LibSDL2.a détectés :"
+
+                for PROJECT_LIB in "${PROJECT_LIBS[@]}"; do
+                  echo "  $PROJECT_LIB"
+                done
+
+                echo
+                echo "Architecture recherchée :"
+                echo "  $EXPECTED_ARCH"
+
+                echo
+                echo "Références libSDL2.a dans project.pbxproj :"
+
+                grep -n \
+                  -B 10 \
+                  -A 15 \
+                  "libSDL2.a" \
+                  "$PROJECT_PBXPROJ" || true
+
+                echo
+                echo "❌ Synchronisation interrompue pour éviter"
+                echo "   de mélanger device et simulator."
+
+                exit 1
+
+              fi
+
             fi
-      
-      
+
+
             # ======================================================
             # 8.3.13 SYNCHRONISATION
             # ======================================================
-      
+
             echo
             echo "=== SYNCHRONISATION DU LIBSDL2.A POUR $sdk ==="
-      
+
             SYNC_COUNT=0
-      
+
             for DEST in "${SDK_PROJECT_LIBS[@]}"; do
-      
+
               echo
               echo "→ SOURCE :"
               echo "  $SDL_LIB"
-      
+
               echo "→ DESTINATION :"
               echo "  $DEST"
-      
-      
+
+
               # ----------------------------------------------------
               # Vérification architecture destination avant copie
               # ----------------------------------------------------
-      
+
               DEST_BEFORE_LIPO="$(
                 lipo -info "$DEST" 2>/dev/null || true
               )"
-      
+
               echo
               echo "Architecture destination avant copie :"
               echo "  $DEST_BEFORE_LIPO"
-      
-      
+
+
               # ----------------------------------------------------
               # Copie
               # ----------------------------------------------------
-      
+
               if cmp -s "$SDL_LIB" "$DEST"; then
-      
+
                 echo "  ✓ Déjà identique"
-      
+
               else
-      
+
                 cp -f "$SDL_LIB" "$DEST"
-      
+
                 echo "  ✓ libSDL2.a remplacé"
-      
+
               fi
-      
-      
+
+
               # ----------------------------------------------------
               # Vérification hash
               # ----------------------------------------------------
-      
+
               DEST_SHA="$(
                 shasum -a 256 "$DEST" \
                   | awk '{print $1}'
               )"
-      
+
               if [ "$DEST_SHA" != "$SHA_REBUILT" ]; then
-      
+
                 echo
                 echo "❌ ERREUR : hash destination incorrect."
-      
+
                 echo "  attendu :"
                 echo "  $SHA_REBUILT"
-      
+
                 echo "  obtenu :"
                 echo "  $DEST_SHA"
-      
+
                 exit 1
               fi
-      
+
               echo "  ✓ SHA256 vérifié"
-      
-      
+
+
               # ----------------------------------------------------
               # Vérification architecture finale
               # ----------------------------------------------------
-      
+
               DEST_FINAL_LIPO="$(
                 lipo -info "$DEST"
               )"
-      
+
               echo
               echo "Architecture finale :"
               echo "  $DEST_FINAL_LIPO"
-      
+
               if ! echo "$DEST_FINAL_LIPO" | grep -q "$EXPECTED_ARCH"; then
-      
+
                 echo
                 echo "❌ Architecture finale incorrecte."
-      
+
                 echo "  SDK :"
                 echo "  $sdk"
-      
+
                 echo "  architecture attendue :"
                 echo "  $EXPECTED_ARCH"
-      
+
                 exit 1
               fi
-      
+
               echo "  ✓ Architecture finale vérifiée"
               echo "  ✓ SDL final identique au SDL recompilé"
-      
+
               SYNC_COUNT=$((SYNC_COUNT + 1))
-      
+
             done
-      
-      
+
+
             # ======================================================
             # 8.3.14 VERIFICATION FINALE DU SDK
             # ======================================================
-      
+
             echo
             echo "=== VERIFICATION FINALE $sdk ==="
-      
+
             if [ "$SYNC_COUNT" -eq 0 ]; then
-      
+
               echo "❌ Aucune synchronisation effectuée."
               exit 1
-      
+
             fi
-      
+
             for DEST in "${SDK_PROJECT_LIBS[@]}"; do
-      
+
               FINAL_SHA="$(
                 shasum -a 256 "$DEST" \
                   | awk '{print $1}'
               )"
-      
+
               FINAL_LIPO="$(
                 lipo -info "$DEST"
               )"
-      
+
               echo
               echo "✓ libSDL2.a :"
               echo "  $DEST"
-      
+
               echo "✓ SHA256 :"
               echo "  $FINAL_SHA"
-      
+
               echo "✓ Architecture :"
               echo "  $FINAL_LIPO"
-      
+
               if [ "$FINAL_SHA" != "$SHA_REBUILT" ]; then
                 echo "❌ libSDL2.a final différent du rebuild."
                 exit 1
               fi
-      
+
               if ! echo "$FINAL_LIPO" | grep -q "$EXPECTED_ARCH"; then
                 echo "❌ Architecture finale incorrecte."
                 exit 1
               fi
-      
+
               echo "✓ SDL final identique au SDL recompilé"
-      
+
             done
-      
+
           done
-      
-      
+
+
           # ========================================================
           # 8.4 VERIFICATION FINALE DU PROJET
           # ========================================================
-      
+
           echo
           echo "============================================================"
           echo " VERIFICATION FINALE DU PROJET FCVV"
           echo "============================================================"
-      
+
           echo
           echo "Projet :"
           echo "  $PROJECT_FILE"
-      
-      
+
+
           # ========================================================
           # 8.4.1 VERIFICATION WORKSPACE COCOAPODS
           # ========================================================
-      
+
           echo
           echo "Workspace CocoaPods :"
-      
+
           if [ -d "$PROJ_DIR/fcvv.xcworkspace" ]; then
-      
+
             echo "  ✓ $PROJ_DIR/fcvv.xcworkspace"
-      
+
           else
-      
+
             echo "  ⚠ fcvv.xcworkspace introuvable"
-      
+
             echo
             echo "  Les Pods existent cependant :"
             echo "  $PODS_DIR"
-      
+
           fi
-      
-      
+
+
           # ========================================================
           # 8.4.2 VERIFICATION FIREBASE
           # ========================================================
-      
+
           echo
           echo "Firebase Pods :"
-      
+
           if [ -d "$PODS_DIR/FirebaseCore" ]; then
             echo "  ✓ FirebaseCore"
           else
             echo "  ❌ FirebaseCore absent"
             exit 1
           fi
-      
+
           if [ -d "$PODS_DIR/FirebaseMessaging" ]; then
             echo "  ✓ FirebaseMessaging"
           else
             echo "  ❌ FirebaseMessaging absent"
             exit 1
           fi
-      
-      
+
+
           # ========================================================
           # 8.4.3 VERIFICATION FINALE DES HEADERS
           # ========================================================
-      
+
           echo
           echo "Headers Firebase finaux :"
-      
+
           echo "  ✓ FirebaseCore :"
           echo "    $EXPECTED_CORE_HEADER"
-      
+
           echo "  ✓ FirebaseMessaging :"
           echo "    $EXPECTED_MESSAGING_HEADER"
-      
-      
+
+
           # ========================================================
           # 8.4.4 FIN
           # ========================================================
-      
+
           echo
           echo "============================================================"
           echo " ✓ ETAPE 8 TERMINEE AVEC SUCCES"
