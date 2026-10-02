@@ -1181,7 +1181,8 @@ class EventManager:
                             title="Motif de modification",
                             content=content_commit,
                             size_hint=(0.8, 0.4),
-                            separator_height=0
+                            separator_height=0,
+                            auto_dismiss=False
                         )
                 
                         # ---------------------------------------------------------
@@ -1193,6 +1194,7 @@ class EventManager:
                 
                         def debug_popup_dismiss(*args):
                             print("[POPUP COMMIT] on_dismiss")
+                            print("[POPUP COMMIT] dismiss déclenché")
                 
                         def debug_popup_touch_down(instance, touch):
                             print(
