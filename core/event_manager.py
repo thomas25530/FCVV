@@ -786,20 +786,41 @@ class EventManager:
                         
                         def do_api_save():
                             try:
-                                headers = screen_instance.get_user_header() if hasattr(screen_instance, "get_user_header") else {}
-                                is_windows = (platform == 'win')
-                                requests.put(url, json=match_info_match, headers=headers, timeout=10, verify=not is_windows)
-                                requests.post(
+                                headers = (
+                                    screen_instance.get_user_header()
+                                    if hasattr(screen_instance, "get_user_header")
+                                    else {}
+                                )
+                        
+                                is_windows = (platform == "win")
+                        
+                                response = requests.put(
+                                    url,
+                                    json=match_info_match,
+                                    headers=headers,
+                                    timeout=10,
+                                    verify=not is_windows
+                                )
+                                response.raise_for_status()
+                        
+                                response_stats = requests.post(
                                     f"https://fcvv-api.onrender.com/stats/historique/evenement/"
                                     f"{screen_instance.current_cat}/{key}",
                                     headers=headers,
                                     timeout=10,
                                     verify=not is_windows
                                 )
-                                Clock.schedule_once(lambda dt: screen_instance.fetch_convocations_from_firebase(data))
+                                response_stats.raise_for_status()
+                        
+                                Clock.schedule_once(
+                                    lambda dt: screen_instance.fetch_convocations_from_firebase(data)
+                                )
+                        
                             except Exception as e:
                                 print(f"Erreur sauvegarde match API : {e}")
-                                Clock.schedule_once(lambda dt: screen_instance.update_ui())
+                                Clock.schedule_once(
+                                    lambda dt: screen_instance.update_ui()
+                                )
                 
                         threading.Thread(target=do_api_save, daemon=True).start()
                         if popup_ref:
@@ -818,8 +839,14 @@ class EventManager:
                         
                         def valider_avec_commit(instance):
                             msg = ti_commit.text.strip()
+                        
+                            # Ne pas lancer immédiatement la sauvegarde :
+                            # sur iOS, la fermeture du Popup est animée/asynchrone.
+                            def lancer_sauvegarde(*args):
+                                executer_sauvegarde(msg)
+                        
+                            popup_commit.bind(on_dismiss=lancer_sauvegarde)
                             popup_commit.dismiss()
-                            executer_sauvegarde(msg)
                             
                         btn_valider_commit.bind(on_release=valider_avec_commit)
                         popup_commit.open()
