@@ -103,179 +103,6 @@ jobs:
       #      ${{ runner.os }}-kivy-ios-v5-
 
       # ============================================================
-      # 4B. PATCH SDL RECIPE AVANT COMPILATION
-      # ============================================================
-      - name: Locate SDL sources before build
-        shell: bash
-        run: |
-          set -euo pipefail
-      
-          echo "============================================================"
-          echo "  KIVY-IOS INSTALLATION"
-          echo "============================================================"
-      
-          python3 <<'PY'
-          import pathlib
-          import kivy_ios
-      
-          root = pathlib.Path(kivy_ios.__file__).parent
-      
-          print("kivy-ios root:")
-          print(root)
-          print()
-          print("========================================================")
-          print("SEARCH SDL_uikitappdelegate.m")
-          print("========================================================")
-      
-          found = False
-      
-          for f in root.rglob("SDL_uikitappdelegate.m"):
-              found = True
-              print(f)
-      
-          if not found:
-              print("AUCUN SDL_uikitappdelegate.m trouvé")
-          PY
-      
-          echo ""
-          echo "============================================================"
-          echo "  RECIPES SDL"
-          echo "============================================================"
-      
-          find \
-            /Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios \
-            -type f \
-            | grep -Ei '/sdl|SDL' \
-            | sort \
-            | head -300 \
-            || true
-      
-          echo ""
-          echo "============================================================"
-          echo "  RECHERCHE PATCH SDL"
-          echo "============================================================"
-      
-          find \
-            /Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios \
-            -type f \
-            \( \
-              -name "*.patch" \
-              -o -name "*.diff" \
-            \) \
-            | grep sdl \
-            || true
-      
-          echo ""
-          echo "============================================================"
-          echo "  RECHERCHE SDL DANS RECETTE"
-          echo "============================================================"
-      
-          grep -Rni \
-            "SDL2-2.28.5" \
-            /Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios \
-            || true
-      
-          echo ""
-          echo "============================================================"
-          echo "  CONTENU RECETTE SDL2"
-          echo "============================================================"
-      
-          SDL_RECIPE=$(
-            find \
-              /Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios \
-              -path "*/recipes/sdl2/__init__.py" \
-              -print \
-              -quit
-          )
-      
-          if [ -n "$SDL_RECIPE" ]; then
-            echo "SDL_RECIPE=$SDL_RECIPE"
-            echo ""
-            sed -n '1,250p' "$SDL_RECIPE"
-          else
-            echo "Recette SDL2 introuvable"
-          fi
-      
-      - name: Inspect SDL patches
-        shell: bash
-        run: |
-          set -euo pipefail
-      
-          SDL_RECIPE_DIR="/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios/recipes/sdl2"
-      
-          echo "============================================================"
-          echo "PATCHES SDL2"
-          echo "============================================================"
-      
-          ls -la "$SDL_RECIPE_DIR"
-      
-          echo ""
-          echo "===== uikit-transparent.patch ====="
-      
-          sed -n '1,250p' \
-            "$SDL_RECIPE_DIR/uikit-transparent.patch"
-      
-      # ============================================================
-      # 4C. TEST PATCH SDL AVANT COMPILATION
-      # ============================================================
-      - name: Add FCVV patch to SDL recipe
-        shell: bash
-        run: |
-          set -euo pipefail
-      
-          SDL_RECIPE_DIR="/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios/recipes/sdl2"
-      
-          echo "============================================================"
-          echo "  AJOUT PATCH FCVV SDL"
-          echo "============================================================"
-      
-          cat > "$SDL_RECIPE_DIR/fcvv-test.patch" <<'EOF'
-          --- a/src/video/uikit/SDL_uikitappdelegate.m
-          +++ b/src/video/uikit/SDL_uikitappdelegate.m
-          @@ -525,6 +525,9 @@
-           @end
-          
-          +static const char* FCVV_MARKER =
-          +    "[FCVV] PATCH APPLIQUE AVANT COMPILATION";
-          +
-           EOF
-          
-              echo "Patch créé :"
-              ls -l "$SDL_RECIPE_DIR/fcvv-test.patch"
-          
-              echo ""
-              echo "Modification recette SDL..."
-          
-              python3 <<'PY'
-          from pathlib import Path
-          
-          recipe = Path("/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/kivy_ios/recipes/sdl2/__init__.py")
-          
-          text = recipe.read_text()
-          
-          marker = 'self.apply_patch("disable-hidapi.patch")'
-          
-          replacement = '''
-          self.apply_patch("disable-hidapi.patch")
-          self.apply_patch("fcvv-test.patch")
-          '''
-          
-          if 'fcvv-test.patch' not in text:
-              text = text.replace(marker, replacement)
-          
-          recipe.write_text(text)
-          
-          print("OK recette modifiée")
-          PY
-      
-          echo ""
-          echo "===== VERIFICATION ====="
-      
-          grep -n "fcvv-test.patch" \
-            "$SDL_RECIPE_DIR/__init__.py"
-      
-      
-      # ============================================================
       # 5. BUILD KIVY-IOS RECIPES
       # ============================================================
       - name: Build kivy-ios
@@ -287,6 +114,28 @@ jobs:
           rm -rf ~/Library/Caches/pip
           
           toolchain build hostpython3 python3 kivy openssl pillow pyobjus
+          
+          echo "============================================================"
+          echo "SDL SOURCE DISPONIBLE"
+          echo "============================================================"
+          
+          find build/sdl2 \
+            -name "SDL_uikitappdelegate.m" \
+            -print
+          
+          echo ""
+          echo "============================================================"
+          echo "FIN SDL_uikitappdelegate.m"
+          echo "============================================================"
+          
+          SDL_FILE=$(find build/sdl2 -name SDL_uikitappdelegate.m | head -1)
+          
+          tail -150 "$SDL_FILE"
+
+          exit 1
+
+
+          
           toolchain pip install pyyaml requests urllib3 plyer
           
           toolchain pip install defusedxml
