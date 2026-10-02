@@ -1689,6 +1689,81 @@ jobs:
           echo "✓ Appel de configuration présent"
           echo ""
           echo "✓ SDL_uikitappdelegate.m semble correctement injecté."
+
+
+          echo "============================================================"
+          echo "  SDL RECONSTRUIT APRES MODIFICATION"
+          echo "============================================================"
+          toolchain recipes | grep sdl
+
+          toolchain clean sdl2
+          toolchain build sdl2
+          
+          echo ""
+          echo "============================================================"
+          echo "  VERIFICATION SDL_uikitappdelegate.o"
+          echo "============================================================"
+          
+          find build \
+            -name "SDL_uikitappdelegate.o" \
+            | while read OBJ; do
+          
+                echo ""
+                echo "OBJET : $OBJ"
+          
+                echo "----- STRINGS FCVV -----"
+                strings "$OBJ" \
+                  | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|Firebase configuré|registerForRemoteNotifications" \
+                  || true
+          
+                echo ""
+                echo "----- SYMBOLES FCVV -----"
+                nm "$OBJ" \
+                  | grep -i fcvv \
+                  || true
+          
+              done
+              
+          echo ""
+          echo "============================================================"
+          echo "  VERIFICATION libSDL2.a"
+          echo "============================================================"
+          
+          find build \
+            -name "libSDL2.a" \
+            | while read LIB; do
+          
+                echo ""
+                echo "LIBRAIRIE : $LIB"
+          
+                echo "----- STRINGS FCVV -----"
+          
+                strings "$LIB" \
+                  | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|Firebase configuré|registerForRemoteNotifications" \
+                  || true
+          
+              done
+          
+          echo ""
+          echo "============================================================"
+          echo "  VERIFICATION XCFRAMEWORK"
+          echo "============================================================"
+          
+          find dist/xcframework/libSDL2.xcframework \
+            -name "*.a" \
+            | while read LIB; do
+          
+                echo ""
+                echo "LIB : $LIB"
+          
+                strings "$LIB" \
+                  | grep -E "\[FCVV\]|fcvvConfigureFirebaseAndNotifications|Firebase configuré|registerForRemoteNotifications" \
+                  || true
+          
+              done
+
+          exit 1
+          
       
       # ============================================================
       # 10. APNs ENTITLEMENTS + CODE SIGNING
