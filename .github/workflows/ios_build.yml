@@ -1793,494 +1793,499 @@ jobs:
             echo "✓ SHA256 SDL recompilé :"
             echo "  $SHA_REBUILT"
 
-
+            # ======================================================
+            # 8.3.10 SYNCHRONISATION DU LIBSDL2 DANS L'XCFRAMEWORK
+            # ======================================================
             if [ "$sdk" = "iphoneos" ]; then
-            echo
-            echo "=== SYNCHRONISATION DU LIBSDL2 DANS L'XCFRAMEWORK ==="
-            
-            # Le projet FCVV référence :
-            #
-            #   ../dist/xcframework/libSDL2.xcframework
-            #
-            # Il ne référence PAS directement libSDL2.a.
-            #
-            # On remplace donc uniquement la tranche iPhoneOS
-            # de l'XCFramework par le libSDL2.a fraîchement recompilé.
-            
-            SDL_XCFRAMEWORK="$PROJ_DIR/../dist/xcframework/libSDL2.xcframework"
-            
-            echo
-            echo "XCFramework SDL2 :"
-            echo "  $SDL_XCFRAMEWORK"
-            
-            
-            # ======================================================
-            # 8.3.10.1 VERIFICATION DE L'XCFRAMEWORK
-            # ======================================================
-            
-            if [ ! -d "$SDL_XCFRAMEWORK" ]; then
             
               echo
-              echo "❌ XCFramework SDL2 introuvable :"
+              echo "=== SYNCHRONISATION DU LIBSDL2 DANS L'XCFRAMEWORK ==="
+            
+              # Le projet FCVV référence :
+              #
+              #   ../dist/xcframework/libSDL2.xcframework
+              #
+              # Il ne référence PAS directement libSDL2.a.
+              #
+              # On remplace uniquement la tranche iPhoneOS
+              # de l'XCFramework par le libSDL2.a fraîchement recompilé.
+            
+              SDL_XCFRAMEWORK="$PROJ_DIR/../dist/xcframework/libSDL2.xcframework"
+            
+              echo
+              echo "XCFramework SDL2 :"
               echo "  $SDL_XCFRAMEWORK"
             
-              echo
-              echo "Contenu de dist/xcframework :"
             
-              find "$PROJ_DIR/../dist/xcframework" \
-                -maxdepth 3 \
-                -print \
-                2>/dev/null \
-                | sort \
-                || true
+              # ======================================================
+              # 8.3.10.1 VERIFICATION DE L'XCFRAMEWORK
+              # ======================================================
             
-              exit 1
+              if [ ! -d "$SDL_XCFRAMEWORK" ]; then
             
-            fi
+                echo
+                echo "❌ XCFramework SDL2 introuvable :"
+                echo "  $SDL_XCFRAMEWORK"
             
-            echo
-            echo "✓ XCFramework SDL2 trouvé"
+                echo
+                echo "Contenu de dist/xcframework :"
             
-            
-            # ======================================================
-            # 8.3.11 VERIFICATION DE LA STRUCTURE
-            # ======================================================
-            
-            echo
-            echo "=== STRUCTURE DE L'XCFRAMEWORK ==="
-            
-            find "$SDL_XCFRAMEWORK" \
-              -maxdepth 3 \
-              -print \
-              | sort
-            
-            
-            # ======================================================
-            # 8.3.12 DETECTION DE LA TRANCHE IPHONEOS
-            # ======================================================
-            
-            echo
-            echo "=== DETECTION DE LA TRANCHE IPHONEOS ==="
-            
-            IOS_DEVICE_DIR=""
-            
-            # Structure XCFramework standard :
-            #
-            # libSDL2.xcframework/
-            # └── ios-arm64/
-            #     └── libSDL2.a
-            
-            if [ -d "$SDL_XCFRAMEWORK/ios-arm64" ]; then
-            
-              IOS_DEVICE_DIR="$SDL_XCFRAMEWORK/ios-arm64"
-            
-            fi
-            
-            
-            # ------------------------------------------------------
-            # Recherche de secours
-            # ------------------------------------------------------
-            
-            if [ -z "$IOS_DEVICE_DIR" ]; then
-            
-              IOS_DEVICE_LIB="$(
-                find "$SDL_XCFRAMEWORK" \
-                  -type f \
-                  -name "libSDL2.a" \
-                  -path "*/ios-arm64/*" \
+                find "$PROJ_DIR/../dist/xcframework" \
+                  -maxdepth 3 \
                   -print \
-                  | head -n 1
-              )"
+                  2>/dev/null \
+                  | sort \
+                  || true
             
-              if [ -n "$IOS_DEVICE_LIB" ]; then
-            
-                IOS_DEVICE_DIR="$(dirname "$IOS_DEVICE_LIB")"
+                exit 1
             
               fi
             
-            fi
+              echo
+              echo "✓ XCFramework SDL2 trouvé"
             
             
-            # ======================================================
-            # 8.3.12.1 VERIFICATION
-            # ======================================================
-            
-            if [ -z "$IOS_DEVICE_DIR" ]; then
+              # ======================================================
+              # 8.3.11 VERIFICATION DE LA STRUCTURE
+              # ======================================================
             
               echo
-              echo "❌ Impossible de trouver la tranche ios-arm64."
-            
-              echo
-              echo "XCFramework analysé :"
-              echo "  $SDL_XCFRAMEWORK"
-            
-              echo
-              echo "Structure disponible :"
+              echo "=== STRUCTURE DE L'XCFRAMEWORK ==="
             
               find "$SDL_XCFRAMEWORK" \
-                -maxdepth 4 \
+                -maxdepth 3 \
                 -print \
                 | sort
             
-              exit 1
             
-            fi
-            
-            
-            echo
-            echo "✓ Tranche iPhoneOS détectée :"
-            echo "  $IOS_DEVICE_DIR"
-            
-            
-            IOS_DEVICE_LIB="$IOS_DEVICE_DIR/libSDL2.a"
-            
-            
-            # ======================================================
-            # 8.3.13 VERIFICATION DU LIBSDL2 RECOMPILE
-            # ======================================================
-            
-            echo
-            echo "=== VERIFICATION DU LIBSDL2 RECOMPILE ==="
-            
-            echo
-            echo "Source SDL2 recompilée :"
-            echo "  $SDL_LIB"
-            
-            
-            if [ ! -f "$SDL_LIB" ]; then
+              # ======================================================
+              # 8.3.12 DETECTION DE LA TRANCHE IPHONEOS
+              # ======================================================
             
               echo
-              echo "❌ libSDL2.a recompilé introuvable :"
-              echo "  $SDL_LIB"
+              echo "=== DETECTION DE LA TRANCHE IPHONEOS ==="
             
-              exit 1
+              IOS_DEVICE_DIR=""
             
-            fi
+              # Structure XCFramework standard :
+              #
+              # libSDL2.xcframework/
+              # └── ios-arm64/
+              #     └── libSDL2.a
             
-            echo
-            echo "✓ libSDL2.a recompilé trouvé"
+              if [ -d "$SDL_XCFRAMEWORK/ios-arm64" ]; then
             
+                IOS_DEVICE_DIR="$SDL_XCFRAMEWORK/ios-arm64"
             
-            # ======================================================
-            # 8.3.13.1 ARCHITECTURE SOURCE
-            # ======================================================
-            
-            SDL_SOURCE_LIPO="$(
-              lipo -info "$SDL_LIB" \
-                2>/dev/null \
-                || true
-            )"
-            
-            echo
-            echo "Architecture SDL2 recompilé :"
-            echo "  $SDL_SOURCE_LIPO"
+              fi
             
             
-            if ! echo "$SDL_SOURCE_LIPO" | grep -q "arm64"; then
+              # ------------------------------------------------------
+              # Recherche de secours
+              # ------------------------------------------------------
             
-              echo
-              echo "❌ Le SDL2 recompilé ne contient pas arm64."
+              if [ -z "$IOS_DEVICE_DIR" ]; then
             
-              exit 1
+                IOS_DEVICE_LIB="$(
+                  find "$SDL_XCFRAMEWORK" \
+                    -type f \
+                    -name "libSDL2.a" \
+                    -path "*/ios-arm64/*" \
+                    -print \
+                    | head -n 1
+                )"
             
-            fi
+                if [ -n "$IOS_DEVICE_LIB" ]; then
             
-            echo
-            echo "✓ Architecture arm64 présente"
+                  IOS_DEVICE_DIR="$(dirname "$IOS_DEVICE_LIB")"
             
+                fi
             
-            # ======================================================
-            # 8.3.14 REMPLACEMENT DU LIBSDL2.A
-            # ======================================================
-            
-            echo
-            echo "=== REMPLACEMENT DU LIBSDL2.A IPHONEOS ==="
-            
-            echo
-            echo "SOURCE :"
-            echo "  $SDL_LIB"
-            
-            echo
-            echo "DESTINATION :"
-            echo "  $IOS_DEVICE_LIB"
+              fi
             
             
-            IOS_DEVICE_PARENT="$(dirname "$IOS_DEVICE_LIB")"
+              # ======================================================
+              # 8.3.12.1 VERIFICATION
+              # ======================================================
             
-            if [ ! -d "$IOS_DEVICE_PARENT" ]; then
-            
-              echo
-              echo "Création du dossier :"
-              echo "  $IOS_DEVICE_PARENT"
-            
-              mkdir -p "$IOS_DEVICE_PARENT"
-            
-            fi
-            
-            
-            # ------------------------------------------------------
-            # Copie
-            # ------------------------------------------------------
-            
-            if [ -f "$IOS_DEVICE_LIB" ]; then
-            
-              if cmp -s "$SDL_LIB" "$IOS_DEVICE_LIB"; then
+              if [ -z "$IOS_DEVICE_DIR" ]; then
             
                 echo
-                echo "✓ La bibliothèque est déjà identique"
+                echo "❌ Impossible de trouver la tranche ios-arm64."
+            
+                echo
+                echo "XCFramework analysé :"
+                echo "  $SDL_XCFRAMEWORK"
+            
+                echo
+                echo "Structure disponible :"
+            
+                find "$SDL_XCFRAMEWORK" \
+                  -maxdepth 4 \
+                  -print \
+                  | sort
+            
+                exit 1
+            
+              fi
+            
+            
+              echo
+              echo "✓ Tranche iPhoneOS détectée :"
+              echo "  $IOS_DEVICE_DIR"
+            
+              IOS_DEVICE_LIB="$IOS_DEVICE_DIR/libSDL2.a"
+            
+            
+              # ======================================================
+              # 8.3.13 VERIFICATION DU LIBSDL2 RECOMPILE
+              # ======================================================
+            
+              echo
+              echo "=== VERIFICATION DU LIBSDL2 RECOMPILE ==="
+            
+              echo
+              echo "Source SDL2 recompilée :"
+              echo "  $SDL_LIB"
+            
+            
+              if [ ! -f "$SDL_LIB" ]; then
+            
+                echo
+                echo "❌ libSDL2.a recompilé introuvable :"
+                echo "  $SDL_LIB"
+            
+                exit 1
+            
+              fi
+            
+              echo
+              echo "✓ libSDL2.a recompilé trouvé"
+            
+            
+              # ======================================================
+              # 8.3.13.1 ARCHITECTURE SOURCE
+              # ======================================================
+            
+              SDL_SOURCE_LIPO="$(
+                lipo -info "$SDL_LIB" \
+                  2>/dev/null \
+                  || true
+              )"
+            
+              echo
+              echo "Architecture SDL2 recompilé :"
+              echo "  $SDL_SOURCE_LIPO"
+            
+            
+              if ! echo "$SDL_SOURCE_LIPO" | grep -q "arm64"; then
+            
+                echo
+                echo "❌ Le SDL2 recompilé ne contient pas arm64."
+            
+                exit 1
+            
+              fi
+            
+              echo
+              echo "✓ Architecture arm64 présente"
+            
+            
+              # ======================================================
+              # 8.3.14 REMPLACEMENT DU LIBSDL2.A
+              # ======================================================
+            
+              echo
+              echo "=== REMPLACEMENT DU LIBSDL2.A IPHONEOS ==="
+            
+              echo
+              echo "SOURCE :"
+              echo "  $SDL_LIB"
+            
+              echo
+              echo "DESTINATION :"
+              echo "  $IOS_DEVICE_LIB"
+            
+            
+              IOS_DEVICE_PARENT="$(dirname "$IOS_DEVICE_LIB")"
+            
+              if [ ! -d "$IOS_DEVICE_PARENT" ]; then
+            
+                echo
+                echo "Création du dossier :"
+                echo "  $IOS_DEVICE_PARENT"
+            
+                mkdir -p "$IOS_DEVICE_PARENT"
+            
+              fi
+            
+            
+              # ------------------------------------------------------
+              # Copie
+              # ------------------------------------------------------
+            
+              if [ -f "$IOS_DEVICE_LIB" ]; then
+            
+                if cmp -s "$SDL_LIB" "$IOS_DEVICE_LIB"; then
+            
+                  echo
+                  echo "✓ La bibliothèque est déjà identique"
+            
+                else
+            
+                  echo
+                  echo "→ Remplacement de la bibliothèque existante"
+            
+                  cp -f \
+                    "$SDL_LIB" \
+                    "$IOS_DEVICE_LIB"
+            
+                  echo
+                  echo "✓ Bibliothèque remplacée"
+            
+                fi
             
               else
             
                 echo
-                echo "→ Remplacement de la bibliothèque existante"
+                echo "→ Création de la bibliothèque iPhoneOS"
             
                 cp -f \
                   "$SDL_LIB" \
                   "$IOS_DEVICE_LIB"
             
                 echo
-                echo "✓ Bibliothèque remplacée"
+                echo "✓ Bibliothèque créée"
             
               fi
             
-            else
+            
+              # ======================================================
+              # 8.3.14.1 VERIFICATION DE LA COPIE
+              # ======================================================
+            
+              if [ ! -f "$IOS_DEVICE_LIB" ]; then
+            
+                echo
+                echo "❌ libSDL2.a absent après synchronisation :"
+                echo "  $IOS_DEVICE_LIB"
+            
+                exit 1
+            
+              fi
             
               echo
-              echo "→ Création de la bibliothèque iPhoneOS"
-            
-              cp -f \
-                "$SDL_LIB" \
-                "$IOS_DEVICE_LIB"
-            
-              echo
-              echo "✓ Bibliothèque créée"
-            
-            fi
+              echo "✓ libSDL2.a présent dans l'XCFramework"
             
             
-            # ======================================================
-            # 8.3.14.1 VERIFICATION DE LA COPIE
-            # ======================================================
-            
-            if [ ! -f "$IOS_DEVICE_LIB" ]; then
+              # ======================================================
+              # 8.3.14.2 SHA256
+              # ======================================================
             
               echo
-              echo "❌ libSDL2.a absent après synchronisation :"
+              echo "=== VERIFICATION SHA256 ==="
+            
+              DEST_SHA="$(
+                shasum -a 256 "$IOS_DEVICE_LIB" \
+                  | awk '{print $1}'
+              )"
+            
+              echo
+              echo "SHA256 SDL2 recompilé :"
+              echo "  $SHA_REBUILT"
+            
+              echo
+              echo "SHA256 SDL2 XCFramework :"
+              echo "  $DEST_SHA"
+            
+            
+              if [ "$DEST_SHA" != "$SHA_REBUILT" ]; then
+            
+                echo
+                echo "❌ SHA256 différent."
+            
+                exit 1
+            
+              fi
+            
+              echo
+              echo "✓ SHA256 identique"
+            
+            
+              # ======================================================
+              # 8.3.14.3 ARCHITECTURE
+              # ======================================================
+            
+              echo
+              echo "=== VERIFICATION ARCHITECTURE ==="
+            
+              DEST_LIPO="$(
+                lipo -info "$IOS_DEVICE_LIB"
+              )"
+            
+              echo
+              echo "Architecture finale :"
+              echo "  $DEST_LIPO"
+            
+            
+              if ! echo "$DEST_LIPO" | grep -q "$EXPECTED_ARCH"; then
+            
+                echo
+                echo "❌ Architecture incorrecte."
+            
+                echo "SDK :"
+                echo "  $sdk"
+            
+                echo "Architecture attendue :"
+                echo "  $EXPECTED_ARCH"
+            
+                exit 1
+            
+              fi
+            
+              echo
+              echo "✓ Architecture $EXPECTED_ARCH vérifiée"
+            
+            
+              # ======================================================
+              # 8.3.15 VERIFICATION DU PROJECT.PBXPROJ
+              # ======================================================
+            
+              echo
+              echo "=== VERIFICATION DU PROJECT.PBXPROJ ==="
+            
+              if grep -q "libSDL2.xcframework" "$PROJECT_PBXPROJ"; then
+            
+                echo
+                echo "✓ Le projet référence libSDL2.xcframework"
+            
+              else
+            
+                echo
+                echo "❌ Le project.pbxproj ne référence pas :"
+                echo "  libSDL2.xcframework"
+            
+                exit 1
+            
+              fi
+            
+            
+              # ======================================================
+              # 8.3.15.1 VERIFICATION DU CHEMIN XCFRAMEWORK
+              # ======================================================
+            
+              echo
+              echo "=== REFERENCE XCFRAMEWORK DANS PBXPROJ ==="
+            
+              grep -n \
+                "libSDL2.xcframework" \
+                "$PROJECT_PBXPROJ" \
+                || true
+            
+            
+              # ======================================================
+              # 8.3.16 VERIFICATION DES AUTRES TRANCHES
+              # ======================================================
+            
+              echo
+              echo "=== TRANCHES DE L'XCFRAMEWORK ==="
+            
+              find "$SDL_XCFRAMEWORK" \
+                -mindepth 1 \
+                -maxdepth 1 \
+                -type d \
+                -print \
+                | sort
+            
+            
+              echo
+              echo "Bibliothèques libSDL2.a présentes :"
+            
+              find "$SDL_XCFRAMEWORK" \
+                -type f \
+                -name "libSDL2.a" \
+                -print \
+                | sort
+            
+            
+              # ======================================================
+              # 8.3.16.1 VERIFICATION FINALE DE LA TRANCHE IPHONEOS
+              # ======================================================
+            
+              echo
+              echo "=== VERIFICATION FINALE TRANCHE IPHONEOS ==="
+            
+              FINAL_SHA="$(
+                shasum -a 256 "$IOS_DEVICE_LIB" \
+                  | awk '{print $1}'
+              )"
+            
+              FINAL_LIPO="$(
+                lipo -info "$IOS_DEVICE_LIB"
+              )"
+            
+            
+              echo
+              echo "✓ libSDL2.a :"
               echo "  $IOS_DEVICE_LIB"
             
-              exit 1
-            
-            fi
-            
-            echo
-            echo "✓ libSDL2.a présent dans l'XCFramework"
-            
-            
-            # ======================================================
-            # 8.3.14.2 SHA256
-            # ======================================================
-            
-            echo
-            echo "=== VERIFICATION SHA256 ==="
-            
-            DEST_SHA="$(
-              shasum -a 256 "$IOS_DEVICE_LIB" \
-                | awk '{print $1}'
-            )"
-            
-            echo
-            echo "SHA256 SDL2 recompilé :"
-            echo "  $SHA_REBUILT"
-            
-            echo
-            echo "SHA256 SDL2 XCFramework :"
-            echo "  $DEST_SHA"
-            
-            
-            if [ "$DEST_SHA" != "$SHA_REBUILT" ]; then
+              echo
+              echo "✓ SHA256 :"
+              echo "  $FINAL_SHA"
             
               echo
-              echo "❌ SHA256 différent."
-            
-              exit 1
-            
-            fi
-            
-            echo
-            echo "✓ SHA256 identique"
+              echo "✓ Architecture :"
+              echo "  $FINAL_LIPO"
             
             
-            # ======================================================
-            # 8.3.14.3 ARCHITECTURE
-            # ======================================================
+              if [ "$FINAL_SHA" != "$SHA_REBUILT" ]; then
             
-            echo
-            echo "=== VERIFICATION ARCHITECTURE ==="
+                echo
+                echo "❌ SHA256 final différent du SDL2 recompilé."
             
-            DEST_LIPO="$(
-              lipo -info "$IOS_DEVICE_LIB"
-            )"
+                exit 1
             
-            echo
-            echo "Architecture finale :"
-            echo "  $DEST_LIPO"
+              fi
             
             
-            if ! echo "$DEST_LIPO" | grep -q "$EXPECTED_ARCH"; then
+              if ! echo "$FINAL_LIPO" | grep -q "$EXPECTED_ARCH"; then
+            
+                echo
+                echo "❌ Architecture finale incorrecte."
+            
+                exit 1
+            
+              fi
+            
             
               echo
-              echo "❌ Architecture incorrecte."
-            
-              echo "SDK :"
-              echo "  $sdk"
-            
-              echo "Architecture attendue :"
-              echo "  $EXPECTED_ARCH"
-            
-              exit 1
-            
-            fi
-            
-            echo
-            echo "✓ Architecture $EXPECTED_ARCH vérifiée"
+              echo "✓ SDL2 iPhoneOS final identique au SDL2 recompilé"
             
             
-            # ======================================================
-            # 8.3.15 VERIFICATION DU PROJECT.PBXPROJ
-            # ======================================================
-            
-            echo
-            echo "=== VERIFICATION DU PROJECT.PBXPROJ ==="
-            
-            if grep -q "libSDL2.xcframework" "$PROJECT_PBXPROJ"; then
+              # ======================================================
+              # 8.3.17 VERIFICATION FINALE DU SDK
+              # ======================================================
             
               echo
-              echo "✓ Le projet référence libSDL2.xcframework"
-            
-            else
+              echo "=== VERIFICATION FINALE $sdk ==="
             
               echo
-              echo "❌ Le project.pbxproj ne référence pas :"
-              echo "  libSDL2.xcframework"
-            
-              exit 1
-            
-            fi
-            
-            
-            # ======================================================
-            # 8.3.15.1 VERIFICATION DU CHEMIN XCFRAMEWORK
-            # ======================================================
-            
-            echo
-            echo "=== REFERENCE XCFRAMEWORK DANS PBXPROJ ==="
-            
-            grep -n \
-              "libSDL2.xcframework" \
-              "$PROJECT_PBXPROJ" \
-              || true
-            
-            
-            # ======================================================
-            # 8.3.16 VERIFICATION DES AUTRES TRANCHES
-            # ======================================================
-            
-            echo
-            echo "=== TRANCHES DE L'XCFRAMEWORK ==="
-            
-            find "$SDL_XCFRAMEWORK" \
-              -mindepth 1 \
-              -maxdepth 1 \
-              -type d \
-              -print \
-              | sort
-            
-            
-            # ------------------------------------------------------
-            # Affichage des bibliothèques présentes
-            # ------------------------------------------------------
-            
-            echo
-            echo "Bibliothèques libSDL2.a présentes :"
-            
-            find "$SDL_XCFRAMEWORK" \
-              -type f \
-              -name "libSDL2.a" \
-              -print \
-              | sort
-            
-            
-            # ======================================================
-            # 8.3.16.1 VERIFICATION DE LA TRANCHE IPHONEOS
-            # ======================================================
-            
-            echo
-            echo "=== VERIFICATION FINALE TRANCHE IPHONEOS ==="
-            
-            FINAL_SHA="$(
-              shasum -a 256 "$IOS_DEVICE_LIB" \
-                | awk '{print $1}'
-            )"
-            
-            FINAL_LIPO="$(
-              lipo -info "$IOS_DEVICE_LIB"
-            )"
-            
-            
-            echo
-            echo "✓ libSDL2.a :"
-            echo "  $IOS_DEVICE_LIB"
-            
-            echo
-            echo "✓ SHA256 :"
-            echo "  $FINAL_SHA"
-            
-            echo
-            echo "✓ Architecture :"
-            echo "  $FINAL_LIPO"
-            
-            
-            if [ "$FINAL_SHA" != "$SHA_REBUILT" ]; then
+              echo "✓ Tranche iPhoneOS synchronisée :"
+              echo "  $IOS_DEVICE_LIB"
             
               echo
-              echo "❌ SHA256 final différent du SDL2 recompilé."
-            
-              exit 1
-            
-            fi
-            
-            
-            if ! echo "$FINAL_LIPO" | grep -q "$EXPECTED_ARCH"; then
+              echo "✓ SHA256 :"
+              echo "  $FINAL_SHA"
             
               echo
-              echo "❌ Architecture finale incorrecte."
+              echo "✓ Architecture :"
+              echo "  $FINAL_LIPO"
             
-              exit 1
+              echo
+              echo "✓ Synchronisation SDL2 terminée pour $sdk"
             
             fi
-            
-            
-            echo
-            echo "✓ SDL2 iPhoneOS final identique au SDL2 recompilé"
-            
-            
-            # ======================================================
-            # 8.3.17 VERIFICATION FINALE DU SDK
-            # ======================================================
-            echo
-            echo "=== VERIFICATION FINALE $sdk ==="
-            echo
-            echo "✓ Tranche iPhoneOS synchronisée :"
-            echo "  $IOS_DEVICE_LIB"
-            echo
-            echo "✓ SHA256 :"
-            echo "  $FINAL_SHA"
-            echo
-            echo "✓ Architecture :"
-            echo "  $FINAL_LIPO"
-            echo
-            echo "✓ Synchronisation SDL2 terminée pour $sdk"
-            fi
+          done
 
 
           # ========================================================
