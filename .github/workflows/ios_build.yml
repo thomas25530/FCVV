@@ -899,8 +899,6 @@ jobs:
           echo "============================================================"
           echo "  FIREBASE / COCOAPODS TERMINÉ"
           echo "============================================================"
-	  
-	  
       # ============================================================
       # 7. PATCH SDLUIKitDelegate
       # ============================================================
@@ -956,7 +954,7 @@ jobs:
 
           echo ""
           echo "✓ Tous les SDLUIKitDelegate ont été patchés"
-	  
+
       # 8 REBUILD SDL2 + SYNCHRONISER LE LIBSDL2.A UTILISÉ PAR FCVV
       - name: Rebuild SDL2 and sync libSDL2.a with fcvv.xcodeproj
         shell: bash
@@ -1222,8 +1220,6 @@ jobs:
           echo "============================================================"
           echo " VERIFICATION SDL2 TERMINEE"
           echo "============================================================"
-	  
-
       # ============================================================
       # 9. APNs ENTITLEMENTS + CODE SIGNING
       # ============================================================
@@ -1293,8 +1289,6 @@ jobs:
           echo "$BUILD_SETTINGS" | grep -q "CODE_SIGN_ENTITLEMENTS = fcvv.entitlements" || { echo "❌ CODE_SIGN_ENTITLEMENTS incorrect dans Xcode"; exit 1; }
 
           echo "✓ Configuration APNs terminée avec succès (Environment: $APNS_ENVIRONMENT)"
-      
-
       # ============================================================
       # 12. CONFIGURE LAUNCH SCREEN
       # ============================================================
