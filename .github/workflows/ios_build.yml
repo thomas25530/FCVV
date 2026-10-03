@@ -2389,96 +2389,87 @@ jobs:
             exit 1
           }
       
+          ```yaml
           # ------------------------------------------------------------
           # 9.2 Projet Xcode PRINCIPAL
           # ------------------------------------------------------------
           # IMPORTANT :
-          # Ne pas utiliser "find . -name '*.xcodeproj' -print -quit"
-          # car CocoaPods contient également Pods.xcodeproj.
+          # Ne pas utiliser find "*.xcodeproj" car CocoaPods contient
+          # également Pods.xcodeproj.
           # ------------------------------------------------------------
-      
+
           XCODEPROJ="./fcvv-ios/fcvv.xcodeproj"
-      
+
           [ -d "$XCODEPROJ" ] || {
             echo "❌ Projet Xcode introuvable : $XCODEPROJ"
             exit 1
           }
-      
+
           PROJECT_DIR="$(dirname "$XCODEPROJ")"
           ENTITLEMENTS="$PROJECT_DIR/fcvv.entitlements"
-      
-          echo
-          echo "Projet Xcode :"
-          echo "  $XCODEPROJ"
-      
-          echo
-          echo "Répertoire projet :"
-          echo "  $PROJECT_DIR"
-      
-          # ------------------------------------------------------------
-          # 9.3 Recherche du vrai target dans le projet PRINCIPAL
-          # ------------------------------------------------------------
-          echo
-          echo "=== TARGETS XCODE DU PROJET PRINCIPAL ==="
-      
-          TARGETS_OUTPUT="$(
-            xcodebuild \
-              -project "$XCODEPROJ" \
-              -list
-          )"
-      
-          echo "$TARGETS_OUTPUT"
-      
-          # ------------------------------------------------------------
-          # Détection du target applicatif
-          #
-          # On cherche d'abord "fcvv" sans tenir compte de la casse.
-          # ------------------------------------------------------------
-          TARGET_NAME="$(
-            printf '%s\n' "$TARGETS_OUTPUT" |
-            awk '
-              /^Targets:/ {
-                in_targets=1
-                next
-              }
-      
-              in_targets && /^[[:space:]]+[A-Za-z0-9_.-]+$/ {
-                target=$0
-                gsub(/^[[:space:]]+/, "", target)
-      
-                lower=target
-                gsub(/[A-Z]/, "&", lower)
-                if (tolower(target) == "fcvv") {
-                  print target
-                  exit
-                }
-              }
-      
-              in_targets && /^[^[:space:]]/ {
-                exit
-              }
-            '
-          )"
-      
-          if [ -z "$TARGET_NAME" ]; then
-            echo
-            echo "❌ Target applicatif 'fcvv' introuvable dans :"
-            echo "   $XCODEPROJ"
-            echo
-            echo "Targets détectés dans le projet principal :"
-            printf '%s\n' "$TARGETS_OUTPUT" |
-              sed -n '/^Targets:/,/^Build Configurations:/p'
-            exit 1
-          fi
-      
-          echo
-          echo "✓ Target Xcode détecté : $TARGET_NAME"
-      
+
+          # IMPORTANT :
+          # Export AVANT les appels Ruby qui utilisent ENV[...]
           export XCODEPROJ
           export PROJECT_DIR
           export ENTITLEMENTS
-          export TARGET_NAME
           export APNS_ENVIRONMENT
+
+          echo
+          echo "Projet Xcode :"
+          echo "  $XCODEPROJ"
+
+          echo
+          echo "Répertoire projet :"
+          echo "  $PROJECT_DIR"
+
+          # ------------------------------------------------------------
+          # 9.3 Vérification des targets du projet PRINCIPAL
+          # ------------------------------------------------------------
+          echo
+          echo "=== TARGETS XCODE DU PROJET PRINCIPAL ==="
+
+          xcodebuild \
+            -project "$XCODEPROJ" \
+            -list
+
+          # ------------------------------------------------------------
+          # Détection du target applicatif via xcodeproj
+          # ------------------------------------------------------------
+          TARGET_NAME="$(
+            ruby <<'RUBY'
+          require 'xcodeproj'
+
+          project = Xcodeproj::Project.open(ENV['XCODEPROJ'])
+
+          target = project.targets.find do |t|
+            t.name.downcase == 'fcvv'
+          end
+
+          if target
+            puts target.name
+          else
+            puts "ERROR"
+            puts "Targets disponibles :" >&2
+            project.targets.each do |t|
+              puts "  - #{t.name}" >&2
+            end
+            exit 1
+          end
+          RUBY
+          )"
+
+          if [ -z "$TARGET_NAME" ] || [ "$TARGET_NAME" = "ERROR" ]; then
+            echo
+            echo "❌ Target applicatif 'fcvv' introuvable dans :"
+            echo "   $XCODEPROJ"
+            exit 1
+          fi
+
+          echo
+          echo "✓ Target Xcode détecté : $TARGET_NAME"
+
+          export TARGET_NAME
       
           # ------------------------------------------------------------
           # 9.4 Création du fichier entitlements
