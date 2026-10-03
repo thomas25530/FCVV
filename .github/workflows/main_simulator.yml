@@ -93,9 +93,12 @@ jobs:
             plyer \
             pyobjus
 
-          echo "  FIX FONTTOOLS BEZIERTOOLS CYTHON CRASH ON IOS"
-          find dist/root/python3/lib/python3.11/site-packages/fontTools/misc/ -name "bezierTools*" -not -name "*.py" -delete
-          rm -f dist/root/python3/lib/python3.11/site-packages/fontTools/misc/*bezierTools*.so
+          echo " FIX FONTTOOLS AND OTHER CYTHON CRASH ON IOS"
+          # Supprime tous les fichiers binaires (.so) de fonttools car iOS n'execute que du pur Python ou des libs statiques specifiques
+          find dist/root/python3/lib/python3.11/site-packages/fontTools/ -name "*.so" -delete
+          
+          # Optionnel : si d'autres paquets posent problemes, on peut nettoyer leurs .so dynamiques non compatibles iOS
+          find dist/root/python3/lib/python3.11/site-packages/ -name "*.so" -delete
       # ============================================================
       # 6. PREPARE IOS SOURCES
       # ============================================================
