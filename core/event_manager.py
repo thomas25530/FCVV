@@ -462,18 +462,6 @@ class EventManager:
     
                 form_box.add_widget(Label(text="[b]Sondages & Options[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                 
-                box_sondage_classique = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
-                chk_sondage_classique = CheckBox(active=match_info_match.get("sondage_classique", True), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
-                box_sondage_classique.add_widget(chk_sondage_classique)
-                box_sondage_classique.add_widget(Label(text="Activer Sondage Présent / Absent", halign="left", color=(0.2, 0.2, 0.25, 1)))
-                form_box.add_widget(box_sondage_classique)
-    
-                box_sondage_trajet = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
-                chk_sondage_trajet = CheckBox(active=match_info_match.get("sondage_trajet", False), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
-                box_sondage_trajet.add_widget(chk_sondage_trajet)
-                box_sondage_trajet.add_widget(Label(text="Activer Sondage Trajet", halign="left", color=(0.2, 0.2, 0.25, 1)))
-                form_box.add_widget(box_sondage_trajet)
-
                 # --- NOUVELLE OPTION : EXPORTER PDF ---
                 box_exporter_pdf = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
                 chk_exporter_pdf = CheckBox(active=False, size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
@@ -488,6 +476,20 @@ class EventManager:
                 
                 box_exporter_pdf.add_widget(Label(text=texte_export_pdf,halign="left",color=(0.2, 0.2, 0.25, 1)))
                 form_box.add_widget(box_exporter_pdf)
+                
+                box_sondage_classique = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
+                chk_sondage_classique = CheckBox(active=match_info_match.get("sondage_classique", True), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
+                box_sondage_classique.add_widget(chk_sondage_classique)
+                box_sondage_classique.add_widget(Label(text="Activer Sondage Présent / Absent", halign="left", color=(0.2, 0.2, 0.25, 1)))
+                form_box.add_widget(box_sondage_classique)
+    
+                box_sondage_trajet = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
+                chk_sondage_trajet = CheckBox(active=match_info_match.get("sondage_trajet", False), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
+                box_sondage_trajet.add_widget(chk_sondage_trajet)
+                box_sondage_trajet.add_widget(Label(text="Activer Sondage Trajet", halign="left", color=(0.2, 0.2, 0.25, 1)))
+                form_box.add_widget(box_sondage_trajet)
+
+                
     
                 form_box.add_widget(Label(text="[b]Convocations[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                 
