@@ -1194,7 +1194,7 @@ class EventManager:
                 
                         def debug_popup_dismiss(*args):
                             print("[POPUP COMMIT] on_dismiss")
-                            print("[POPUP COMMIT] dismiss déclenche")
+                            print("[POPUP COMMIT] dismiss declenche")
                 
                         def debug_popup_touch_down(instance, touch):
                             print(
