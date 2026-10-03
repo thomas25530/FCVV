@@ -3226,18 +3226,101 @@ jobs:
           TARGET_NAME: fcvv
         run: |
           set -euo pipefail
+
           echo "=== CONFIGURE RELEASE CODE SIGNING ==="
 
-          PROJECT_FILE="$(find "$GITHUB_WORKSPACE" -maxdepth 3 -name "*.xcodeproj" -type d -print -quit)"
-          [ -n "$PROJECT_FILE" ] || { echo "❌ Aucun .xcodeproj trouvé"; exit 1; }
+          # ============================================================
+          # 1. PROJET ET WORKSPACE PRINCIPAUX
+          # ============================================================
 
-          WORKSPACE_PATH="$(find "$GITHUB_WORKSPACE" -maxdepth 3 -name "*.xcworkspace" -type d -print -quit)"
-          [ -n "$WORKSPACE_PATH" ] || { echo "❌ Aucun .xcworkspace trouvé"; exit 1; }
+          PROJECT_FILE="./fcvv-ios/fcvv.xcodeproj"
+          WORKSPACE_PATH="./fcvv-ios/fcvv.xcworkspace"
 
-          echo "✓ Projet : $PROJECT_FILE"
-          echo "✓ Workspace : $WORKSPACE_PATH"
+          if [ ! -d "$PROJECT_FILE" ]; then
+            echo "❌ Projet Xcode principal introuvable :"
+            echo "   $PROJECT_FILE"
+            exit 1
+          fi
 
-          # Configuration via Ruby
+          if [ ! -d "$WORKSPACE_PATH" ]; then
+            echo "❌ Workspace principal introuvable :"
+            echo "   $WORKSPACE_PATH"
+            exit 1
+          fi
+
+          echo
+          echo "Projet principal :"
+          echo "  $PROJECT_FILE"
+
+          echo
+          echo "Workspace principal :"
+          echo "  $WORKSPACE_PATH"
+
+          echo
+          echo "Target :"
+          echo "  $TARGET_NAME"
+
+          # ============================================================
+          # 2. VERIFICATION DU TARGET
+          # ============================================================
+
+          echo
+          echo "=== VERIFICATION DU TARGET ==="
+
+          if ! xcodebuild \
+            -project "$PROJECT_FILE" \
+            -target "$TARGET_NAME" \
+            -showBuildSettings \
+            >/dev/null 2>&1; then
+
+            echo "❌ Target '$TARGET_NAME' introuvable dans :"
+            echo "   $PROJECT_FILE"
+
+            echo
+            echo "Targets disponibles :"
+
+            xcodebuild \
+              -project "$PROJECT_FILE" \
+              -list
+
+            exit 1
+          fi
+
+          echo "✓ Target application trouvé : $TARGET_NAME"
+
+          # ============================================================
+          # 3. VERIFICATION DES VARIABLES DE SIGNATURE
+          # ============================================================
+
+          echo
+          echo "=== VERIFICATION PARAMETRES SIGNATURE ==="
+
+          if [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "❌ APPLE_TEAM_ID est vide"
+            exit 1
+          fi
+
+          if [ -z "${APP_BUNDLE_ID:-}" ]; then
+            echo "❌ APP_BUNDLE_ID est vide"
+            exit 1
+          fi
+
+          if [ -z "${PROVISIONING_PROFILE_NAME:-}" ]; then
+            echo "❌ PROVISIONING_PROFILE_NAME est vide"
+            exit 1
+          fi
+
+          echo "✓ APPLE_TEAM_ID défini"
+          echo "✓ APP_BUNDLE_ID défini"
+          echo "✓ PROVISIONING_PROFILE_NAME défini"
+
+          # ============================================================
+          # 4. CONFIGURATION XCODE
+          # ============================================================
+
+          echo
+          echo "=== CONFIGURATION XCODE ==="
+
           ruby - "$PROJECT_FILE" "$TARGET_NAME" "$APPLE_TEAM_ID" "$APP_BUNDLE_ID" "$PROVISIONING_PROFILE_NAME" <<'RUBY'
           require 'xcodeproj'
 
@@ -3248,64 +3331,232 @@ jobs:
           profile_name = ARGV[4]
 
           project = Xcodeproj::Project.open(project_path)
-          target = project.targets.find { |t| t.name == target_name } || abort("❌ Target '#{target_name}' introuvable")
 
-          puts "✓ Target application trouvé : #{target.name}"
+          target = project.targets.find do |t|
+            t.name.downcase == target_name.downcase
+          end
+
+          unless target
+            puts
+            puts "❌ Target '#{target_name}' introuvable"
+            puts
+            puts "Targets disponibles :"
+
+            project.targets.each do |t|
+              puts "  - #{t.name}"
+            end
+
+            exit 1
+          end
+
+          puts "✓ Target confirmé : #{target.name}"
 
           target.build_configurations.each do |config|
-            puts "\n--- Configuration : #{config.name} ---"
-            
+
+            puts
+            puts "--- Configuration : #{config.name} ---"
+
+            # ----------------------------------------------------------
+            # Paramètres communs
+            # ----------------------------------------------------------
+
             config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = bundle_id
             config.build_settings['DEVELOPMENT_TEAM'] = team_id
             config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
 
+            puts "PRODUCT_BUNDLE_IDENTIFIER = #{bundle_id}"
+            puts "DEVELOPMENT_TEAM         = #{team_id}"
+            puts "CLANG_ENABLE_MODULES     = YES"
+
+            # ----------------------------------------------------------
+            # Release
+            # ----------------------------------------------------------
+
             if config.name == 'Release'
-              puts "↳ Application des paramètres de signature Distribution (Manuel)"
+
+              puts "↳ Configuration Release : signature Distribution manuelle"
+
               config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
-              config.build_settings['CODE_SIGN_IDENTITY'] = 'Apple Distribution'
-              config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] = 'Apple Distribution'
-              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = profile_name
-              config.build_settings['PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]'] = profile_name
-              config.build_settings['CODE_SIGN_ENTITLEMENTS'] = "#{target_name}.entitlements"
+
+              config.build_settings['CODE_SIGN_IDENTITY'] =
+                'Apple Distribution'
+
+              config.build_settings['CODE_SIGN_IDENTITY[sdk=iphoneos*]'] =
+                'Apple Distribution'
+
+              config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] =
+                profile_name
+
+              config.build_settings['PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]'] =
+                profile_name
+
+              config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
+                "#{target_name}.entitlements"
+
+              puts "CODE_SIGN_STYLE                     = Manual"
+              puts "CODE_SIGN_IDENTITY                  = Apple Distribution"
+              puts "PROVISIONING_PROFILE_SPECIFIER     = #{profile_name}"
+              puts "CODE_SIGN_ENTITLEMENTS              = #{target_name}.entitlements"
+
+            # ----------------------------------------------------------
+            # Debug / autres configurations
+            # ----------------------------------------------------------
+
             else
-              puts "↳ Nettoyage des profils manuels pour la configuration non-release"
-              config.build_settings.delete('PROVISIONING_PROFILE')
-              config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
-              config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]')
-              config.build_settings.delete('CODE_SIGN_IDENTITY[sdk=iphoneos*]')
+
+              puts "↳ Configuration #{config.name} : signature automatique"
+
+              config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
+
+              config.build_settings.delete(
+                'PROVISIONING_PROFILE'
+              )
+
+              config.build_settings.delete(
+                'PROVISIONING_PROFILE_SPECIFIER'
+              )
+
+              config.build_settings.delete(
+                'PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]'
+              )
+
+              config.build_settings.delete(
+                'CODE_SIGN_IDENTITY[sdk=iphoneos*]'
+              )
+
             end
           end
 
           project.save
-          puts "\n✓ Configuration Xcode enregistrée avec succès."
+
+          puts
+          puts "✓ Configuration Xcode enregistrée avec succès."
           RUBY
 
-          # Vérification du fichier project.pbxproj
-          echo ""
-          echo "=== VÉRIFICATION DU PROJECT.PBXPROJ ==="
-          grep -n -E 'CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER' "$PROJECT_FILE/project.pbxproj" || true
+          # ============================================================
+          # 5. VERIFICATION PROJECT.PBXPROJ
+          # ============================================================
 
-          # Vérification finale de la signature via xcodebuild
-          echo ""
-          echo "=== VÉRIFICATION SIGNATURE APPLICATION ==="
+          echo
+          echo "=== VERIFICATION DU PROJECT.PBXPROJ ==="
+
+          grep -n -E \
+            'CODE_SIGN_IDENTITY|CODE_SIGN_STYLE|PROVISIONING_PROFILE_SPECIFIER|DEVELOPMENT_TEAM|PRODUCT_BUNDLE_IDENTIFIER|CODE_SIGN_ENTITLEMENTS' \
+            "$PROJECT_FILE/project.pbxproj" \
+            || true
+
+          # ============================================================
+          # 6. VERIFICATION BUILD SETTINGS APPLICATION
+          # ============================================================
+
+          echo
+          echo "=== VERIFICATION SIGNATURE APPLICATION ==="
+
           xcodebuild \
             -workspace "$WORKSPACE_PATH" \
             -scheme "$TARGET_NAME" \
             -configuration Release \
             -showBuildSettings \
-            | grep -E 'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|PROVISIONING_PROFILE|CODE_SIGN_ENTITLEMENTS|CLANG_ENABLE_MODULES' \
+            | grep -E \
+              'PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|PROVISIONING_PROFILE_SPECIFIER|PROVISIONING_PROFILE|CODE_SIGN_ENTITLEMENTS|CLANG_ENABLE_MODULES' \
             || true
 
-          # Vérification des Pods
-          echo ""
-          echo "=== VÉRIFICATION PODS ==="
-          PODS_DIR="$(dirname "$PROJECT_FILE")/Pods"
-          if [ -d "$PODS_DIR" ] && grep -R -n -E 'PROVISIONING_PROFILE_SPECIFIER|PROVISIONING_PROFILE[[:space:]]*=' "$PODS_DIR" --include="*.xcconfig" --include="project.pbxproj" 2>/dev/null; then
-            echo "❌ ERREUR : un provisioning profile est encore présent dans les Pods."
+          # ============================================================
+          # 7. VERIFICATION CIBLE XCODE
+          # ============================================================
+
+          echo
+          echo "=== VERIFICATION FINALE TARGET ==="
+
+          FINAL_TARGET="$(
+            xcodebuild \
+              -project "$PROJECT_FILE" \
+              -list 2>/dev/null \
+              | sed -n '/Targets:/,/Build Configurations:/p' \
+              | grep -E '^[[:space:]]*fcvv$' \
+              || true
+          )"
+
+          if [ -z "$FINAL_TARGET" ]; then
+            echo "❌ Target '$TARGET_NAME' non trouvé dans le projet principal"
             exit 1
-          else
-            echo "✓ OK : aucun provisioning profile manuel trouvé dans les Pods."
           fi
+
+          echo "✓ Target '$TARGET_NAME' présent dans le projet principal"
+
+          # ============================================================
+          # 8. VERIFICATION PODS
+          # ============================================================
+
+          echo
+          echo "=== VERIFICATION PODS ==="
+
+          PODS_DIR="$PROJ_DIR/Pods"
+
+          if [ ! -d "$PODS_DIR" ]; then
+            echo "⚠️ Répertoire Pods introuvable : $PODS_DIR"
+          else
+
+            PODS_PROJECT="$PODS_DIR/Pods.xcodeproj"
+
+            echo "Pods :"
+            echo "  $PODS_DIR"
+
+            if [ -d "$PODS_PROJECT" ]; then
+              echo "✓ Pods.xcodeproj présent"
+            fi
+
+            if grep -R -n \
+              -E 'PROVISIONING_PROFILE_SPECIFIER|PROVISIONING_PROFILE[[:space:]]*=' \
+              "$PODS_DIR" \
+              --include="*.xcconfig" \
+              --include="project.pbxproj" \
+              2>/dev/null; then
+
+              echo
+              echo "❌ ERREUR : un provisioning profile manuel est encore présent dans les Pods."
+              exit 1
+
+            else
+
+              echo "✓ OK : aucun provisioning profile manuel trouvé dans les Pods."
+
+            fi
+          fi
+
+          # ============================================================
+          # 9. VERIFICATION ENTITLEMENTS
+          # ============================================================
+
+          echo
+          echo "=== VERIFICATION ENTITLEMENTS ==="
+
+          ENTITLEMENTS_FILE="./fcvv-ios/${TARGET_NAME}.entitlements"
+
+          if [ ! -f "$ENTITLEMENTS_FILE" ]; then
+            echo "❌ Entitlements introuvables :"
+            echo "   $ENTITLEMENTS_FILE"
+            exit 1
+          fi
+
+          echo "✓ Entitlements présents :"
+          echo "  $ENTITLEMENTS_FILE"
+
+          # ============================================================
+          # 10. FIN
+          # ============================================================
+
+          echo
+          echo "============================================================"
+          echo " ✓ RELEASE CODE SIGNING CONFIGURE AVEC SUCCES"
+          echo "============================================================"
+          echo
+          echo "Projet       : $PROJECT_FILE"
+          echo "Workspace    : $WORKSPACE_PATH"
+          echo "Target       : $TARGET_NAME"
+          echo "Bundle ID    : $APP_BUNDLE_ID"
+          echo "Team ID      : $APPLE_TEAM_ID"
+          echo "Profile      : $PROVISIONING_PROFILE_NAME"
 
       # ============================================================
       # 18. ARCHIVE DEVICE / IPHONEOS
