@@ -2624,13 +2624,9 @@ jobs:
       
           echo "=== CONFIGURE LAUNCH SCREEN ==="
       
-          # --------------------------------------------------------
-          # 1. Projet Xcode PRINCIPAL
-          # --------------------------------------------------------
-          # IMPORTANT :
-          # Ne jamais utiliser "find *.xcodeproj" ici car cela peut
-          # sélectionner Pods/Pods.xcodeproj.
-          # --------------------------------------------------------
+          # ============================================================
+          # 1. PROJET XCODE PRINCIPAL
+          # ============================================================
       
           PROJECT_FILE="./fcvv-ios/fcvv.xcodeproj"
           PROJ_DIR="./fcvv-ios"
@@ -2652,9 +2648,9 @@ jobs:
           echo "Target :"
           echo "  $TARGET_NAME"
       
-          # --------------------------------------------------------
-          # 2. Vérification du target
-          # --------------------------------------------------------
+          # ============================================================
+          # 2. VERIFICATION DU TARGET
+          # ============================================================
       
           echo
           echo "=== VERIFICATION DU TARGET ==="
@@ -2680,9 +2676,9 @@ jobs:
       
           echo "✓ Target confirmé : $TARGET_NAME"
       
-          # --------------------------------------------------------
-          # 3. Chemins
-          # --------------------------------------------------------
+          # ============================================================
+          # 3. CHEMINS
+          # ============================================================
       
           APP_DIR="$PROJ_DIR/$TARGET_NAME"
           ASSETS_DIR="$APP_DIR/Images.xcassets"
@@ -2693,9 +2689,9 @@ jobs:
       
           LAUNCH_STORYBOARD="$PROJ_DIR/LaunchScreen.storyboard"
       
-          # --------------------------------------------------------
-          # 4. Vérification du répertoire de l'application
-          # --------------------------------------------------------
+          # ============================================================
+          # 4. VERIFICATION DU DOSSIER APP
+          # ============================================================
       
           if [ ! -d "$APP_DIR" ]; then
             echo "❌ Répertoire de l'application introuvable :"
@@ -2707,9 +2703,9 @@ jobs:
           echo "Répertoire application :"
           echo "  $APP_DIR"
       
-          # --------------------------------------------------------
-          # 5. Vérification image source
-          # --------------------------------------------------------
+          # ============================================================
+          # 5. VERIFICATION IMAGE SOURCE
+          # ============================================================
       
           echo
           echo "=== VERIFICATION IMAGE SOURCE ==="
@@ -2725,28 +2721,28 @@ jobs:
           python3 - "$PRESPLASH_SOURCE" <<'PY'
           from PIL import Image
           import sys
-      
+          
           image_path = sys.argv[1]
-      
+          
           try:
               img = Image.open(image_path)
           except Exception as exc:
               sys.exit(f"❌ Impossible de lire l'image : {exc}")
-      
+          
           expected = (512, 512)
-      
+          
           if img.size != expected:
               sys.exit(
                   f"❌ Dimensions attendues {expected[0]}x{expected[1]}, "
                   f"trouvées {img.size[0]}x{img.size[1]}"
               )
-      
+          
           print(f"✓ Image 512x512 validée : {image_path}")
           PY
       
-          # --------------------------------------------------------
-          # 6. Nettoyage anciens assets / storyboard
-          # --------------------------------------------------------
+          # ============================================================
+          # 6. NETTOYAGE
+          # ============================================================
       
           echo
           echo "=== NETTOYAGE ANCIENS FICHIERS ==="
@@ -2764,9 +2760,12 @@ jobs:
       
           echo "✓ Anciens fichiers nettoyés"
       
-          # --------------------------------------------------------
-          # 7. Contents.json du catalogue Assets
-          # --------------------------------------------------------
+          # ============================================================
+          # 7. ASSETS CATALOG
+          # ============================================================
+      
+          echo
+          echo "=== CREATION ASSET CATALOG ==="
       
           if [ ! -f "$ASSETS_DIR/Contents.json" ]; then
             cat > "$ASSETS_DIR/Contents.json" <<'EOF'
@@ -2777,35 +2776,36 @@ jobs:
               }
             }
             EOF
-                fi
-            
-                # --------------------------------------------------------
-                # 8. Création image Launch Screen
-                # --------------------------------------------------------
-            
-                cp "$PRESPLASH_SOURCE" "$IMAGE_DEST"
-            
-                cat > "$IMAGESET_DIR/Contents.json" <<'EOF'
-            {
-              "images" : [
-                {
-                  "filename" : "fcvv_launch_logo.png",
-                  "idiom" : "universal",
-                  "scale" : "1x"
-                }
-              ],
-              "info" : {
-                "author" : "xcode",
-                "version" : 1
+          fi
+      
+          # ============================================================
+          # 8. IMAGE LAUNCH SCREEN
+          # ============================================================
+      
+          cp "$PRESPLASH_SOURCE" "$IMAGE_DEST"
+      
+          cat > "$IMAGESET_DIR/Contents.json" <<'EOF'
+          {
+            "images" : [
+              {
+                "filename" : "fcvv_launch_logo.png",
+                "idiom" : "universal",
+                "scale" : "1x"
               }
+            ],
+            "info" : {
+              "author" : "xcode",
+              "version" : 1
             }
-            EOF
+          }
+          EOF
       
           echo "✓ Asset fcvv_launch_logo créé"
+          echo "  $IMAGE_DEST"
       
-          # --------------------------------------------------------
-          # 9. Génération LaunchScreen.storyboard
-          # --------------------------------------------------------
+          # ============================================================
+          # 9. LAUNCHSCREEN STORYBOARD
+          # ============================================================
       
           echo
           echo "=== GENERATION LAUNCHSCREEN STORYBOARD ==="
@@ -2890,9 +2890,9 @@ jobs:
       
           echo "✓ LaunchScreen.storyboard créé"
       
-          # --------------------------------------------------------
-          # 10. Validation syntaxique
-          # --------------------------------------------------------
+          # ============================================================
+          # 10. VALIDATION STORYBOARD
+          # ============================================================
       
           echo
           echo "=== VALIDATION STORYBOARD ==="
@@ -2909,20 +2909,18 @@ jobs:
       
           echo "✓ Storyboard structurellement valide"
       
-          # --------------------------------------------------------
-          # 11. Configuration du projet Xcode
-          # --------------------------------------------------------
+          # ============================================================
+          # 11. CONFIGURATION PROJET XCODE
+          # ============================================================
       
           echo
           echo "=== CONFIGURATION PROJET XCODE ==="
       
-          ruby - "$PROJECT_FILE" "$TARGET_NAME" "$PROJ_DIR" <<'RUBY'
+          ruby - "$PROJECT_FILE" "$TARGET_NAME" <<'RUBY'
           require 'xcodeproj'
-          require 'pathname'
           
           project_path = ARGV[0]
           target_name  = ARGV[1]
-          project_dir  = ARGV[2]
           
           project = Xcodeproj::Project.open(project_path)
           
@@ -2946,7 +2944,7 @@ jobs:
           puts "✓ Target confirmé : #{target.name}"
           
           # ------------------------------------------------------------
-          # Suppression des anciennes références obsolètes
+          # Suppression des anciennes références
           # ------------------------------------------------------------
           
           obsolete_names = [
@@ -2957,8 +2955,7 @@ jobs:
           ]
           
           project.files.to_a.each do |file|
-            path = file.path.to_s
-            basename = File.basename(path)
+            basename = File.basename(file.path.to_s)
           
             next unless obsolete_names.include?(basename)
           
@@ -2972,7 +2969,7 @@ jobs:
           end
           
           # ------------------------------------------------------------
-          # Ajout LaunchScreen.storyboard
+          # Ajout du LaunchScreen.storyboard
           # ------------------------------------------------------------
           
           storyboard_file = project.files.find do |file|
@@ -2981,7 +2978,7 @@ jobs:
           
           unless storyboard_file
             storyboard_file = project.main_group.new_file(
-              File.join(project_dir, 'LaunchScreen.storyboard')
+              'LaunchScreen.storyboard'
             )
           
             puts "✓ LaunchScreen.storyboard ajouté au projet"
@@ -2992,6 +2989,7 @@ jobs:
           unless target.resources_build_phase.files.to_a.any? do |build_file|
             build_file.file_ref == storyboard_file
           end
+          
             target.resources_build_phase.add_file_reference(
               storyboard_file,
               true
@@ -3019,9 +3017,9 @@ jobs:
           puts "✓ Projet Xcode sauvegardé"
           RUBY
       
-          # --------------------------------------------------------
-          # 12. Mise à jour Info.plist
-          # --------------------------------------------------------
+          # ============================================================
+          # 12. INFO.PLIST
+          # ============================================================
       
           echo
           echo "=== CONFIGURATION INFO.PLIST ==="
@@ -3062,9 +3060,9 @@ jobs:
       
           echo "✓ Info.plist valide"
       
-          # --------------------------------------------------------
-          # 13. Vérification fichiers
-          # --------------------------------------------------------
+          # ============================================================
+          # 13. VERIFICATION FICHIERS
+          # ============================================================
       
           echo
           echo "=== VERIFICATION FICHIERS ==="
@@ -3088,9 +3086,9 @@ jobs:
           echo "✓ Contents.json présent"
           echo "✓ LaunchScreen.storyboard présent"
       
-          # --------------------------------------------------------
-          # 14. Validation / compilation ibtool
-          # --------------------------------------------------------
+          # ============================================================
+          # 14. VALIDATION IBTOOL
+          # ============================================================
       
           echo
           echo "=== VALIDATION IBTOOL ==="
