@@ -689,9 +689,6 @@ jobs:
           xcodebuild \
             -project "$PROJECT_FILE" \
             -list
-      # ============================================================
-      # 6. FIREBASE + GOOGLE SERVICE + COCOAPODS
-      # ============================================================
       - name: Configure Firebase and install Pods
         shell: bash
         env:
@@ -776,7 +773,7 @@ jobs:
                 -c "Print :$key" \
                 "$GOOGLE_PLIST" \
                 2>/dev/null || true
-            )
+            )"
           
             if [ -z "$value" ]; then
               echo "❌ Firebase : $key absent ou vide"
@@ -810,6 +807,7 @@ jobs:
           
           echo
           echo "✓ GoogleService-Info.plist validé"
+
           # ========================================================
           # 6.2 AJOUT GOOGLE SERVICE AU PROJET XCODE
           # ========================================================
@@ -1034,10 +1032,6 @@ jobs:
 
           # ========================================================
           # 6.6 CORRECTION DES BUILD SETTINGS DU TARGET FCVV
-          #
-          # IMPORTANT :
-          # CocoaPods génère ensuite ses propres xcconfig.
-          # Le target fcvv doit conserver $(inherited).
           # ========================================================
 
           export PROJECT_FILE
@@ -1065,90 +1059,50 @@ jobs:
             puts
             puts "Configuration : #{config.name}"
 
-            # ------------------------------------------------------
             # HEADER_SEARCH_PATHS
-            # ------------------------------------------------------
-
-            current =
-              config.build_settings['HEADER_SEARCH_PATHS']
-
-            values =
-              case current
-              when Array
-                current.dup
-              when String
-                [current]
-              else
-                []
-              end
-
-            unless values.any? do |value|
-              value.to_s.include?('$(inherited)')
+            current = config.build_settings['HEADER_SEARCH_PATHS']
+            values = case current
+            when Array then current.dup
+            when String then [current]
+            else []
             end
+
+            unless values.any? { |v| v.to_s.include?('$(inherited)') }
               values.unshift('$(inherited)')
             end
-
             config.build_settings['HEADER_SEARCH_PATHS'] = values
-
             puts "✓ HEADER_SEARCH_PATHS conserve $(inherited)"
 
-            # ------------------------------------------------------
             # OTHER_LDFLAGS
-            # ------------------------------------------------------
-
-            current =
-              config.build_settings['OTHER_LDFLAGS']
-
-            values =
-              case current
-              when Array
-                current.dup
-              when String
-                [current]
-              else
-                []
-              end
-
-            unless values.any? do |value|
-              value.to_s.include?('$(inherited)')
+            current = config.build_settings['OTHER_LDFLAGS']
+            values = case current
+            when Array then current.dup
+            when String then [current]
+            else []
             end
+
+            unless values.any? { |v| v.to_s.include?('$(inherited)') }
               values.unshift('$(inherited)')
             end
-
             config.build_settings['OTHER_LDFLAGS'] = values
-
             puts "✓ OTHER_LDFLAGS conserve $(inherited)"
 
-            # ------------------------------------------------------
             # GCC_PREPROCESSOR_DEFINITIONS
-            # ------------------------------------------------------
-
-            current =
-              config.build_settings['GCC_PREPROCESSOR_DEFINITIONS']
-
-            values =
-              case current
-              when Array
-                current.dup
-              when String
-                [current]
-              else
-                []
-              end
-
-            unless values.any? do |value|
-              value.to_s.include?('$(inherited)')
+            current = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS']
+            values = case current
+            when Array then current.dup
+            when String then [current]
+            else []
             end
+
+            unless values.any? { |v| v.to_s.include?('$(inherited)') }
               values.unshift('$(inherited)')
             end
-
             config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = values
-
             puts "✓ GCC_PREPROCESSOR_DEFINITIONS conserve $(inherited)"
           end
 
           project.save
-
           puts
           puts "✓ Build settings FCVV corrigés"
           RUBY
@@ -1170,46 +1124,23 @@ jobs:
           end
 
           post_install do |installer|
-
-            default_toolchain =
-              '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain'
-
-            default_swift_lib =
-              "#{default_toolchain}/usr/lib/swift/$(PLATFORM_NAME)"
+            default_toolchain = '/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain'
+            default_swift_lib = "#{default_toolchain}/usr/lib/swift/$(PLATFORM_NAME)"
 
             installer.pods_project.targets.each do |target|
-
               target.build_configurations.each do |config|
-
                 config.build_settings['LIBRARY_SEARCH_PATHS'] = [
                   '$(inherited)',
                   default_swift_lib
                 ]
 
-                config.build_settings.delete(
-                  'PROVISIONING_PROFILE_SPECIFIER'
-                )
-
-                config.build_settings.delete(
-                  'PROVISIONING_PROFILE'
-                )
-
-                config.build_settings['CODE_SIGN_STYLE'] =
-                  'Automatic'
-
-                config.build_settings.delete(
-                  'DEVELOPMENT_TEAM'
-                )
-
-                config.build_settings.delete(
-                  'CODE_SIGN_IDENTITY'
-                )
-
-                config.build_settings['CODE_SIGNING_ALLOWED'] =
-                  'NO'
-
-                config.build_settings['CODE_SIGNING_REQUIRED'] =
-                  'NO'
+                config.build_settings.delete('PROVISIONING_PROFILE_SPECIFIER')
+                config.build_settings.delete('PROVISIONING_PROFILE')
+                config.build_settings['CODE_SIGN_STYLE'] = 'Automatic'
+                config.build_settings.delete('DEVELOPMENT_TEAM')
+                config.build_settings.delete('CODE_SIGN_IDENTITY')
+                config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+                config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
               end
             end
           end
@@ -1220,9 +1151,7 @@ jobs:
           # ========================================================
 
           pod deintegrate || true
-
           rm -rf Pods Podfile.lock
-
           pod install --repo-update
 
           # ========================================================
