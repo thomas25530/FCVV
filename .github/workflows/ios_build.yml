@@ -822,44 +822,41 @@ jobs:
           ruby <<'RUBY'
           require 'xcodeproj'
           require 'pathname'
-
+          
           project_path = ENV['PROJECT_FILE']
           project_dir  = ENV['PROJ_DIR']
           plist_path   = ENV['GOOGLE_PLIST']
           target_name  = ENV['TARGET_NAME']
-
+          
           project = Xcodeproj::Project.open(project_path)
-
+          
           target = project.targets.find do |t|
             t.name == target_name
           end
-
+          
           abort "❌ Target #{target_name} introuvable" unless target
-
+          
           puts "✓ Target trouvé : #{target.name}"
-
+          
           relative_plist =
             Pathname.new(plist_path)
               .relative_path_from(Pathname.new(project_dir))
               .to_s
-
+          
           file_ref = project.files.find do |file|
             file.path == relative_plist ||
             file.path == File.basename(plist_path)
           end
-
+          
           unless file_ref
-            file_ref = project.main_group.new_file(
-              relative_plist
-            )
-
+            file_ref = project.main_group.new_file(relative_plist)
             puts "✓ GoogleService-Info.plist ajouté au projet"
           else
             puts "✓ GoogleService-Info.plist déjà référencé"
           end
-
+          
           resources_phase = target.resources_build_phase
-
+          
           unless resources_phase.files.any? do |build_file|
             build_file.file_ref == file_ref
           end
@@ -868,9 +865,9 @@ jobs:
           else
             puts "✓ GoogleService-Info.plist déjà dans Resources"
           end
-
+          
           project.save
-
+          
           puts "✓ Projet Xcode sauvegardé"
           RUBY
 
