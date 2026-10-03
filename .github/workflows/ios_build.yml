@@ -2375,6 +2375,7 @@ jobs:
         shell: bash
         env:
           APNS_ENVIRONMENT: production
+          TARGET_NAME: fcvv
         run: |
           set -euo pipefail
       
@@ -2383,97 +2384,70 @@ jobs:
           # ------------------------------------------------------------
           # 9.1 Validation de l'environnement APNs
           # ------------------------------------------------------------
-          [[ "$APNS_ENVIRONMENT" =~ ^(production|development)$ ]] || {
+          if [[ ! "$APNS_ENVIRONMENT" =~ ^(production|development)$ ]]; then
             echo "❌ APNS_ENVIRONMENT invalide : $APNS_ENVIRONMENT"
             echo "   Valeurs autorisées : production ou development"
             exit 1
-          }
+          fi
       
-          ```yaml
           # ------------------------------------------------------------
           # 9.2 Projet Xcode PRINCIPAL
           # ------------------------------------------------------------
-          # IMPORTANT :
-          # Ne pas utiliser find "*.xcodeproj" car CocoaPods contient
-          # également Pods.xcodeproj.
-          # ------------------------------------------------------------
-
           XCODEPROJ="./fcvv-ios/fcvv.xcodeproj"
-
-          [ -d "$XCODEPROJ" ] || {
+      
+          if [ ! -d "$XCODEPROJ" ]; then
             echo "❌ Projet Xcode introuvable : $XCODEPROJ"
             exit 1
-          }
-
-          PROJECT_DIR="$(dirname "$XCODEPROJ")"
+          fi
+      
+          PROJECT_DIR="./fcvv-ios"
           ENTITLEMENTS="$PROJECT_DIR/fcvv.entitlements"
-
-          # IMPORTANT :
-          # Export AVANT les appels Ruby qui utilisent ENV[...]
-          export XCODEPROJ
-          export PROJECT_DIR
-          export ENTITLEMENTS
-          export APNS_ENVIRONMENT
-
+      
           echo
           echo "Projet Xcode :"
           echo "  $XCODEPROJ"
-
+      
           echo
           echo "Répertoire projet :"
           echo "  $PROJECT_DIR"
-
+      
+          echo
+          echo "Target Xcode :"
+          echo "  $TARGET_NAME"
+      
           # ------------------------------------------------------------
-          # 9.3 Vérification des targets du projet PRINCIPAL
+          # 9.3 Vérification du target
           # ------------------------------------------------------------
           echo
-          echo "=== TARGETS XCODE DU PROJET PRINCIPAL ==="
-
-          xcodebuild \
+          echo "=== VERIFICATION DU TARGET ==="
+      
+          if ! xcodebuild \
             -project "$XCODEPROJ" \
-            -list
-
-          # ------------------------------------------------------------
-          # Détection du target applicatif via xcodeproj
-          # ------------------------------------------------------------
-          TARGET_NAME="$(
-            ruby <<'RUBY'
-          require 'xcodeproj'
-
-          project = Xcodeproj::Project.open(ENV['XCODEPROJ'])
-
-          target = project.targets.find do |t|
-            t.name.downcase == 'fcvv'
-          end
-
-          if target
-            puts target.name
-          else
-            puts "ERROR"
-            puts "Targets disponibles :" >&2
-            project.targets.each do |t|
-              puts "  - #{t.name}" >&2
-            end
-            exit 1
-          end
-          RUBY
-          )"
-
-          if [ -z "$TARGET_NAME" ] || [ "$TARGET_NAME" = "ERROR" ]; then
-            echo
-            echo "❌ Target applicatif 'fcvv' introuvable dans :"
+            -target "$TARGET_NAME" \
+            -showBuildSettings \
+            >/dev/null 2>&1; then
+      
+            echo "❌ Target '$TARGET_NAME' introuvable dans :"
             echo "   $XCODEPROJ"
+      
+            echo
+            echo "Targets disponibles :"
+      
+            xcodebuild \
+              -project "$XCODEPROJ" \
+              -list
+      
             exit 1
           fi
-
-          echo
-          echo "✓ Target Xcode détecté : $TARGET_NAME"
-
-          export TARGET_NAME
+      
+          echo "✓ Target confirmé : $TARGET_NAME"
       
           # ------------------------------------------------------------
           # 9.4 Création du fichier entitlements
           # ------------------------------------------------------------
+          echo
+          echo "=== CREATION ENTITLEMENTS ==="
+      
           cat > "$ENTITLEMENTS" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -2485,13 +2459,21 @@ jobs:
           </plist>
           EOF
       
-          echo
           echo "✓ fcvv.entitlements créé :"
           echo "  $ENTITLEMENTS"
       
           # ------------------------------------------------------------
           # 9.5 Configuration via Ruby / xcodeproj
           # ------------------------------------------------------------
+          echo
+          echo "=== CONFIGURATION PROJET XCODE ==="
+      
+          export XCODEPROJ
+          export PROJECT_DIR
+          export ENTITLEMENTS
+          export TARGET_NAME
+          export APNS_ENVIRONMENT
+      
           ruby <<'RUBY'
           require 'xcodeproj'
           require 'pathname'
@@ -2507,9 +2489,11 @@ jobs:
             puts "❌ Target '#{ENV['TARGET_NAME']}' introuvable"
             puts
             puts "Targets disponibles :"
+          
             project.targets.each do |t|
               puts "  - #{t.name}"
             end
+          
             exit 1
           end
           
@@ -2523,9 +2507,9 @@ jobs:
               .relative_path_from(Pathname.new(project_dir))
               .to_s
           
-          unless project.files.any? do |f|
-            f.path == relative_entitlements ||
-            f.path == File.basename(entitlements_path)
+          unless project.files.any? do |file|
+            file.path == relative_entitlements ||
+            file.path == File.basename(entitlements_path)
           end
             project.main_group.new_file(entitlements_path)
             puts "✓ fcvv.entitlements ajouté au projet Xcode"
@@ -2554,24 +2538,24 @@ jobs:
           echo
           echo "=== VERIFICATION ENTITLEMENTS ==="
       
-          [ -f "$ENTITLEMENTS" ] || {
+          if [ ! -f "$ENTITLEMENTS" ]; then
             echo "❌ Entitlements introuvable : $ENTITLEMENTS"
             exit 1
-          }
+          fi
       
           CURRENT_APNS="$(
             /usr/libexec/PlistBuddy \
               -c "Print :aps-environment" \
               "$ENTITLEMENTS" \
-              2>/dev/null || echo ""
+              2>/dev/null || true
           )"
       
-          [ "$CURRENT_APNS" = "$APNS_ENVIRONMENT" ] || {
+          if [ "$CURRENT_APNS" != "$APNS_ENVIRONMENT" ]; then
             echo "❌ Environnement APNs incorrect"
             echo "   Trouvé  : $CURRENT_APNS"
             echo "   Attendu : $APNS_ENVIRONMENT"
             exit 1
-          }
+          fi
       
           echo "✓ aps-environment = $CURRENT_APNS"
       
@@ -2585,30 +2569,49 @@ jobs:
             xcodebuild \
               -project "$XCODEPROJ" \
               -target "$TARGET_NAME" \
-              -showBuildSettings \
-              2>/dev/null
+              -showBuildSettings
           )"
       
-          echo "$BUILD_SETTINGS" |
-            grep -q "CODE_SIGN_ENTITLEMENTS = fcvv.entitlements" || {
-              echo "❌ CODE_SIGN_ENTITLEMENTS incorrect dans Xcode"
-              echo
-              echo "$BUILD_SETTINGS" |
-                grep "CODE_SIGN_ENTITLEMENTS" || true
-              exit 1
-            }
+          if ! echo "$BUILD_SETTINGS" |
+            grep -q "CODE_SIGN_ENTITLEMENTS = fcvv.entitlements"; then
+      
+            echo "❌ CODE_SIGN_ENTITLEMENTS incorrect dans Xcode"
+      
+            echo
+            echo "Valeur détectée :"
+      
+            echo "$BUILD_SETTINGS" |
+              grep "CODE_SIGN_ENTITLEMENTS" || true
+      
+            exit 1
+          fi
       
           echo "✓ CODE_SIGN_ENTITLEMENTS = fcvv.entitlements"
       
+          # ------------------------------------------------------------
+          # 9.8 Vérification CODE_SIGNING_ALLOWED
+          # ------------------------------------------------------------
+          if ! echo "$BUILD_SETTINGS" |
+            grep -q "CODE_SIGNING_ALLOWED = YES"; then
+      
+            echo "❌ CODE_SIGNING_ALLOWED n'est pas activé"
+            exit 1
+          fi
+      
+          echo "✓ CODE_SIGNING_ALLOWED = YES"
+      
+          # ------------------------------------------------------------
+          # 9.9 Fin
+          # ------------------------------------------------------------
           echo
           echo "============================================================"
           echo " ✓ CONFIGURATION APNs TERMINEE AVEC SUCCES"
           echo "============================================================"
           echo
-          echo "Projet      : $XCODEPROJ"
-          echo "Target      : $TARGET_NAME"
-          echo "APNs        : $APNS_ENVIRONMENT"
-          echo "Entitlements: $ENTITLEMENTS"
+          echo "Projet       : $XCODEPROJ"
+          echo "Target       : $TARGET_NAME"
+          echo "APNs         : $APNS_ENVIRONMENT"
+          echo "Entitlements : $ENTITLEMENTS"
       # ============================================================
       # 12. CONFIGURE LAUNCH SCREEN
       # ============================================================
