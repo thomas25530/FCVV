@@ -4053,6 +4053,7 @@ jobs:
           # ============================================================
           # VERIFICATION ARCHIVE
           # ============================================================
+
           echo ""
           echo "============================================================"
           echo "             VERIFICATION ARCHIVE"
@@ -4063,7 +4064,10 @@ jobs:
             exit 1
           fi
 
-          if [ ! -d "$ARCHIVE_PATH/Products/Applications/fcvv.app" ]; then
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
+          APP_BINARY="$APP_PATH/fcvv"
+
+          if [ ! -d "$APP_PATH" ]; then
             echo "❌ ERREUR : fcvv.app absente."
             exit 1
           fi
@@ -4074,62 +4078,16 @@ jobs:
           echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
 
           # ============================================================
-          # SDL DANS ARCHIVE.LOG
+          # VERIFICATION BINAIRE FINAL
           # ============================================================
-          echo ""
-          echo "============================================================"
-          echo "             SDL DANS ARCHIVE.LOG"
-          echo "============================================================"
 
-          echo ""
-          echo "===== SDL_uikitappdelegate.m ====="
-
-          grep -n \
-            "SDL_uikitappdelegate.m" \
-            "$ARCHIVE_LOG" \
-            || true
-
-          echo ""
-          echo "===== build/sdl2 ====="
-
-          grep -n \
-            "build/sdl2" \
-            "$ARCHIVE_LOG" \
-            | head -100 \
-            || true
-
-          echo ""
-          echo "===== iphoneos-arm64 ====="
-
-          grep -n \
-            "iphoneos-arm64" \
-            "$ARCHIVE_LOG" \
-            | head -100 \
-            || true
-
-          echo ""
-          echo "===== libSDL ====="
-
-          grep -n \
-            -E "libSDL|SDL2.framework|SDL2.xcframework" \
-            "$ARCHIVE_LOG" \
-            | head -100 \
-            || true
-
-          # ============================================================
-          # BINAIRE FINAL
-          # ============================================================
           echo ""
           echo "============================================================"
           echo "             VERIFICATION BINAIRE FINAL"
           echo "============================================================"
 
-          APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
-          APP_BINARY="$APP_PATH/fcvv"
-
           if [ ! -f "$APP_BINARY" ]; then
-            echo "❌ ERREUR : binaire final introuvable :"
-            echo "$APP_BINARY"
+            echo "❌ ERREUR : binaire final introuvable : $APP_BINARY"
             exit 1
           fi
 
@@ -4141,115 +4099,114 @@ jobs:
           # ============================================================
           # FCVV DANS BINAIRE FINAL
           # ============================================================
+
           echo ""
           echo "============================================================"
           echo "                 FCVV DANS BINAIRE FINAL"
           echo "============================================================"
 
-          FCVV_STRINGS=$(
-            strings "$APP_BINARY" \
-              | grep -E \
-                "\[FCVV\]|Initialisation Firebase|Autorisation notifications|registerForRemoteNotifications|fcvvConfigureFirebaseAndNotifications" \
+          FCVV_STRINGS="$(
+            strings "$APP_BINARY" 2>/dev/null \
+              | grep -E '\[FCVV\]|Initialisation Firebase|Autorisation notifications|registerForRemoteNotifications|fcvvConfigureFirebaseAndNotifications' \
               | sort -u \
               || true
-          )
+          )"
 
-          if [ -z "$FCVV_STRINGS" ]; then
-            echo "⚠️ AUCUNE chaîne FCVV dans le binaire final."
-          else
-            echo "✓✓✓ FCVV TROUVÉ DANS LE BINAIRE FINAL ✓✓✓"
+          if [ -n "$FCVV_STRINGS" ]; then
+            echo "✓ FCVV TROUVÉ DANS LE BINAIRE FINAL"
             echo ""
             echo "$FCVV_STRINGS"
+          else
+            echo "❌ FCVV ABSENT DU BINAIRE FINAL"
+            exit 1
           fi
 
           # ============================================================
-          # FIREBASE
+          # FIREBASE DANS BINAIRE FINAL
           # ============================================================
+
           echo ""
           echo "============================================================"
           echo "                     FIREBASE FINAL"
           echo "============================================================"
 
-          strings "$APP_BINARY" \
-            | grep -E \
-              "Firebase|FIRApp|FIRMessaging" \
-            | head -50 \
-            || true
+          FIREBASE_STRINGS="$(
+            strings "$APP_BINARY" 2>/dev/null \
+              | grep -E 'Firebase|FIRApp|FIRMessaging' \
+              | head -50 \
+              || true
+          )"
+
+          if [ -n "$FIREBASE_STRINGS" ]; then
+            echo "✓ Symboles / chaînes Firebase présents dans le binaire"
+            echo ""
+            echo "$FIREBASE_STRINGS"
+          else
+            echo "⚠️ Aucune chaîne Firebase détectée dans le binaire"
+          fi
 
           # ============================================================
-          # NOTIFICATIONS
+          # NOTIFICATIONS DANS BINAIRE FINAL
           # ============================================================
+
           echo ""
           echo "============================================================"
           echo "                NOTIFICATIONS FINAL"
           echo "============================================================"
 
-          strings "$APP_BINARY" \
-            | grep -E \
-              "registerForRemoteNotifications|requestAuthorization|UNUserNotificationCenter|UNUserNotificationCenterDelegate" \
-            | head -50 \
-            || true
+          NOTIFICATION_STRINGS="$(
+            strings "$APP_BINARY" 2>/dev/null \
+              | grep -E 'registerForRemoteNotifications|requestAuthorization|UNUserNotificationCenter|UNUserNotificationCenterDelegate' \
+              | head -50 \
+              || true
+          )"
 
-          # ============================================================
-          # DIAGNOSTIC FINAL
-          # ============================================================
-          echo ""
-          echo "============================================================"
-          echo "                     DIAGNOSTIC FINAL"
-          echo "============================================================"
-
-          echo ""
-          echo "SDL_FCVV_FOUND = $SDL_FCVV_FOUND"
-
-          if [ "$SDL_FCVV_FOUND" -eq 1 ]; then
-            echo "✓ Le code FCVV est présent dans un artefact SDL2."
-            echo "→ Le problème est probablement le linkage de cet artefact dans fcvv."
+          if [ -n "$NOTIFICATION_STRINGS" ]; then
+            echo "✓ APIs notifications présentes"
+            echo ""
+            echo "$NOTIFICATION_STRINGS"
           else
-            echo "⚠️ Le code FCVV n'est présent dans aucun artefact SDL2 détecté."
-            echo "→ Le .m modifié n'est probablement pas recompilé dans SDL2."
+            echo "⚠️ APIs notifications non détectées"
           fi
 
-          if [ -n "$FCVV_STRINGS" ]; then
-            echo "✓ Le code FCVV est présent dans le binaire final."
-          else
-            echo "⚠️ Le code FCVV n'est PAS présent dans le binaire final."
-          fi
-
-          echo ""
-          echo "============================================================"
-          echo "                      CHEMINS FINAUX"
-          echo "============================================================"
+          # ============================================================
+          # COMPARAISON SDL
+          # ============================================================
 
           echo ""
           echo "============================================================"
           echo "               COMPARAISON SDL COMPLETE"
           echo "============================================================"
-          echo ""
-          echo "source SDL_uikitappdelegate.m : OUI"
 
           echo ""
-          echo "Recherche FCVV dans SDL_uikitappdelegate.o"
+          echo "Source SDL_uikitappdelegate.m : OUI"
 
-          strings "$SDL_OBJ" 2>/dev/null \
-            | grep -q "\[FCVV\]"
+          if [ -n "${SDL_OBJ:-}" ] && [ -f "$SDL_OBJ" ]; then
+            echo ""
+            echo "Recherche FCVV dans SDL_uikitappdelegate.o"
 
-          if [ $? -eq 0 ]; then
-            echo "✓ FCVV présent dans SDL_uikitappdelegate.o"
+            if strings "$SDL_OBJ" 2>/dev/null | grep -q '\[FCVV\]'; then
+              echo "✓ FCVV présent dans SDL_uikitappdelegate.o"
+            else
+              echo "⚠️ FCVV absent de SDL_uikitappdelegate.o"
+            fi
           else
-            echo "❌ FCVV absent de SDL_uikitappdelegate.o"
+            echo "⚠️ SDL_OBJ introuvable"
           fi
+
+          SDL_LIB="$GITHUB_WORKSPACE/build/sdl2/iphoneos-arm64/SDL2-2.28.5/Xcode/SDL/build/Release-iphoneos/libSDL2.a"
 
           echo ""
           echo "Recherche FCVV dans libSDL2.a"
 
-          SDL_LIB="$GITHUB_WORKSPACE/build/sdl2/iphoneos-arm64/SDL2-2.28.5/Xcode/SDL/build/Release-iphoneos/libSDL2.a"
-          strings "$SDL_LIB" 2>/dev/null \
-            | grep -q "\[FCVV\]"
-
-          if [ $? -eq 0 ]; then
-            echo "✓ FCVV présent dans libSDL2.a"
+          if [ -f "$SDL_LIB" ]; then
+            if strings "$SDL_LIB" 2>/dev/null | grep -q '\[FCVV\]'; then
+              echo "✓ FCVV présent dans libSDL2.a"
+            else
+              echo "⚠️ FCVV absent de libSDL2.a"
+            fi
           else
-            echo "❌ FCVV absent de libSDL2.a"
+            echo "⚠️ libSDL2.a introuvable : $SDL_LIB"
           fi
 
           echo ""
@@ -4258,8 +4215,124 @@ jobs:
           if [ -n "$FCVV_STRINGS" ]; then
             echo "✓ FCVV présent dans fcvv.app"
           else
-            echo "❌ FCVV absent dans fcvv.app"
+            echo "❌ FCVV absent de fcvv.app"
+            exit 1
           fi
+
+          # ============================================================
+          # VERIFICATION GOOGLE SERVICE INFO DANS L'APP FINALE
+          # ============================================================
+
+          echo ""
+          echo "============================================================"
+          echo "       VERIFICATION FIREBASE DANS APP FINALE"
+          echo "============================================================"
+
+          FINAL_GOOGLE_PLIST="$APP_PATH/GoogleService-Info.plist"
+
+          if [ ! -f "$FINAL_GOOGLE_PLIST" ]; then
+            echo "❌ GoogleService-Info.plist ABSENT de fcvv.app"
+            exit 1
+          fi
+
+          echo "✓ GoogleService-Info.plist présent dans fcvv.app"
+
+          # ------------------------------------------------------------
+          # Validation syntaxique
+          # ------------------------------------------------------------
+
+          if ! plutil -lint "$FINAL_GOOGLE_PLIST"; then
+            echo "❌ GoogleService-Info.plist final invalide"
+            exit 1
+          fi
+
+          echo "✓ GoogleService-Info.plist final valide"
+
+          # ------------------------------------------------------------
+          # Vérification des clés Firebase
+          # ------------------------------------------------------------
+
+          for key in GOOGLE_APP_ID API_KEY PROJECT_ID GCM_SENDER_ID BUNDLE_ID
+          do
+            value="$(
+              /usr/libexec/PlistBuddy \
+                -c "Print :$key" \
+                "$FINAL_GOOGLE_PLIST" \
+                2>/dev/null || true
+            )"
+
+            if [ -z "$value" ]; then
+              echo "❌ APP FINALE : $key absent ou vide"
+              exit 1
+            fi
+
+            echo "✓ APP FINALE : $key présent"
+          done
+
+          # ------------------------------------------------------------
+          # Bundle ID Firebase
+          # ------------------------------------------------------------
+
+          FIREBASE_FINAL_BUNDLE_ID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :BUNDLE_ID" \
+              "$FINAL_GOOGLE_PLIST" \
+              2>/dev/null || true
+          )"
+
+          if [ -z "$FIREBASE_FINAL_BUNDLE_ID" ]; then
+            echo "❌ BUNDLE_ID Firebase final absent"
+            exit 1
+          fi
+
+          # ------------------------------------------------------------
+          # Bundle ID application
+          # ------------------------------------------------------------
+
+          APP_FINAL_BUNDLE_ID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleIdentifier" \
+              "$APP_PATH/Info.plist" \
+              2>/dev/null || true
+          )"
+
+          if [ -z "$APP_FINAL_BUNDLE_ID" ]; then
+            echo "❌ CFBundleIdentifier absent du Info.plist final"
+            exit 1
+          fi
+
+          echo ""
+          echo "Firebase BUNDLE_ID : $FIREBASE_FINAL_BUNDLE_ID"
+          echo "App BUNDLE_ID      : $APP_FINAL_BUNDLE_ID"
+
+          if [ "$FIREBASE_FINAL_BUNDLE_ID" != "$APP_FINAL_BUNDLE_ID" ]; then
+            echo "❌ ERREUR : Bundle ID Firebase différent du Bundle ID final"
+            exit 1
+          fi
+
+          echo "✓ Bundle ID Firebase = Bundle ID final"
+
+          # ============================================================
+          # DIAGNOSTIC FINAL
+          # ============================================================
+
+          echo ""
+          echo "============================================================"
+          echo "                     DIAGNOSTIC FINAL"
+          echo "============================================================"
+
+          echo "✓ Archive Xcode valide"
+          echo "✓ fcvv.app présente"
+          echo "✓ Binaire final présent"
+          echo "✓ FCVV présent dans le binaire final"
+          echo "✓ GoogleService-Info.plist présent dans l'app"
+          echo "✓ GoogleService-Info.plist syntaxiquement valide"
+          echo "✓ GOOGLE_APP_ID présent"
+          echo "✓ API_KEY présent"
+          echo "✓ PROJECT_ID présent"
+          echo "✓ GCM_SENDER_ID présent"
+          echo "✓ BUNDLE_ID présent"
+          echo "✓ Bundle ID Firebase = Bundle ID application"
 
           echo ""
           echo "Archive :"
@@ -4270,110 +4343,16 @@ jobs:
           echo "$APP_BINARY"
 
           echo ""
+          echo "GoogleService-Info.plist final :"
+          echo "$FINAL_GOOGLE_PLIST"
+
+          echo ""
           echo "Log Xcode :"
           echo "$ARCHIVE_LOG"
 
           echo ""
           echo "============================================================"
-          echo "                     FIN ÉTAPE 18"
-          echo "============================================================"
-
-          # ============================================================
-          # VERIFICATION GOOGLE SERVICE INFO DANS L'APP FINALE
-          # ============================================================
-          
-          APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
-          
-          echo
-          echo "============================================================"
-          echo "  VERIFICATION FIREBASE DANS APP FINALE"
-          echo "============================================================"
-          
-          if [ ! -d "$APP_PATH" ]; then
-            echo "❌ fcvv.app introuvable dans l'archive"
-            exit 1
-          fi
-          
-          echo "✓ fcvv.app trouvée"
-          
-          FINAL_GOOGLE_PLIST="$APP_PATH/GoogleService-Info.plist"
-          
-          if [ ! -f "$FINAL_GOOGLE_PLIST" ]; then
-            echo "❌ GoogleService-Info.plist ABSENT de fcvv.app"
-            exit 1
-          fi
-          
-          echo "✓ GoogleService-Info.plist présent dans fcvv.app"
-          
-          # --------------------------------------------------------
-          # Validation syntaxique
-          # --------------------------------------------------------
-          
-          if ! plutil -lint "$FINAL_GOOGLE_PLIST"; then
-            echo "❌ GoogleService-Info.plist final invalide"
-            exit 1
-          fi
-          
-          echo "✓ GoogleService-Info.plist final valide"
-          
-          # --------------------------------------------------------
-          # Vérification des clés Firebase
-          # --------------------------------------------------------
-          
-          for key in \
-            GOOGLE_APP_ID \
-            API_KEY \
-            PROJECT_ID \
-            GCM_SENDER_ID \
-            BUNDLE_ID
-          do
-          
-            value="$(
-              /usr/libexec/PlistBuddy \
-                -c "Print :$key" \
-                "$FINAL_GOOGLE_PLIST" \
-                2>/dev/null || true
-            )
-          
-            if [ -z "$value" ]; then
-              echo "❌ APP FINALE : $key absent ou vide"
-              exit 1
-            fi
-          
-            echo "✓ APP FINALE : $key présent"
-          
-          done
-          
-          # --------------------------------------------------------
-          # Vérification Bundle ID
-          # --------------------------------------------------------
-          
-          FIREBASE_FINAL_BUNDLE_ID="$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :BUNDLE_ID" \
-              "$FINAL_GOOGLE_PLIST"
-          )"
-          
-          APP_FINAL_BUNDLE_ID="$(
-            /usr/libexec/PlistBuddy \
-              -c "Print :CFBundleIdentifier" \
-              "$APP_PATH/Info.plist"
-          )"
-          
-          echo
-          echo "Firebase BUNDLE_ID : $FIREBASE_FINAL_BUNDLE_ID"
-          echo "App BUNDLE_ID      : $APP_FINAL_BUNDLE_ID"
-          
-          if [ "$FIREBASE_FINAL_BUNDLE_ID" != "$APP_FINAL_BUNDLE_ID" ]; then
-            echo "❌ ERREUR : Bundle ID Firebase différent du Bundle ID final"
-            exit 1
-          fi
-          
-          echo "✓ Bundle ID Firebase = Bundle ID final"
-          
-          echo
-          echo "============================================================"
-          echo "  ✓ FIREBASE FINAL : VALIDATION OK"
+          echo "              ✓ VERIFICATION ARCHIVE OK"
           echo "============================================================"
           
       
