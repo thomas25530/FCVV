@@ -743,16 +743,73 @@ jobs:
           printf '%s\n' \
             "$FIREBASE_IOS_CONFIG" \
             > "$GOOGLE_PLIST"
-
+          
           if [ ! -s "$GOOGLE_PLIST" ]; then
             echo "❌ GoogleService-Info.plist vide"
             exit 1
           fi
-
-          plutil -lint "$GOOGLE_PLIST"
-
-          echo "✓ GoogleService-Info.plist créé"
-
+          
+          echo
+          echo "=== VALIDATION GOOGLE SERVICE INFO ==="
+          
+          if ! plutil -lint "$GOOGLE_PLIST"; then
+            echo "❌ GoogleService-Info.plist invalide"
+            exit 1
+          fi
+          
+          echo "✓ GoogleService-Info.plist syntaxiquement valide"
+          
+          # --------------------------------------------------------
+          # Vérification des clés Firebase obligatoires
+          # --------------------------------------------------------
+          
+          for key in \
+            GOOGLE_APP_ID \
+            API_KEY \
+            PROJECT_ID \
+            GCM_SENDER_ID \
+            BUNDLE_ID
+          do
+          
+            value="$(
+              /usr/libexec/PlistBuddy \
+                -c "Print :$key" \
+                "$GOOGLE_PLIST" \
+                2>/dev/null || true
+            )
+          
+            if [ -z "$value" ]; then
+              echo "❌ Firebase : $key absent ou vide"
+              exit 1
+            fi
+          
+            echo "✓ Firebase : $key présent"
+          
+          done
+          
+          # --------------------------------------------------------
+          # Vérification Bundle ID Firebase vs application
+          # --------------------------------------------------------
+          
+          FIREBASE_BUNDLE_ID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :BUNDLE_ID" \
+              "$GOOGLE_PLIST"
+          )"
+          
+          echo
+          echo "Firebase BUNDLE_ID : $FIREBASE_BUNDLE_ID"
+          echo "App BUNDLE_ID      : $APP_BUNDLE_ID"
+          
+          if [ "$FIREBASE_BUNDLE_ID" != "$APP_BUNDLE_ID" ]; then
+            echo "❌ ERREUR : le BUNDLE_ID Firebase ne correspond pas au BUNDLE_ID de l'app"
+            exit 1
+          fi
+          
+          echo "✓ BUNDLE_ID Firebase correspond au BUNDLE_ID de l'app"
+          
+          echo
+          echo "✓ GoogleService-Info.plist validé"
           # ========================================================
           # 6.2 AJOUT GOOGLE SERVICE AU PROJET XCODE
           # ========================================================
@@ -4293,6 +4350,104 @@ jobs:
           echo ""
           echo "============================================================"
           echo "                     FIN ÉTAPE 18"
+          echo "============================================================"
+
+          # ============================================================
+          # VERIFICATION GOOGLE SERVICE INFO DANS L'APP FINALE
+          # ============================================================
+          
+          APP_PATH="$ARCHIVE_PATH/Products/Applications/fcvv.app"
+          
+          echo
+          echo "============================================================"
+          echo "  VERIFICATION FIREBASE DANS APP FINALE"
+          echo "============================================================"
+          
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ fcvv.app introuvable dans l'archive"
+            exit 1
+          fi
+          
+          echo "✓ fcvv.app trouvée"
+          
+          FINAL_GOOGLE_PLIST="$APP_PATH/GoogleService-Info.plist"
+          
+          if [ ! -f "$FINAL_GOOGLE_PLIST" ]; then
+            echo "❌ GoogleService-Info.plist ABSENT de fcvv.app"
+            exit 1
+          fi
+          
+          echo "✓ GoogleService-Info.plist présent dans fcvv.app"
+          
+          # --------------------------------------------------------
+          # Validation syntaxique
+          # --------------------------------------------------------
+          
+          if ! plutil -lint "$FINAL_GOOGLE_PLIST"; then
+            echo "❌ GoogleService-Info.plist final invalide"
+            exit 1
+          fi
+          
+          echo "✓ GoogleService-Info.plist final valide"
+          
+          # --------------------------------------------------------
+          # Vérification des clés Firebase
+          # --------------------------------------------------------
+          
+          for key in \
+            GOOGLE_APP_ID \
+            API_KEY \
+            PROJECT_ID \
+            GCM_SENDER_ID \
+            BUNDLE_ID
+          do
+          
+            value="$(
+              /usr/libexec/PlistBuddy \
+                -c "Print :$key" \
+                "$FINAL_GOOGLE_PLIST" \
+                2>/dev/null || true
+            )
+          
+            if [ -z "$value" ]; then
+              echo "❌ APP FINALE : $key absent ou vide"
+              exit 1
+            fi
+          
+            echo "✓ APP FINALE : $key présent"
+          
+          done
+          
+          # --------------------------------------------------------
+          # Vérification Bundle ID
+          # --------------------------------------------------------
+          
+          FIREBASE_FINAL_BUNDLE_ID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :BUNDLE_ID" \
+              "$FINAL_GOOGLE_PLIST"
+          )"
+          
+          APP_FINAL_BUNDLE_ID="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleIdentifier" \
+              "$APP_PATH/Info.plist"
+          )"
+          
+          echo
+          echo "Firebase BUNDLE_ID : $FIREBASE_FINAL_BUNDLE_ID"
+          echo "App BUNDLE_ID      : $APP_FINAL_BUNDLE_ID"
+          
+          if [ "$FIREBASE_FINAL_BUNDLE_ID" != "$APP_FINAL_BUNDLE_ID" ]; then
+            echo "❌ ERREUR : Bundle ID Firebase différent du Bundle ID final"
+            exit 1
+          fi
+          
+          echo "✓ Bundle ID Firebase = Bundle ID final"
+          
+          echo
+          echo "============================================================"
+          echo "  ✓ FIREBASE FINAL : VALIDATION OK"
           echo "============================================================"
           
       
