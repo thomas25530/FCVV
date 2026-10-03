@@ -52,8 +52,11 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     from kivy.app import App
     from kivy.utils import platform
 
+    print("[DEBUG] Debut de la fonction generer_pdf_convocation")
+
     tous_les_joueurs = tous_les_joueurs or []
     txt = lambda v, n=60: str(v or "-").replace("\n", " ").strip()[:n]
+    
     # Licences
     licences = {}
     for j in tous_les_joueurs:
@@ -62,12 +65,15 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             prenom = txt(j.get("prenom"), 30).capitalize()
             licences[f"{nom} {prenom}".upper()] = txt(
                 j.get("licence") or j.get("num_licence") or j.get("numero_licence"), 25)
+                
     # Fichier
     dossier = obtenir_dossier_documents()
     os.makedirs(dossier, exist_ok=True)
     titre = txt(match_info.get("titre"), 50)
     safe = lambda s: "".join(c for c in str(s) if c.isalnum() or c in " _-").strip() or "Match"
     chemin = os.path.join(dossier, f"Convocation_{safe(titre)}_{safe(match_info.get('date','date'))}.pdf")
+    print(f"[DEBUG] Chemin du PDF cible : {chemin}")
+
     # Assets
     bases = []
     for b in (os.path.dirname(__file__), getattr(App.get_running_app(), "directory", ""),
@@ -89,124 +95,132 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     font = asset("fonts/DejaVuSans.ttf")
     bold = asset("fonts/DejaVuSans-Bold.ttf")
     logo = asset("logo.png")
+    
     if not font or not bold:
+        print("[DEBUG] ERREUR : Polices DejaVu introuvables !")
         raise FileNotFoundError("Polices DejaVu introuvables dans assets/fonts/")
 
-    # PDF
-    pdf = FPDF("P", "mm", "A4")
-    pdf.set_margins(10, 10, 10)
-    pdf.set_auto_page_break(True, 12)
-    pdf.add_font("DejaVu", "", font)
-    pdf.add_font("DejaVu", "B", bold)
-    pdf.add_page()
+    try:
+        print("[DEBUG] Debut de la construction du PDF avec FPDF...")
+        # PDF
+        pdf = FPDF("P", "mm", "A4")
+        pdf.set_margins(10, 10, 10)
+        pdf.set_auto_page_break(True, 12)
+        pdf.add_font("DejaVu", "", font)
+        pdf.add_font("DejaVu", "B", bold)
+        pdf.add_page()
 
-    def section(s):
-        pdf.ln(3)
-        pdf.set_font("DejaVu", "B", 12)
-        pdf.set_text_color(45, 106, 79)
-        pdf.cell(0, 7, txt(s, 60))
-        pdf.ln(7)
+        def section(s):
+            pdf.ln(3)
+            pdf.set_font("DejaVu", "B", 12)
+            pdf.set_text_color(45, 106, 79)
+            pdf.cell(0, 7, txt(s, 60))
+            pdf.ln(7)
 
-    # En-tête
-    pdf.set_text_color(27, 67, 50)
-    pdf.set_font("DejaVu", "B", 17)
-    if logo:
-        try:
-            pdf.image(logo, 10, 10, 23, 23)
-            pdf.set_xy(38, 16)
-        except Exception:
-            pass
-    pdf.cell(0, 10, txt(titre, 60).upper(), align="C")
-    pdf.ln(17)
+        # En-tête
+        pdf.set_text_color(27, 67, 50)
+        pdf.set_font("DejaVu", "B", 17)
+        if logo:
+            try:
+                pdf.image(logo, 10, 10, 23, 23)
+                pdf.set_xy(38, 16)
+            except Exception:
+                pass
+        pdf.cell(0, 10, txt(titre, 60).upper(), align="C")
+        pdf.ln(17)
 
-    # Infos match
-    section("Détails du Match")
-    infos = [
-        ("Adversaire :", match_info.get("adversaire"), "Date :", match_info.get("date")),
-        ("RDV Valdahon :", match_info.get("heure_rdv"), "Sur Place :", match_info.get("heure_sur_place")),
-        ("Coup d'envoi :", match_info.get("heure_coup_envoi"), "Lieu :", match_info.get("lieu"))
-    ]
-    widths = [34, 50, 34, 52]
+        # Infos match
+        section("Details du Match")
+        infos = [
+            ("Adversaire :", match_info.get("adversaire"), "Date :", match_info.get("date")),
+            ("RDV Valdahon :", match_info.get("heure_rdv"), "Sur Place :", match_info.get("heure_sur_place")),
+            ("Coup d'envoi :", match_info.get("heure_coup_envoi"), "Lieu :", match_info.get("lieu"))
+        ]
+        widths = [34, 50, 34, 52]
 
-    for row in infos:
-        for i, v in enumerate(row):
-            pdf.set_font("DejaVu", "B" if i in (0, 2) else "", 8)
-            pdf.set_fill_color(248, 249, 250)
-            pdf.set_draw_color(225, 228, 230)
-            pdf.cell(widths[i], 8, txt(v, 35), border=1, fill=True)
-        pdf.ln()
-
-    # Entraîneurs
-    entraineurs = [e.strip() for e in str(match_info.get("entraineurs", "")).split(",") if e.strip()]
-    coachs = []
-
-    for e in entraineurs:
-        morceaux = e.split()
-        if len(morceaux) > 1:
-            nom_e = " ".join(morceaux[:-1]).upper()
-            prenom_e = morceaux[-1].capitalize()
-        else:
-            nom_e, prenom_e = e.upper(), ""
-        lic = licences.get(f"{nom_e} {prenom_e}".upper(), "-")
-        coachs.append(f"{e} (Licence : {lic})" if lic != "-" else e)
-
-    pdf.set_font("DejaVu", "B", 8)
-    pdf.set_fill_color(248, 249, 250)
-    pdf.cell(34, 8, "Entraîneur(s) :", border=1, fill=True)
-    pdf.set_font("DejaVu", "", 8)
-    pdf.multi_cell(136, 8, txt(", ".join(coachs) or "-", 120), border=1, fill=True)
-
-    # Notes
-    notes = txt(match_info.get("notes"), 500)
-    if notes != "-":
-        pdf.ln(2)
-        pdf.set_font("DejaVu", "B", 8)
-        pdf.cell(0, 6, "Notes :")
-        pdf.ln(5)
-        pdf.set_font("DejaVu", "", 8)
-        pdf.multi_cell(0, 5, notes)
-
-    # Joueurs
-    joueurs = match_info.get("joueurs_convoques", [])
-
-    if match_info.get("activer_convocation") and joueurs:
-        section(f"Joueurs Convoqués ({len(joueurs)})")
-        headers = ["#", "Nom", "Prénom", "Catégorie", "N° Licence"]
-        widths = [9, 39, 39, 31, 42]
-
-        pdf.set_font("DejaVu", "B", 8)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_fill_color(45, 106, 79)
-
-        for i, h in enumerate(headers):
-            pdf.cell(widths[i], 8, h, border=1, align="C", fill=True)
-        pdf.ln()
-
-        for idx, j in enumerate(joueurs, 1):
-            if isinstance(j, dict):
-                nom = txt(j.get("nom"), 40).upper()
-                prenom = txt(j.get("prenom"), 25).capitalize()
-                cat = txt(j.get("categorie_joueur") or j.get("categorie"),18).upper()
-            else:
-                p = txt(j, 60).split()
-                nom = " ".join(p[:-1]).upper() if len(p) > 1 else (p[0].upper() if p else "-")
-                prenom = p[-1].capitalize() if len(p) > 1 else ""
-                cat = "-"
-
-            lic = licences.get(f"{nom} {prenom}".upper(), "-")
-            row = [idx, nom, prenom, cat, lic]
-
-            pdf.set_text_color(43, 43, 43)
-            pdf.set_fill_color(241, 245, 242) if idx % 2 == 0 else pdf.set_fill_color(255, 255, 255)
-
+        for row in infos:
             for i, v in enumerate(row):
-                pdf.cell(widths[i], 7, txt(v, 35), border=1,
-                         align="C" if i == 0 else "L", fill=True)
+                pdf.set_font("DejaVu", "B" if i in (0, 2) else "", 8)
+                pdf.set_fill_color(248, 249, 250)
+                pdf.set_draw_color(225, 228, 230)
+                pdf.cell(widths[i], 8, txt(v, 35), border=1, fill=True)
             pdf.ln()
 
-    # Sauvegarde
-    pdf.output(chemin)
-    print(f"PDF cree : {chemin}")
+        # Entraîneurs
+        entraineurs = [e.strip() for e in str(match_info.get("entraineurs", "")).split(",") if e.strip()]
+        coachs = []
+
+        for e in entraineurs:
+            morceaux = e.split()
+            if len(morceaux) > 1:
+                nom_e = " ".join(morceaux[:-1]).upper()
+                prenom_e = morceaux[-1].capitalize()
+            else:
+                nom_e, prenom_e = e.upper(), ""
+            lic = licences.get(f"{nom_e} {prenom_e}".upper(), "-")
+            coachs.append(f"{e} (Licence : {lic})" if lic != "-" else e)
+
+        pdf.set_font("DejaVu", "B", 8)
+        pdf.set_fill_color(248, 249, 250)
+        pdf.cell(34, 8, "Entraineur(s) :", border=1, fill=True)
+        pdf.set_font("DejaVu", "", 8)
+        pdf.multi_cell(136, 8, txt(", ".join(coachs) or "-", 120), border=1, fill=True)
+
+        # Notes
+        notes = txt(match_info.get("notes"), 500)
+        if notes != "-":
+            pdf.ln(2)
+            pdf.set_font("DejaVu", "B", 8)
+            pdf.cell(0, 6, "Notes :")
+            pdf.ln(5)
+            pdf.set_font("DejaVu", "", 8)
+            pdf.multi_cell(0, 5, notes)
+
+        # Joueurs
+        joueurs = match_info.get("joueurs_convoques", [])
+
+        if match_info.get("activer_convocation") and joueurs:
+            section(f"Joueurs Convoques ({len(joueurs)})")
+            headers = ["#", "Nom", "Prenom", "Categorie", "N Licence"]
+            widths = [9, 39, 39, 31, 42]
+
+            pdf.set_font("DejaVu", "B", 8)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_fill_color(45, 106, 79)
+
+            for i, h in enumerate(headers):
+                pdf.cell(widths[i], 8, h, border=1, align="C", fill=True)
+            pdf.ln()
+
+            for idx, j in enumerate(joueurs, 1):
+                if isinstance(j, dict):
+                    nom = txt(j.get("nom"), 40).upper()
+                    prenom = txt(j.get("prenom"), 25).capitalize()
+                    cat = txt(j.get("categorie_joueur") or j.get("categorie"), 18).upper()
+                else:
+                    p = txt(j, 60).split()
+                    nom = " ".join(p[:-1]).upper() if len(p) > 1 else (p[0].upper() if p else "-")
+                    prenom = p[-1].capitalize() if len(p) > 1 else ""
+                    cat = "-"
+
+                lic = licences.get(f"{nom} {prenom}".upper(), "-")
+                row = [idx, nom, prenom, cat, lic]
+
+                pdf.set_text_color(43, 43, 43)
+                pdf.set_fill_color(241, 245, 242) if idx % 2 == 0 else pdf.set_fill_color(255, 255, 255)
+
+                for i, v in enumerate(row):
+                    pdf.cell(widths[i], 7, txt(v, 35), border=1,
+                             align="C" if i == 0 else "L", fill=True)
+                pdf.ln()
+
+        # Sauvegarde
+        pdf.output(chemin)
+        print(f"[DEBUG] Succes : PDF cree sur le disque -> {chemin}")
+
+    except Exception as e_pdf:
+        print(f"[DEBUG] ERREUR lors de la generation du PDF FPDF : {e_pdf}")
+        raise e_pdf
 
     # Ouverture selon la plateforme
     if platform == "win":
@@ -219,18 +233,20 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
         print(f"PDF enregistre dans le stockage : {chemin}")
         
     elif platform == "ios":
-        # On utilise Clock pour exécuter l'affichage du partage sur le thread principal d'iOS
-        
+        print("[DEBUG] Planification du partage iOS via Clock...")
         Clock.schedule_once(lambda dt: _partager_pdf_ios(chemin))
             
     return chemin
 
 
 def _partager_pdf_ios(chemin):
-    """Fonction dédiée pour ouvrir la feuille de partage native iOS proprement sur le main thread"""
+    """Fonction dediee pour ouvrir la feuille de partage native iOS proprement sur le main thread"""
+    print("[DEBUG] Entree dans _partager_pdf_ios")
     try:
+        print("[DEBUG] Tentative d'importation de pyobjus...")
         from pyobjus import autoclass
         from pyobjus.objc_py_conversion import python_to_objc
+        print("[DEBUG] Pyobjus importe avec succes.")
 
         NSURL = autoclass("NSURL")
         UIActivityViewController = autoclass("UIActivityViewController")
@@ -239,36 +255,42 @@ def _partager_pdf_ios(chemin):
         # Conversion du chemin en NSURL
         file_url = NSURL.fileURLWithPath_(chemin)
         
-        # Création de l'activité de partage avec le fichier PDF
+        # Creation de l'activite de partage avec le fichier PDF
         activity_items = python_to_objc([file_url])
         activity_vc = UIActivityViewController.alloc().initWithActivityItems_applicationActivities_(activity_items, None)
 
-        # Récupération de la fenêtre principale et du contrôleur racine (Root ViewController)
-        window = UIApplication.sharedApplication().keyWindow
+        # Recuperation de la fenetre principale et du controleur racine (Root ViewController)
+        app_instance = UIApplication.sharedApplication()
+        window = app_instance.keyWindow
         if not window:
-            # Pour les versions récentes d'iOS
-            windows = UIApplication.sharedApplication().windows
+            windows = app_instance.windows
             if windows and windows.count() > 0:
                 window = windows.objectAtIndex_(0)
         
+        if not window or not window.rootViewController():
+            print("[DEBUG] Erreur iOS : Impossible de trouver le Root ViewController.")
+            return
+
         root_vc = window.rootViewController()
         
-        # Gestion des iPads (nécessite une ancre popover, sinon l'application plante sur iPad)
-        # S'il y a un popoverPresentationController, on le configure au centre au minimum
-        if activity_vc.respondsToSelector_(autoclass("NSString").stringWithString_("popoverPresentationController")):
-            popover = activity_vc.popoverPresentationController()
-            if popover:
-                popover.setSourceView_(root_vc.view())
-                # Centre l'ancre du popover si ouvert sur iPad
-                from pyobjus import cast
-                # Rect centré par défaut
-                pass
+        # Gestion des iPads
+        try:
+            if activity_vc.respondsToSelector_(autoclass("NSString").stringWithString_("popoverPresentationController")):
+                popover = activity_vc.popoverPresentationController()
+                if popover:
+                    popover.setSourceView_(root_vc.view())
+        except Exception:
+            pass
 
         # Affichage du menu de partage
+        print("[DEBUG] Affichage du controleur de partage iOS...")
         root_vc.presentViewController_animated_completion_(activity_vc, True, None)
+        print("[DEBUG] Partage iOS affiche avec succes.")
 
+    except ImportError as ie:
+        print(f"[DEBUG] ERREUR ImportError pyobjus : {ie}")
     except Exception as e:
-        print(f"Partage iOS natif impossible : {e}")
+        print(f"[DEBUG] ERREUR Generale partage iOS : {e}")
 
 class DateTextInput(TextInput):
     def insert_text(self, substring, from_undo=False):
