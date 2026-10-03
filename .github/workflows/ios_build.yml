@@ -3233,8 +3233,9 @@ jobs:
           # 1. PROJET ET WORKSPACE PRINCIPAUX
           # ============================================================
 
-          PROJECT_FILE="./fcvv-ios/fcvv.xcodeproj"
-          WORKSPACE_PATH="./fcvv-ios/fcvv.xcworkspace"
+          PROJ_DIR="./fcvv-ios"
+          PROJECT_FILE="$PROJ_DIR/fcvv.xcodeproj"
+          WORKSPACE_PATH="$PROJ_DIR/fcvv.xcworkspace"
 
           if [ ! -d "$PROJECT_FILE" ]; then
             echo "❌ Projet Xcode principal introuvable :"
@@ -3289,7 +3290,7 @@ jobs:
           echo "✓ Target application trouvé : $TARGET_NAME"
 
           # ============================================================
-          # 3. VERIFICATION DES VARIABLES DE SIGNATURE
+          # 3. VERIFICATION PARAMETRES SIGNATURE
           # ============================================================
 
           echo
@@ -3393,14 +3394,10 @@ jobs:
               config.build_settings['CODE_SIGN_ENTITLEMENTS'] =
                 "#{target_name}.entitlements"
 
-              puts "CODE_SIGN_STYLE                     = Manual"
-              puts "CODE_SIGN_IDENTITY                  = Apple Distribution"
-              puts "PROVISIONING_PROFILE_SPECIFIER     = #{profile_name}"
-              puts "CODE_SIGN_ENTITLEMENTS              = #{target_name}.entitlements"
-
-            # ----------------------------------------------------------
-            # Debug / autres configurations
-            # ----------------------------------------------------------
+              puts "CODE_SIGN_STYLE                 = Manual"
+              puts "CODE_SIGN_IDENTITY              = Apple Distribution"
+              puts "PROVISIONING_PROFILE_SPECIFIER = #{profile_name}"
+              puts "CODE_SIGN_ENTITLEMENTS          = #{target_name}.entitlements"
 
             else
 
@@ -3462,7 +3459,7 @@ jobs:
             || true
 
           # ============================================================
-          # 7. VERIFICATION CIBLE XCODE
+          # 7. VERIFICATION FINALE TARGET
           # ============================================================
 
           echo
@@ -3473,7 +3470,7 @@ jobs:
               -project "$PROJECT_FILE" \
               -list 2>/dev/null \
               | sed -n '/Targets:/,/Build Configurations:/p' \
-              | grep -E '^[[:space:]]*fcvv$' \
+              | grep -E "^[[:space:]]*$TARGET_NAME$" \
               || true
           )"
 
@@ -3492,35 +3489,39 @@ jobs:
           echo "=== VERIFICATION PODS ==="
 
           PODS_DIR="$PROJ_DIR/Pods"
+          PODS_PROJECT="$PODS_DIR/Pods.xcodeproj"
 
           if [ ! -d "$PODS_DIR" ]; then
             echo "⚠️ Répertoire Pods introuvable : $PODS_DIR"
           else
-
-            PODS_PROJECT="$PODS_DIR/Pods.xcodeproj"
 
             echo "Pods :"
             echo "  $PODS_DIR"
 
             if [ -d "$PODS_PROJECT" ]; then
               echo "✓ Pods.xcodeproj présent"
+            else
+              echo "⚠️ Pods.xcodeproj introuvable"
             fi
 
-            if grep -R -n \
-              -E 'PROVISIONING_PROFILE_SPECIFIER|PROVISIONING_PROFILE[[:space:]]*=' \
-              "$PODS_DIR" \
-              --include="*.xcconfig" \
-              --include="project.pbxproj" \
-              2>/dev/null; then
+            POD_SIGNING_MATCHES="$(
+              grep -R -n \
+                -E 'PROVISIONING_PROFILE_SPECIFIER|PROVISIONING_PROFILE[[:space:]]*=' \
+                "$PODS_DIR" \
+                --include="*.xcconfig" \
+                --include="project.pbxproj" \
+                2>/dev/null \
+                || true
+            )"
 
+            if [ -n "$POD_SIGNING_MATCHES" ]; then
               echo
               echo "❌ ERREUR : un provisioning profile manuel est encore présent dans les Pods."
+              echo
+              echo "$POD_SIGNING_MATCHES"
               exit 1
-
             else
-
               echo "✓ OK : aucun provisioning profile manuel trouvé dans les Pods."
-
             fi
           fi
 
@@ -3531,7 +3532,7 @@ jobs:
           echo
           echo "=== VERIFICATION ENTITLEMENTS ==="
 
-          ENTITLEMENTS_FILE="./fcvv-ios/${TARGET_NAME}.entitlements"
+          ENTITLEMENTS_FILE="$PROJ_DIR/${TARGET_NAME}.entitlements"
 
           if [ ! -f "$ENTITLEMENTS_FILE" ]; then
             echo "❌ Entitlements introuvables :"
