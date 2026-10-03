@@ -2621,198 +2621,217 @@ jobs:
           TARGET_NAME: fcvv
         run: |
           set -euo pipefail
-      
+
           echo "=== CONFIGURE LAUNCH SCREEN ==="
-      
+
           # ============================================================
           # 1. PROJET XCODE PRINCIPAL
           # ============================================================
-      
+
           PROJECT_FILE="./fcvv-ios/fcvv.xcodeproj"
           PROJ_DIR="./fcvv-ios"
-      
+
           if [ ! -d "$PROJECT_FILE" ]; then
             echo "❌ Projet Xcode introuvable : $PROJECT_FILE"
             exit 1
           fi
-      
+
           echo
           echo "Projet Xcode :"
           echo "  $PROJECT_FILE"
-      
+
           echo
           echo "Répertoire projet :"
           echo "  $PROJ_DIR"
-      
+
           echo
           echo "Target :"
           echo "  $TARGET_NAME"
-      
+
           # ============================================================
           # 2. VERIFICATION DU TARGET
           # ============================================================
-      
+
           echo
           echo "=== VERIFICATION DU TARGET ==="
-      
+
           if ! xcodebuild \
             -project "$PROJECT_FILE" \
             -target "$TARGET_NAME" \
             -showBuildSettings \
             >/dev/null 2>&1; then
-      
+
             echo "❌ Target '$TARGET_NAME' introuvable dans :"
             echo "   $PROJECT_FILE"
-      
+
             echo
             echo "Targets disponibles :"
-      
+
             xcodebuild \
               -project "$PROJECT_FILE" \
               -list
-      
+
             exit 1
           fi
-      
+
           echo "✓ Target confirmé : $TARGET_NAME"
-      
+
           # ============================================================
           # 3. CHEMINS
           # ============================================================
-      
+
           APP_DIR="$PROJ_DIR/$TARGET_NAME"
           ASSETS_DIR="$APP_DIR/Images.xcassets"
           IMAGESET_DIR="$ASSETS_DIR/fcvv_launch_logo.imageset"
           IMAGE_DEST="$IMAGESET_DIR/fcvv_launch_logo.png"
-      
+
           PRESPLASH_SOURCE="$GITHUB_WORKSPACE/assets/logo_apk_fcvv.png"
-      
+
           LAUNCH_STORYBOARD="$PROJ_DIR/LaunchScreen.storyboard"
-      
+
           # ============================================================
           # 4. VERIFICATION DU DOSSIER APP
           # ============================================================
-      
+
           if [ ! -d "$APP_DIR" ]; then
             echo "❌ Répertoire de l'application introuvable :"
             echo "   $APP_DIR"
             exit 1
           fi
-      
+
           echo
           echo "Répertoire application :"
           echo "  $APP_DIR"
-      
+
           # ============================================================
           # 5. VERIFICATION IMAGE SOURCE
           # ============================================================
-      
+
           echo
           echo "=== VERIFICATION IMAGE SOURCE ==="
-      
+
           if [ ! -f "$PRESPLASH_SOURCE" ]; then
             echo "❌ Image source introuvable :"
             echo "   $PRESPLASH_SOURCE"
             exit 1
           fi
-      
+
           echo "✓ Image source trouvée"
-      
-          python3 - "$PRESPLASH_SOURCE" <<'PY'
+
+          python3 -c '
           from PIL import Image
           import sys
-          
+
           image_path = sys.argv[1]
-          
+
           try:
               img = Image.open(image_path)
           except Exception as exc:
-              sys.exit(f"❌ Impossible de lire l'image : {exc}")
-          
+              sys.exit(f"❌ Impossible de lire l image : {exc}")
+
           expected = (512, 512)
-          
+
           if img.size != expected:
               sys.exit(
                   f"❌ Dimensions attendues {expected[0]}x{expected[1]}, "
                   f"trouvées {img.size[0]}x{img.size[1]}"
               )
-          
+
           print(f"✓ Image 512x512 validée : {image_path}")
-          PY
-      
+          ' "$PRESPLASH_SOURCE"
+
           # ============================================================
           # 6. NETTOYAGE
           # ============================================================
-      
+
           echo
           echo "=== NETTOYAGE ANCIENS FICHIERS ==="
-      
-          rm -f \
-            "$APP_DIR"/*.png \
-            "$PROJ_DIR"/*.png \
-            "$APP_DIR/LaunchScreen.storyboard" \
-            "$PROJ_DIR/LaunchScreen.storyboard"
-      
-          rm -rf "$ASSETS_DIR"/*.imageset
-      
+
+          rm -rf "$IMAGESET_DIR"
+
+          rm -f "$LAUNCH_STORYBOARD"
+
           mkdir -p "$ASSETS_DIR"
           mkdir -p "$IMAGESET_DIR"
-      
-          echo "✓ Anciens fichiers nettoyés"
-      
+
+          echo "✓ Anciens fichiers Launch Screen nettoyés"
+
           # ============================================================
-          # 7. ASSETS CATALOG
+          # 7. ASSET CATALOG
           # ============================================================
-      
+
           echo
           echo "=== CREATION ASSET CATALOG ==="
-      
-          if [ ! -f "$ASSETS_DIR/Contents.json" ]; then
-            cat > "$ASSETS_DIR/Contents.json" <<'EOF'
-            {
-              "info" : {
-                "author" : "xcode",
-                "version" : 1
+
+          python3 -c '
+          import json
+          import sys
+
+          output = sys.argv[1]
+
+          data = {
+              "info": {
+                  "author": "xcode",
+                  "version": 1
               }
-            }
-            EOF
-          fi
-      
+          }
+
+          with open(output, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2)
+              f.write("\n")
+
+          print(f"✓ Contents.json créé : {output}")
+          ' "$ASSETS_DIR/Contents.json"
+
           # ============================================================
           # 8. IMAGE LAUNCH SCREEN
           # ============================================================
-      
+
           cp "$PRESPLASH_SOURCE" "$IMAGE_DEST"
-      
-          cat > "$IMAGESET_DIR/Contents.json" <<'EOF'
-          {
-            "images" : [
-              {
-                "filename" : "fcvv_launch_logo.png",
-                "idiom" : "universal",
-                "scale" : "1x"
+
+          python3 -c '
+          import json
+          import sys
+
+          output = sys.argv[1]
+
+          data = {
+              "images": [
+                  {
+                      "filename": "fcvv_launch_logo.png",
+                      "idiom": "universal",
+                      "scale": "1x"
+                  }
+              ],
+              "info": {
+                  "author": "xcode",
+                  "version": 1
               }
-            ],
-            "info" : {
-              "author" : "xcode",
-              "version" : 1
-            }
           }
-          EOF
-      
+
+          with open(output, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2)
+              f.write("\n")
+
+          print(f"✓ Contents.json image créé : {output}")
+          ' "$IMAGESET_DIR/Contents.json"
+
           echo "✓ Asset fcvv_launch_logo créé"
           echo "  $IMAGE_DEST"
-      
+
           # ============================================================
-          # 9. LAUNCHSCREEN STORYBOARD
+          # 9. GENERATION LAUNCHSCREEN STORYBOARD
           # ============================================================
-      
+
           echo
           echo "=== GENERATION LAUNCHSCREEN STORYBOARD ==="
-      
-          cat > "$LAUNCH_STORYBOARD" <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE document PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+
+          python3 -c '
+          import sys
+
+          output = sys.argv[1]
+
+          storyboard = """<?xml version="1.0" encoding="UTF-8"?>
           <document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" colorMatched="YES">
               <device id="retina6_12" orientation="portrait" appearance="light"/>
               <dependencies>
@@ -2886,144 +2905,136 @@ jobs:
                   <image name="fcvv_launch_logo" width="512" height="512"/>
               </resources>
           </document>
-          EOF
-      
-          echo "✓ LaunchScreen.storyboard créé"
-      
+          """
+
+          with open(output, "w", encoding="utf-8") as f:
+              f.write(storyboard)
+
+          print(f"✓ LaunchScreen.storyboard créé : {output}")
+          ' "$LAUNCH_STORYBOARD"
+
           # ============================================================
           # 10. VALIDATION STORYBOARD
           # ============================================================
-      
+
           echo
           echo "=== VALIDATION STORYBOARD ==="
-      
+
+          if [ ! -f "$LAUNCH_STORYBOARD" ]; then
+            echo "❌ LaunchScreen.storyboard absent"
+            exit 1
+          fi
+
           VIEW_CONTROLLER_COUNT="$(
             grep -c '<viewController' "$LAUNCH_STORYBOARD" || true
           )"
-      
+
           if [ "$VIEW_CONTROLLER_COUNT" -ne 1 ]; then
             echo "❌ Le storyboard doit contenir exactement 1 viewController"
             echo "   Trouvé : $VIEW_CONTROLLER_COUNT"
             exit 1
           fi
-      
+
           echo "✓ Storyboard structurellement valide"
-      
+
           # ============================================================
           # 11. CONFIGURATION PROJET XCODE
           # ============================================================
-      
+
           echo
           echo "=== CONFIGURATION PROJET XCODE ==="
-      
+
           ruby - "$PROJECT_FILE" "$TARGET_NAME" <<'RUBY'
           require 'xcodeproj'
-          
+
           project_path = ARGV[0]
           target_name  = ARGV[1]
-          
+
           project = Xcodeproj::Project.open(project_path)
-          
+
           target = project.targets.find do |t|
             t.name.downcase == target_name.downcase
           end
-          
+
           unless target
             puts
             puts "❌ Target '#{target_name}' introuvable"
             puts
             puts "Targets disponibles :"
-          
+
             project.targets.each do |t|
               puts "  - #{t.name}"
             end
-          
+
             exit 1
           end
-          
+
           puts "✓ Target confirmé : #{target.name}"
-          
+
           # ------------------------------------------------------------
-          # Suppression des anciennes références
+          # Suppression des anciennes références Launch Screen
           # ------------------------------------------------------------
-          
+
           obsolete_names = [
-            'logo_apk_fcvv.png',
             'fcvv_launch_logo.png',
             'LaunchScreen.storyboard',
             'Launch Screen.storyboard'
           ]
-          
+
           project.files.to_a.each do |file|
             basename = File.basename(file.path.to_s)
-          
+
             next unless obsolete_names.include?(basename)
-          
+
             target.resources_build_phase.files.to_a.each do |build_file|
               if build_file.file_ref == file
                 target.resources_build_phase.remove_build_file(build_file)
               end
             end
-          
+
             file.remove_from_project
           end
-          
+
           # ------------------------------------------------------------
           # Ajout du LaunchScreen.storyboard
           # ------------------------------------------------------------
-          
-          storyboard_file = project.files.find do |file|
-            File.basename(file.path.to_s) == 'LaunchScreen.storyboard'
-          end
-          
-          unless storyboard_file
-            storyboard_file = project.main_group.new_file(
-              'LaunchScreen.storyboard'
-            )
-          
-            puts "✓ LaunchScreen.storyboard ajouté au projet"
-          else
-            puts "✓ LaunchScreen.storyboard déjà présent"
-          end
-          
-          unless target.resources_build_phase.files.to_a.any? do |build_file|
-            build_file.file_ref == storyboard_file
-          end
-          
-            target.resources_build_phase.add_file_reference(
-              storyboard_file,
-              true
-            )
-          
-            puts "✓ LaunchScreen.storyboard ajouté aux Resources"
-          else
-            puts "✓ LaunchScreen.storyboard déjà dans les Resources"
-          end
-          
+
+          storyboard_file = project.main_group.new_file(
+            'LaunchScreen.storyboard'
+          )
+
+          puts "✓ LaunchScreen.storyboard ajouté au projet"
+
+          target.resources_build_phase.add_file_reference(
+            storyboard_file,
+            true
+          )
+
+          puts "✓ LaunchScreen.storyboard ajouté aux Resources"
+
           # ------------------------------------------------------------
           # Build settings
           # ------------------------------------------------------------
-          
+
           target.build_configurations.each do |config|
             config.build_settings['UILAUNCHSTORYBOARDNAME'] = 'LaunchScreen'
-            config.build_settings.delete('UIMAINSTORYBOARDFILE')
-          
+
             puts "✓ #{config.name} : UILAUNCHSTORYBOARDNAME = LaunchScreen"
           end
-          
+
           project.save
-          
+
           puts
           puts "✓ Projet Xcode sauvegardé"
           RUBY
-      
+
           # ============================================================
           # 12. INFO.PLIST
           # ============================================================
-      
+
           echo
           echo "=== CONFIGURATION INFO.PLIST ==="
-      
+
           PLIST_FILE="$(
             find "$PROJ_DIR" \
               -maxdepth 1 \
@@ -3033,89 +3044,88 @@ jobs:
               -print \
               -quit
           )"
-      
+
           if [ -z "$PLIST_FILE" ]; then
             echo "❌ Info.plist introuvable dans $PROJ_DIR"
             exit 1
           fi
-      
+
           echo "Info.plist :"
           echo "  $PLIST_FILE"
-      
+
           /usr/libexec/PlistBuddy \
             -c "Delete :UILaunchStoryboardName" \
             "$PLIST_FILE" \
             2>/dev/null || true
-      
+
           /usr/libexec/PlistBuddy \
             -c "Add :UILaunchStoryboardName string LaunchScreen" \
             "$PLIST_FILE"
-      
-          /usr/libexec/PlistBuddy \
-            -c "Delete :UILaunchScreen" \
-            "$PLIST_FILE" \
-            2>/dev/null || true
-      
+
           plutil -lint "$PLIST_FILE"
-      
+
           echo "✓ Info.plist valide"
-      
+
           # ============================================================
           # 13. VERIFICATION FICHIERS
           # ============================================================
-      
+
           echo
           echo "=== VERIFICATION FICHIERS ==="
-      
+
           if [ ! -f "$IMAGE_DEST" ]; then
             echo "❌ Image Launch Screen absente : $IMAGE_DEST"
             exit 1
           fi
-      
+
           if [ ! -f "$IMAGESET_DIR/Contents.json" ]; then
             echo "❌ Contents.json absent : $IMAGESET_DIR/Contents.json"
             exit 1
           fi
-      
+
           if [ ! -f "$LAUNCH_STORYBOARD" ]; then
             echo "❌ LaunchScreen.storyboard absent"
             exit 1
           fi
-      
+
           echo "✓ Image Launch Screen présente"
           echo "✓ Contents.json présent"
           echo "✓ LaunchScreen.storyboard présent"
-      
+
           # ============================================================
           # 14. VALIDATION IBTOOL
           # ============================================================
-      
+
           echo
           echo "=== VALIDATION IBTOOL ==="
-      
+
           xcrun ibtool \
             --warnings \
             --errors \
             --notices \
             "$LAUNCH_STORYBOARD"
-      
+
           TEST_DIR="/tmp/FCVV-LaunchScreen.storyboardc"
-      
+
           rm -rf "$TEST_DIR"
-      
+
           xcrun ibtool \
             --compile "$TEST_DIR" \
             "$LAUNCH_STORYBOARD"
-      
+
           if [ ! -f "$TEST_DIR/Info.plist" ]; then
             echo "❌ Échec de la compilation du storyboard"
             exit 1
           fi
-      
+
           plutil -lint "$TEST_DIR/Info.plist"
-      
+
           echo "✓ LaunchScreen.storyboard compilé avec succès"
-      
+
+          # ============================================================
+          # 15. FIN
+          # ============================================================
+
           echo
           echo "============================================================"
           echo " ✓ LAUNCH SCREEN CONFIGURE AVEC SUCCES"
