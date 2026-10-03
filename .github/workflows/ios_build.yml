@@ -79,7 +79,7 @@ jobs:
           import sys
           from pathlib import Path
 
-          MARKER = "FCVV_FCM_CONFIGURATION_V1"
+          MARKER = "FCVV_FCM_CONFIGURATION_V2"
           CALL = "[self fcvvConfigureFirebaseAndNotifications];"
 
           if len(sys.argv) != 2:
@@ -288,19 +288,74 @@ jobs:
 
               block = r'''
           // ==========================================================
-          // FCVV_FCM_CONFIGURATION_V1
+          // FCVV_FCM_CONFIGURATION_V2
           // ==========================================================
 
           - (void)fcvvConfigureFirebaseAndNotifications {
 
-              NSLog(@"[FCVV] Configuration Firebase/APNs");
+              NSLog(@"[FCVV] === Firebase/APNs init ===");
 
-              if ([FIRApp defaultApp] == nil) {
+              // ------------------------------------------------------
+              // Firebase
+              // ------------------------------------------------------
+
+              FIRApp *firebaseApp = [FIRApp defaultApp];
+
+              if (firebaseApp == nil) {
+
+                  NSLog(@"[FCVV] Firebase non configuré, initialisation...");
+
                   [FIRApp configure];
-                  NSLog(@"[FCVV] Firebase configuré");
+
+                  firebaseApp = [FIRApp defaultApp];
+
+                  if (firebaseApp != nil) {
+                      NSLog(
+                          @"[FCVV] ✓ Firebase configuré : %@",
+                          firebaseApp.name
+                      );
+                  } else {
+                      NSLog(
+                          @"[FCVV] ❌ FirebaseApp.defaultApp == nil après configure"
+                      );
+
+                      // IMPORTANT :
+                      // On ne continue PAS l'initialisation Firebase.
+                      return;
+                  }
+
+              } else {
+
+                  NSLog(
+                      @"[FCVV] ✓ Firebase déjà configuré : %@",
+                      firebaseApp.name
+                  );
               }
 
-              [FIRMessaging messaging].delegate = self;
+              // ------------------------------------------------------
+              // Firebase Messaging
+              // ------------------------------------------------------
+
+              FIRMessaging *messaging = [FIRMessaging messaging];
+
+              if (messaging == nil) {
+
+                  NSLog(
+                      @"[FCVV] ❌ FIRMessaging indisponible"
+                  );
+
+                  return;
+              }
+
+              messaging.delegate = self;
+
+              NSLog(
+                  @"[FCVV] ✓ FIRMessaging disponible"
+              );
+
+              // ------------------------------------------------------
+              // Notifications iOS
+              // ------------------------------------------------------
 
               UNUserNotificationCenter *center =
                   [UNUserNotificationCenter currentNotificationCenter];
@@ -315,11 +370,14 @@ jobs:
                   completionHandler:^(BOOL granted,
                                       NSError * _Nullable error) {
 
-                      if (error) {
+                      if (error != nil) {
+
                           NSLog(
                               @"[FCVV] ❌ Erreur autorisation notifications : %@",
                               error
                           );
+
+                          return;
                       }
 
                       NSLog(
@@ -327,52 +385,98 @@ jobs:
                           granted ? @"GRANTED" : @"DENIED"
                       );
 
+                      if (!granted) {
+                          return;
+                      }
+
                       dispatch_async(
                           dispatch_get_main_queue(),
                           ^{
 
+                              NSLog(
+                                  @"[FCVV] Enregistrement APNs"
+                              );
+
                               [[UIApplication sharedApplication]
                                   registerForRemoteNotifications];
-
                           }
                       );
                   }
               ];
           }
 
+          // ==========================================================
+          // FCM TOKEN
+          // ==========================================================
+
           - (void)messaging:(FIRMessaging *)messaging
               didReceiveRegistrationToken:(NSString *)fcmToken {
 
+              if (fcmToken == nil || fcmToken.length == 0) {
+
+                  NSLog(
+                      @"[FCVV] ❌ FCM token vide"
+                  );
+
+                  return;
+              }
+
               NSLog(
-                  @"[FCVV] FCM token reçu : %@",
-                  fcmToken
+                  @"[FCVV] ✓ FCM token reçu (%lu caractères)",
+                  (unsigned long)fcmToken.length
               );
 
-              if (fcmToken.length > 0) {
-
-                  [[NSNotificationCenter defaultCenter]
-                      postNotificationName:@"FCVV_FCM_TOKEN"
-                      object:nil
-                      userInfo:@{
-                          @"token": fcmToken
-                      }
-                  ];
-              }
+              [[NSNotificationCenter defaultCenter]
+                  postNotificationName:@"FCVV_FCM_TOKEN"
+                  object:nil
+                  userInfo:@{
+                      @"token": fcmToken
+                  }
+              ];
           }
+
+          // ==========================================================
+          // APNs DEVICE TOKEN
+          // ==========================================================
 
           - (void)application:(UIApplication *)application
               didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken {
 
+              if (deviceToken == nil) {
+
+                  NSLog(
+                      @"[FCVV] ❌ APNs device token nil"
+                  );
+
+                  return;
+              }
+
               NSLog(
-                  @"[FCVV] APNs device token reçu"
+                  @"[FCVV] ✓ APNs device token reçu"
               );
 
-              if (deviceToken) {
+              FIRMessaging *messaging =
+                  [FIRMessaging messaging];
 
-                  [[FIRMessaging messaging]
-                      setAPNSToken:deviceToken];
+              if (messaging != nil) {
+
+                  [messaging setAPNSToken:deviceToken];
+
+                  NSLog(
+                      @"[FCVV] ✓ APNs token transmis à Firebase"
+                  );
+
+              } else {
+
+                  NSLog(
+                      @"[FCVV] ❌ FIRMessaging indisponible pour APNs"
+                  );
               }
           }
+
+          // ==========================================================
+          // APNs ERROR
+          // ==========================================================
 
           - (void)application:(UIApplication *)application
               didFailToRegisterForRemoteNotificationsWithError:(NSError *)error {
@@ -382,6 +486,10 @@ jobs:
                   error
               );
           }
+
+          // ==========================================================
+          // NOTIFICATION AU PREMIER PLAN
+          // ==========================================================
 
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
               willPresentNotification:(UNNotification *)notification
@@ -400,6 +508,10 @@ jobs:
               );
           }
 
+          // ==========================================================
+          // INTERACTION NOTIFICATION
+          // ==========================================================
+
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
               didReceiveNotificationResponse:(UNNotificationResponse *)response
               withCompletionHandler:(void (^)(void))completionHandler {
@@ -410,6 +522,10 @@ jobs:
 
               completionHandler();
           }
+
+          // ==========================================================
+          // NOTIFICATION DISTANTE
+          // ==========================================================
 
           - (void)application:(UIApplication *)application
               didReceiveRemoteNotification:(NSDictionary *)userInfo
@@ -454,13 +570,19 @@ jobs:
                   + m_text[end_match.start():]
               )
 
-              print("✓ Bloc Firebase/APNs injecté")
+              print("✓ Bloc Firebase/APNs V2 injecté")
 
           else:
-              print("✓ Bloc Firebase déjà présent")
+              print("✓ Bloc Firebase/APNs V2 déjà présent")
 
           # ============================================================
-          # APPEL DEPUIS didFinishLaunchingWithOptions
+          # APPEL FIREBASE
+          #
+          # IMPORTANT :
+          # On ne lance pas Firebase au tout début de
+          # didFinishLaunchingWithOptions.
+          #
+          # Le lancement SDL doit d'abord terminer son initialisation.
           # ============================================================
 
           if CALL not in m_text:
@@ -484,15 +606,30 @@ jobs:
                       "introuvable"
                   )
 
+              # --------------------------------------------------------
+              # NE PAS appeler Firebase ici.
+              #
+              # On planifie l'initialisation sur le main queue,
+              # après que le cycle de lancement courant ait continué.
+              # --------------------------------------------------------
+
+              delayed_call = """
+              dispatch_async(dispatch_get_main_queue(), ^{
+                  [self fcvvConfigureFirebaseAndNotifications];
+              });
+              """
+
               m_text = (
                   m_text[:match.end()]
-                  + "\n    "
-                  + CALL
+                  + "\n"
+                  + delayed_call
                   + "\n"
                   + m_text[match.end():]
               )
 
-              print("✓ Appel Firebase ajouté au lancement")
+              print(
+                  "✓ Initialisation Firebase planifiée après le lancement"
+              )
 
           else:
               print("✓ Appel Firebase déjà présent")
@@ -555,6 +692,11 @@ jobs:
                   "❌ ERREUR : appel Firebase absent du lancement"
               )
 
+          if "dispatch_async(dispatch_get_main_queue()" not in final_m:
+              raise SystemExit(
+                  "❌ ERREUR : Firebase n'est pas planifié sur le main queue"
+              )
+          
           if "UNUserNotificationCenterDelegate" not in final_h:
               raise SystemExit(
                   "❌ ERREUR : UNUserNotificationCenterDelegate absent du .h"
@@ -570,7 +712,7 @@ jobs:
           print("✓ .m : FirebaseCore importé")
           print("✓ .m : FirebaseMessaging importé")
           print("✓ Bloc Firebase/APNs présent")
-          print("✓ Appel Firebase au lancement présent")
+          print("✓ Initialisation Firebase différée après le lancement")
           print("✓ SDLUIKitDelegate patché avec succès")
           PY
 
