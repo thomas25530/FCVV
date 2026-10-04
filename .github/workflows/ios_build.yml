@@ -960,15 +960,11 @@ jobs:
           echo "  CLEANUP PYTHON NATIVE EXTENSIONS"
           echo "============================================================"
 
-          find dist/root/python3/lib/python3.11/site-packages/ \
+          find dist/root/python3/lib/python3.11/site-packages/yaml \
             -name "_yaml*.so" \
-            -delete \
-            -o \
-            -name "*.so" \
             -delete
 
-          rm -rf \
-            dist/root/python3/lib/python3.11/site-packages/plyer/platforms/ios/frameworks
+          rm -rf dist/root/python3/lib/python3.11/site-packages/plyer/platforms/ios/frameworks
 
           echo "  FIX FONTTOOLS BEZIERTOOLS CYTHON CRASH ON IOS"
           find dist/root/python3/lib/python3.*/site-packages/fontTools -name "*.so" -delete
