@@ -60,17 +60,18 @@ jobs:
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
           
       # ============================================================
-      # 4. CACHE KIVY-IOS
+      # 4. CACHE KIVY-IOS (Incrémenté en v6 pour purger l'ancien cache)
       # ============================================================
       - name: Cache kivy-ios
         uses: actions/cache@v4
         with:
           path: |
             ~/.kivy-ios
-          key: ${{ runner.os }}-kivy-ios-v5-python310-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.py') }}
+          key: ${{ runner.os }}-kivy-ios-v6-python311-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.py') }}
           restore-keys: |
-            ${{ runner.os }}-kivy-ios-v5-python310-
-            ${{ runner.os }}-kivy-ios-v5-
+            ${{ runner.os }}-kivy-ios-v6-python311-
+            ${{ runner.os }}-kivy-ios-v6-
+
       # ============================================================
       # 5. BUILD KIVY-IOS RECIPES
       # ============================================================
@@ -84,6 +85,7 @@ jobs:
             openssl \
             pillow \
             pyobjus
+          
           toolchain pip install \
             pyyaml \
             requests \
@@ -93,8 +95,9 @@ jobs:
             plyer \
             pyobjus
 
-          echo " FIX FONTTOOLS AND OTHER CYTHON CRASH ON IOS"
-          find dist/root/python3/lib/python3.11/site-packages/fontTools -name "*.so" -delete
+          echo "FIX FONTTOOLS CYTHON CRASH ON IOS"
+          # Utilisation d'un wildcard (python3.*) pour s'adapter automatiquement à la version active
+          find dist/root/python3/lib/python3.*/site-packages/fontTools -name "*.so" -delete
       # ============================================================
       # 6. PREPARE IOS SOURCES
       # ============================================================
