@@ -1344,52 +1344,61 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
+      
           echo "============================================================"
           echo "  PATCH SDLUIKitDelegate"
           echo "============================================================"
-
+      
           SDL_FILES="$(
             find "$GITHUB_WORKSPACE/build/sdl2" \
               -name "SDL_uikitappdelegate.m" \
               -type f
           )"
-
+      
           if [ -z "$SDL_FILES" ]; then
             echo "❌ SDL_uikitappdelegate.m introuvable"
             exit 1
           fi
-
+      
           while IFS= read -r FILE
           do
             echo ""
             echo "============================================================"
             echo "PATCH : $FILE"
             echo "============================================================"
-
+      
             cp "$FILE" "$FILE.before-fcvv"
-
+      
             HEADER="${FILE%.m}.h"
-
+      
             if [ ! -f "$HEADER" ]; then
               echo "❌ Header compagnon introuvable : $HEADER"
               exit 1
             fi
-
+      
             python3 \
               "$GITHUB_WORKSPACE/apply_fcvv_patch.py" \
               "$FILE"
-
+      
+            echo ""
+            echo "=== VERIFICATION PATCH V2 ==="
+      
             grep -n \
-              "FCVV_FCM_CONFIGURATION_V1" \
+              "FCVV_FCM_CONFIGURATION_V2" \
               "$FILE"
-
+      
             grep -n \
               "FirebaseMessaging" \
               "$FILE"
-
+      
+            grep -n \
+              "dispatch_async(dispatch_get_main_queue()" \
+              "$FILE"
+      
+            echo "✓ Vérification du patch V2 OK"
+      
           done <<< "$SDL_FILES"
-
+      
           echo ""
           echo "✓ Tous les SDLUIKitDelegate ont été patchés"
 
