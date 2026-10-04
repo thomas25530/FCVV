@@ -971,8 +971,7 @@ jobs:
             dist/root/python3/lib/python3.11/site-packages/plyer/platforms/ios/frameworks
 
           echo "  FIX FONTTOOLS BEZIERTOOLS CYTHON CRASH ON IOS"
-          find dist/root/python3/lib/python3.11/site-packages/fontTools/misc/ -name "bezierTools*" -not -name "*.py" -delete
-          rm -f dist/root/python3/lib/python3.11/site-packages/fontTools/misc/*bezierTools*.so
+          find dist/root/python3/lib/python3.*/site-packages/fontTools -name "*.so" -delete
 
           echo "============================================================"
           echo "  PREPARE IOS SOURCES"
