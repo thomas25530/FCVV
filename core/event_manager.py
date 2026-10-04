@@ -1081,9 +1081,7 @@ def _partager_pdf_ios(chemin):
         # ROOT VIEW CONTROLLER
         # ========================================================
 
-        root_vc = (
-            window.rootViewController()
-        )
+        root_vc = window.rootViewController
 
         if not root_vc:
 
