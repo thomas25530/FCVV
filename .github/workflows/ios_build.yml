@@ -588,6 +588,22 @@ jobs:
 
           print("✓ Handlers APNs/FCM V3 injectés")
 
+          # ============================================================
+          # IMPORTS FIREBASE / NOTIFICATIONS DANS main.m
+          # ============================================================
+          
+          main_imports = [
+              "#import <UserNotifications/UserNotifications.h>",
+              "#import <FirebaseCore/FirebaseCore.h>",
+              "#import <FirebaseMessaging/FirebaseMessaging.h>",
+          ]
+          
+          for imp in main_imports:
+              if imp not in main_text:
+                  main_text = imp + "\n" + main_text
+          
+          print("✓ Imports Firebase/UserNotifications ajoutés dans main.m")
+
 
           # ============================================================
           # MAIN.M
@@ -606,7 +622,8 @@ jobs:
           // FCVV_FIREBASE_MAIN_V3
           //
           // IMPORTANT :
-          // Firebase et APNs sont initialisés AVANT UIApplicationMain.
+          // Firebase et APNs sont initialisés au tout début de main(),
+          // avant l'initialisation de Python/Kivy.
           // SDLUIKitDelegate ne réalise PAS cette initialisation.
           // ==========================================================
 
@@ -865,7 +882,20 @@ jobs:
                   "❌ ERREUR : FIRApp configure encore présent dans SDL"
               )
 
-
+          if "#import <FirebaseCore/FirebaseCore.h>" not in final_main:
+              raise SystemExit(
+                  "❌ FirebaseCore import absent de main.m"
+              )
+          
+          if "#import <FirebaseMessaging/FirebaseMessaging.h>" not in final_main:
+              raise SystemExit(
+                  "❌ FirebaseMessaging import absent de main.m"
+              )
+          
+          if "#import <UserNotifications/UserNotifications.h>" not in final_main:
+              raise SystemExit(
+                  "❌ UserNotifications import absent de main.m"
+              )
           print("")
           print("============================================================")
           print("✓ FCVV PATCH V3 VALIDÉ")
