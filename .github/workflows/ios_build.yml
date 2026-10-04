@@ -67,9 +67,9 @@ jobs:
           pip install "Cython>=3.0,<3.1" "kivy-ios==2025.5.17" pillow requests urllib3 pyyaml fpdf2 fonttools plyer pyobjus
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
       # ============================================================
-      # 4. CREATE FCVV SDL PATCHER
+      # 4. CREATE FCVV SDL + MAIN PATCHER (V3)
       # ============================================================
-      - name: Create FCVV SDL patcher
+      - name: Create FCVV SDL + main patcher
         shell: bash
         run: |
           set -euo pipefail
@@ -79,33 +79,61 @@ jobs:
           import sys
           from pathlib import Path
 
-          MARKER = "FCVV_FCM_CONFIGURATION_V2"
-          CALL = "[self fcvvConfigureFirebaseAndNotifications];"
 
-          if len(sys.argv) != 2:
+          SDL_MARKER = "FCVV_FCM_HANDLERS_V3"
+          MAIN_MARKER = "FCVV_FIREBASE_MAIN_V3"
+
+
+          if len(sys.argv) != 3:
               raise SystemExit(
-                  "Usage: apply_fcvv_patch.py SDL_uikitappdelegate.m"
+                  "Usage: apply_fcvv_patch.py SDL_uikitappdelegate.m main.m"
               )
 
-          m_path = Path(sys.argv[1]).resolve()
 
-          if not m_path.is_file():
-              raise SystemExit(f"❌ Fichier introuvable : {m_path}")
+          # ============================================================
+          # CHEMINS
+          # ============================================================
 
-          if m_path.name != "SDL_uikitappdelegate.m":
+          sdl_path = Path(sys.argv[1]).resolve()
+          main_path = Path(sys.argv[2]).resolve()
+
+
+          if not sdl_path.is_file():
               raise SystemExit(
-                  f"❌ Fichier inattendu : {m_path.name}"
+                  f"❌ SDL_uikitappdelegate.m introuvable : {sdl_path}"
               )
 
+          if sdl_path.name != "SDL_uikitappdelegate.m":
+              raise SystemExit(
+                  f"❌ Fichier SDL inattendu : {sdl_path.name}"
+              )
+
+
+          if not main_path.is_file():
+              raise SystemExit(
+                  f"❌ main.m introuvable : {main_path}"
+              )
+
+          if main_path.name != "main.m":
+              raise SystemExit(
+                  f"❌ Fichier main inattendu : {main_path.name}"
+              )
+
+
+          print(f"✓ SDL .m   : {sdl_path}")
+          print(f"✓ main .m  : {main_path}")
+
+
           # ============================================================
-          # RECHERCHE DU HEADER COMPAGNON
+          # HEADER SDL
           # ============================================================
 
-          h_path = m_path.with_suffix(".h")
+          h_path = sdl_path.with_suffix(".h")
 
           if not h_path.is_file():
+
               candidates = list(
-                  m_path.parent.rglob("SDL_uikitappdelegate.h")
+                  sdl_path.parent.rglob("SDL_uikitappdelegate.h")
               )
 
               if not candidates:
@@ -115,18 +143,21 @@ jobs:
 
               h_path = candidates[0].resolve()
 
-          print(f"✓ SDL .m : {m_path}")
-          print(f"✓ SDL .h : {h_path}")
+
+          print(f"✓ SDL .h   : {h_path}")
+
 
           # ============================================================
           # LECTURE
           # ============================================================
 
           h_text = h_path.read_text(encoding="utf-8")
-          m_text = m_path.read_text(encoding="utf-8")
+          sdl_text = sdl_path.read_text(encoding="utf-8")
+          main_text = main_path.read_text(encoding="utf-8")
+
 
           # ============================================================
-          # VERIFICATION SDLUIKitDelegate
+          # VERIFICATION SDL
           # ============================================================
 
           if not re.search(
@@ -137,73 +168,67 @@ jobs:
                   "❌ SDLUIKitDelegate absent du header"
               )
 
+
           if not re.search(
               r"@implementation\s+SDLUIKitDelegate\b",
-              m_text
+              sdl_text
           ):
               raise SystemExit(
                   "❌ SDLUIKitDelegate absent du .m"
               )
 
-          if "didFinishLaunchingWithOptions" not in m_text:
-              raise SystemExit(
-                  "❌ didFinishLaunchingWithOptions absent du .m"
-              )
 
           # ============================================================
-          # HEADER
-          #
-          # IMPORTANT :
-          # NE PAS importer Firebase dans SDL_uikitappdelegate.h.
-          #
-          # Ce header est inclus par plusieurs fichiers SDL :
-          # SDL_uikitwindow.m
-          # SDL_uikitview.m
-          # SDL_uikitvideo.m
-          # etc.
-          #
-          # Les imports Firebase doivent rester exclusivement dans .m.
+          # HEADER :
+          # PAS D'IMPORT FIREBASE
           # ============================================================
 
-          header_imports_to_remove = [
+          h_text = h_text.replace(
+              "#import <FirebaseCore/FirebaseCore.h>\n",
+              ""
+          )
+
+          h_text = h_text.replace(
+              "#import <FirebaseMessaging/FirebaseMessaging.h>\n",
+              ""
+          )
+
+          h_text = h_text.replace(
               "#import <FirebaseCore/FirebaseCore.h>",
+              ""
+          )
+
+          h_text = h_text.replace(
               "#import <FirebaseMessaging/FirebaseMessaging.h>",
-          ]
+              ""
+          )
 
-          for imp in header_imports_to_remove:
-              h_text = h_text.replace(imp + "\n", "")
-              h_text = h_text.replace(imp, "")
 
-          # UIKit est normalement déjà présent dans le header SDL.
-          # On le conserve s'il existe et on l'ajoute uniquement
-          # s'il est nécessaire.
+          # UIKit
           if "#import <UIKit/UIKit.h>" not in h_text:
               h_text = (
                   "#import <UIKit/UIKit.h>\n"
                   + h_text
               )
 
-          # ============================================================
-          # FORWARD DECLARATIONS DES PROTOCOLES
-          # ============================================================
 
-          protocol_declarations = (
-              "@protocol UNUserNotificationCenterDelegate;\n"
-              "@protocol FIRMessagingDelegate;\n"
-          )
+          # ============================================================
+          # FORWARD DECLARATIONS
+          # ============================================================
 
           if "@protocol UNUserNotificationCenterDelegate;" not in h_text:
               h_text = (
-                  protocol_declarations
-                  + "\n"
+                  "@protocol UNUserNotificationCenterDelegate;\n"
                   + h_text
               )
 
-          elif "@protocol FIRMessagingDelegate;" not in h_text:
+
+          if "@protocol FIRMessagingDelegate;" not in h_text:
               h_text = (
                   "@protocol FIRMessagingDelegate;\n"
                   + h_text
               )
+
 
           # ============================================================
           # PROTOCOLES SDLUIKitDelegate
@@ -219,14 +244,18 @@ jobs:
                   "❌ Interface SDLUIKitDelegate introuvable"
               )
 
+
           interface_line = interface_match.group(1)
+
 
           protocol_match = re.search(
               r"<([^>]*)>",
               interface_line
           )
 
+
           protocols = []
+
 
           if protocol_match:
               protocols = [
@@ -235,6 +264,7 @@ jobs:
                   if p.strip()
               ]
 
+
           for protocol in [
               "UNUserNotificationCenterDelegate",
               "FIRMessagingDelegate",
@@ -242,13 +272,13 @@ jobs:
               if protocol not in protocols:
                   protocols.append(protocol)
 
-          # Supprime une éventuelle ancienne liste de protocoles
-          # avant de la reconstruire proprement.
+
           interface_without_protocols = re.sub(
               r"\s*<[^>]*>",
               "",
               interface_line
           ).rstrip()
+
 
           new_interface = (
               interface_without_protocols
@@ -257,156 +287,131 @@ jobs:
               + ">"
           )
 
+
           h_text = (
               h_text[:interface_match.start(1)]
               + new_interface
               + h_text[interface_match.end(1):]
           )
 
+
           # ============================================================
-          # IMPLEMENTATION (.m)
-          #
-          # Les imports Firebase sont UNIQUEMENT ici.
+          # IMPORTS FIREBASE DANS LE .M UNIQUEMENT
           # ============================================================
 
-          implementation_imports = [
+          imports = [
               "#import <UIKit/UIKit.h>",
               "#import <UserNotifications/UserNotifications.h>",
               "#import <FirebaseCore/FirebaseCore.h>",
               "#import <FirebaseMessaging/FirebaseMessaging.h>",
           ]
 
-          for imp in implementation_imports:
-              if imp not in m_text:
-                  m_text = imp + "\n" + m_text
+
+          for imp in imports:
+              if imp not in sdl_text:
+                  sdl_text = imp + "\n" + sdl_text
+
 
           # ============================================================
-          # BLOC FIREBASE / APNs
+          # SUPPRESSION DE L'ANCIEN BLOC V2
+          #
+          # On supprime complètement :
+          #
+          # fcvvConfigureFirebaseAndNotifications
+          #
+          # ainsi que le bloc V2 correspondant.
           # ============================================================
 
-          if MARKER not in m_text:
+          v2_method_pattern = re.compile(
+              r"""
+              \n?
+              \s*-\s*\(void\)\s*fcvvConfigureFirebaseAndNotifications
+              \s*\{
+              .*?
+              \n\s*\}
+              \s*
+              """,
+              re.DOTALL | re.VERBOSE
+          )
 
-              block = r'''
+
+          sdl_text, removed_count = v2_method_pattern.subn(
+              "\n",
+              sdl_text
+          )
+
+
+          if removed_count:
+              print(
+                  f"✓ Ancienne méthode fcvvConfigureFirebaseAndNotifications "
+                  f"supprimée ({removed_count})"
+              )
+
+
+          # ============================================================
+          # SUPPRESSION D'EVENTUELS APPELS V2
+          # ============================================================
+
+          sdl_text = re.sub(
+              r"\s*\[self\s+fcvvConfigureFirebaseAndNotifications\]\s*;\s*",
+              "\n",
+              sdl_text
+          )
+
+
+          sdl_text = re.sub(
+              r"""
+              \s*dispatch_async\s*\(
+                  \s*dispatch_get_main_queue\s*\(\s*\)\s*,
+                  \s*\^\s*\{\s*
+                  \[self\s+fcvvConfigureFirebaseAndNotifications\]\s*;\s*
+                  \}\s*
+              \)\s*;\s*
+              """,
+              "\n",
+              sdl_text,
+              flags=re.DOTALL | re.VERBOSE
+          )
+
+
+          # ============================================================
+          # SUPPRESSION D'UN ANCIEN BLOC V3 SI PRESENT
+          # ============================================================
+
+          if SDL_MARKER in sdl_text:
+
+              sdl_text = re.sub(
+                  r"""
+                  \n?
+                  \s*//\s*={5,}\s*
+                  \n?
+                  \s*//\s*FCVV_FCM_HANDLERS_V3
+                  .*?
+                  \n\s*//\s*={5,}\s*
+                  """,
+                  "\n",
+                  sdl_text,
+                  flags=re.DOTALL | re.VERBOSE
+              )
+
+
+          # ============================================================
+          # HANDLERS FIREBASE / APNs
+          #
+          # IMPORTANT :
+          # Aucune initialisation Firebase ici.
+          #
+          # Le main.m s'en charge.
+          # ============================================================
+
+          handlers = r'''
           // ==========================================================
-          // FCVV_FCM_CONFIGURATION_V2
-          // ==========================================================
-
-          - (void)fcvvConfigureFirebaseAndNotifications {
-
-              NSLog(@"[FCVV] === Firebase/APNs init ===");
-
-              // ------------------------------------------------------
-              // Firebase
-              // ------------------------------------------------------
-
-              FIRApp *firebaseApp = [FIRApp defaultApp];
-
-              if (firebaseApp == nil) {
-
-                  NSLog(@"[FCVV] Firebase non configuré, initialisation...");
-
-                  [FIRApp configure];
-
-                  firebaseApp = [FIRApp defaultApp];
-
-                  if (firebaseApp != nil) {
-                      NSLog(
-                          @"[FCVV] ✓ Firebase configuré : %@",
-                          firebaseApp.name
-                      );
-                  } else {
-                      NSLog(
-                          @"[FCVV] ❌ FirebaseApp.defaultApp == nil après configure"
-                      );
-
-                      // IMPORTANT :
-                      // On ne continue PAS l'initialisation Firebase.
-                      return;
-                  }
-
-              } else {
-
-                  NSLog(
-                      @"[FCVV] ✓ Firebase déjà configuré : %@",
-                      firebaseApp.name
-                  );
-              }
-
-              // ------------------------------------------------------
-              // Firebase Messaging
-              // ------------------------------------------------------
-
-              FIRMessaging *messaging = [FIRMessaging messaging];
-
-              if (messaging == nil) {
-
-                  NSLog(
-                      @"[FCVV] ❌ FIRMessaging indisponible"
-                  );
-
-                  return;
-              }
-
-              messaging.delegate = self;
-
-              NSLog(
-                  @"[FCVV] ✓ FIRMessaging disponible"
-              );
-
-              // ------------------------------------------------------
-              // Notifications iOS
-              // ------------------------------------------------------
-
-              UNUserNotificationCenter *center =
-                  [UNUserNotificationCenter currentNotificationCenter];
-
-              center.delegate = self;
-
-              [center requestAuthorizationWithOptions:
-                  (UNAuthorizationOptionAlert |
-                   UNAuthorizationOptionSound |
-                   UNAuthorizationOptionBadge)
-
-                  completionHandler:^(BOOL granted,
-                                      NSError * _Nullable error) {
-
-                      if (error != nil) {
-
-                          NSLog(
-                              @"[FCVV] ❌ Erreur autorisation notifications : %@",
-                              error
-                          );
-
-                          return;
-                      }
-
-                      NSLog(
-                          @"[FCVV] Autorisation notifications : %@",
-                          granted ? @"GRANTED" : @"DENIED"
-                      );
-
-                      if (!granted) {
-                          return;
-                      }
-
-                      dispatch_async(
-                          dispatch_get_main_queue(),
-                          ^{
-
-                              NSLog(
-                                  @"[FCVV] Enregistrement APNs"
-                              );
-
-                              [[UIApplication sharedApplication]
-                                  registerForRemoteNotifications];
-                          }
-                      );
-                  }
-              ];
-          }
-
-          // ==========================================================
-          // FCM TOKEN
+          // FCVV_FCM_HANDLERS_V3
+          //
+          // Firebase est initialisé dans main.m.
+          //
+          // SDLUIKitDelegate est uniquement responsable des callbacks
+          // APNs / FCM / notifications.
           // ==========================================================
 
           - (void)messaging:(FIRMessaging *)messaging
@@ -434,6 +439,7 @@ jobs:
                   }
               ];
           }
+
 
           // ==========================================================
           // APNs DEVICE TOKEN
@@ -469,10 +475,11 @@ jobs:
               } else {
 
                   NSLog(
-                      @"[FCVV] ❌ FIRMessaging indisponible pour APNs"
+                      @"[FCVV] ❌ FIRMessaging indisponible"
                   );
               }
           }
+
 
           // ==========================================================
           // APNs ERROR
@@ -487,8 +494,9 @@ jobs:
               );
           }
 
+
           // ==========================================================
-          // NOTIFICATION AU PREMIER PLAN
+          // NOTIFICATION FOREGROUND
           // ==========================================================
 
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
@@ -508,8 +516,9 @@ jobs:
               );
           }
 
+
           // ==========================================================
-          // INTERACTION NOTIFICATION
+          // NOTIFICATION OUVERTE
           // ==========================================================
 
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
@@ -523,8 +532,9 @@ jobs:
               completionHandler();
           }
 
+
           // ==========================================================
-          // NOTIFICATION DISTANTE
+          // NOTIFICATION BACKGROUND
           // ==========================================================
 
           - (void)application:(UIApplication *)application
@@ -541,98 +551,188 @@ jobs:
                   UIBackgroundFetchResultNoData
               );
           }
+
           '''
 
-              # --------------------------------------------------------
-              # Insérer avant le @end FINAL.
-              # --------------------------------------------------------
-
-              end_matches = list(
-                  re.finditer(
-                      r"\n@end\s*$",
-                      m_text,
-                      re.MULTILINE
-                  )
-              )
-
-              if not end_matches:
-                  raise SystemExit(
-                      "❌ @end final introuvable dans SDLUIKitDelegate"
-                  )
-
-              end_match = end_matches[-1]
-
-              m_text = (
-                  m_text[:end_match.start()]
-                  + "\n"
-                  + block
-                  + "\n"
-                  + m_text[end_match.start():]
-              )
-
-              print("✓ Bloc Firebase/APNs V2 injecté")
-
-          else:
-              print("✓ Bloc Firebase/APNs V2 déjà présent")
 
           # ============================================================
-          # APPEL FIREBASE
-          #
-          # IMPORTANT :
-          # On ne lance pas Firebase au tout début de
-          # didFinishLaunchingWithOptions.
-          #
-          # Le lancement SDL doit d'abord terminer son initialisation.
+          # INSERTION DES HANDLERS AVANT LE @end FINAL
           # ============================================================
 
-          if CALL not in m_text:
-
-              launch_pattern = re.compile(
-                  r"("
-                  r"-\s*\(BOOL\)\s*application\s*:"
-                  r"\s*\(UIApplication\s*\*\)\s*application"
-                  r"\s*didFinishLaunchingWithOptions\s*:"
-                  r"\s*\(NSDictionary\s*\*\)\s*launchOptions"
-                  r"\s*\{"
-                  r")",
+          end_matches = list(
+              re.finditer(
+                  r"\n@end\s*$",
+                  sdl_text,
                   re.MULTILINE
               )
+          )
 
-              match = launch_pattern.search(m_text)
 
-              if not match:
-                  raise SystemExit(
-                      "❌ Signature didFinishLaunchingWithOptions "
-                      "introuvable"
-                  )
-
-              # --------------------------------------------------------
-              # NE PAS appeler Firebase ici.
-              #
-              # On planifie l'initialisation sur le main queue,
-              # après que le cycle de lancement courant ait continué.
-              # --------------------------------------------------------
-
-              delayed_call = """
-              dispatch_async(dispatch_get_main_queue(), ^{
-                  [self fcvvConfigureFirebaseAndNotifications];
-              });
-              """
-
-              m_text = (
-                  m_text[:match.end()]
-                  + "\n"
-                  + delayed_call
-                  + "\n"
-                  + m_text[match.end():]
+          if not end_matches:
+              raise SystemExit(
+                  "❌ @end final introuvable dans SDLUIKitDelegate"
               )
 
-              print(
-                  "✓ Initialisation Firebase planifiée après le lancement"
-              )
+
+          end_match = end_matches[-1]
+
+
+          sdl_text = (
+              sdl_text[:end_match.start()]
+              + "\n"
+              + handlers
+              + "\n"
+              + sdl_text[end_match.start():]
+          )
+
+
+          print("✓ Handlers APNs/FCM V3 injectés")
+
+
+          # ============================================================
+          # MAIN.M
+          #
+          # C'EST ICI QUE FIREBASE EST INITIALISE.
+          # ============================================================
+
+          if MAIN_MARKER in main_text:
+
+              print("✓ main.m contient déjà FCVV_FIREBASE_MAIN_V3")
 
           else:
-              print("✓ Appel Firebase déjà présent")
+
+              main_block = r'''
+          // ==========================================================
+          // FCVV_FIREBASE_MAIN_V3
+          //
+          // IMPORTANT :
+          // Firebase et APNs sont initialisés AVANT UIApplicationMain.
+          // SDLUIKitDelegate ne réalise PAS cette initialisation.
+          // ==========================================================
+
+          NSLog(@"[FCM iOS] Initialisation Firebase/APNs dans main.m");
+
+          if ([FIRApp defaultApp] == nil) {
+
+              [FIRApp configure];
+
+              NSLog(
+                  @"[FCM iOS] Firebase configure"
+              );
+
+          } else {
+
+              NSLog(
+                  @"[FCM iOS] Firebase déjà configuré"
+              );
+          }
+
+
+          if (@available(iOS 10.0, *)) {
+
+              UNAuthorizationOptions options =
+                  UNAuthorizationOptionAlert |
+                  UNAuthorizationOptionSound |
+                  UNAuthorizationOptionBadge;
+
+              [[UNUserNotificationCenter currentNotificationCenter]
+                  requestAuthorizationWithOptions:options
+                  completionHandler:^(BOOL granted,
+                                      NSError * _Nullable error) {
+
+                      if (error) {
+
+                          NSLog(
+                              @"[FCM iOS] Erreur permission notifications : %@",
+                              error
+                          );
+
+                          return;
+                      }
+
+                      NSLog(
+                          @"[FCM iOS] Permission notifications : %d",
+                          granted
+                      );
+
+                      dispatch_async(
+                          dispatch_get_main_queue(),
+                          ^{
+
+                              [[UIApplication sharedApplication]
+                                  registerForRemoteNotifications];
+
+                              NSLog(
+                                  @"[FCM iOS] Demande enregistrement APNS"
+                              );
+                          }
+                      );
+                  }
+              ];
+
+          } else {
+
+              [[UIApplication sharedApplication]
+                  registerForRemoteNotifications];
+
+              NSLog(
+                  @"[FCM iOS] Demande enregistrement APNS"
+              );
+          }
+
+          // ==========================================================
+          // FIN FCVV_FIREBASE_MAIN_V3
+          // ==========================================================
+
+          '''
+
+
+              # --------------------------------------------------------
+              # Trouver le main().
+              #
+              # On cherche :
+              #
+              # int main(...)
+              # {
+              #
+              # puis on injecte le bloc immédiatement après {.
+              # --------------------------------------------------------
+
+              main_pattern = re.compile(
+                  r"""
+                  (
+                      \bint\s+main\s*\(
+                      [^)]*
+                      \)\s*
+                      \{
+                  )
+                  """,
+                  re.DOTALL | re.VERBOSE
+              )
+
+
+              main_match = main_pattern.search(main_text)
+
+
+              if not main_match:
+                  raise SystemExit(
+                      "❌ Fonction main(...) introuvable dans main.m"
+                  )
+
+
+              main_text = (
+                  main_text[:main_match.end()]
+                  + "\n\n"
+                  + main_block
+                  + "\n"
+                  + main_text[main_match.end():]
+              )
+
+
+              print(
+                  "✓ Firebase/APNs injectés dans main.m"
+              )
+
 
           # ============================================================
           # ECRITURE
@@ -643,10 +743,16 @@ jobs:
               encoding="utf-8"
           )
 
-          m_path.write_text(
-              m_text,
+          sdl_path.write_text(
+              sdl_text,
               encoding="utf-8"
           )
+
+          main_path.write_text(
+              main_text,
+              encoding="utf-8"
+          )
+
 
           # ============================================================
           # VERIFICATIONS FINALES
@@ -656,64 +762,122 @@ jobs:
               encoding="utf-8"
           )
 
-          final_m = m_path.read_text(
+          final_sdl = sdl_path.read_text(
               encoding="utf-8"
           )
 
-          # Firebase NE DOIT PAS être dans le header.
+          final_main = main_path.read_text(
+              encoding="utf-8"
+          )
+
+
+          # ------------------------------------------------------------
+          # HEADER
+          # ------------------------------------------------------------
+
           if "FirebaseCore/FirebaseCore.h" in final_h:
               raise SystemExit(
-                  "❌ ERREUR : FirebaseCore est encore importé dans le .h"
+                  "❌ FirebaseCore encore présent dans le header"
               )
 
           if "FirebaseMessaging/FirebaseMessaging.h" in final_h:
               raise SystemExit(
-                  "❌ ERREUR : FirebaseMessaging est encore importé dans le .h"
+                  "❌ FirebaseMessaging encore présent dans le header"
               )
 
-          # Firebase DOIT être dans le .m.
-          if "FirebaseCore/FirebaseCore.h" not in final_m:
-              raise SystemExit(
-                  "❌ ERREUR : FirebaseCore absent du .m"
-              )
 
-          if "FirebaseMessaging/FirebaseMessaging.h" not in final_m:
-              raise SystemExit(
-                  "❌ ERREUR : FirebaseMessaging absent du .m"
-              )
-
-          if MARKER not in final_m:
-              raise SystemExit(
-                  "❌ ERREUR : marqueur Firebase absent du .m"
-              )
-
-          if CALL not in final_m:
-              raise SystemExit(
-                  "❌ ERREUR : appel Firebase absent du lancement"
-              )
-
-          if "dispatch_async(dispatch_get_main_queue()" not in final_m:
-              raise SystemExit(
-                  "❌ ERREUR : Firebase n'est pas planifié sur le main queue"
-              )
-          
           if "UNUserNotificationCenterDelegate" not in final_h:
               raise SystemExit(
-                  "❌ ERREUR : UNUserNotificationCenterDelegate absent du .h"
+                  "❌ UNUserNotificationCenterDelegate absent du header"
               )
 
           if "FIRMessagingDelegate" not in final_h:
               raise SystemExit(
-                  "❌ ERREUR : FIRMessagingDelegate absent du .h"
+                  "❌ FIRMessagingDelegate absent du header"
               )
 
-          print("✓ Header : aucun import Firebase")
-          print("✓ Header : protocoles Firebase/APNs déclarés")
-          print("✓ .m : FirebaseCore importé")
-          print("✓ .m : FirebaseMessaging importé")
-          print("✓ Bloc Firebase/APNs présent")
-          print("✓ Initialisation Firebase différée après le lancement")
-          print("✓ SDLUIKitDelegate patché avec succès")
+
+          # ------------------------------------------------------------
+          # SDL .M
+          # ------------------------------------------------------------
+
+          if SDL_MARKER not in final_sdl:
+              raise SystemExit(
+                  "❌ FCVV_FCM_HANDLERS_V3 absent du SDL .m"
+              )
+
+
+          if "fcvvConfigureFirebaseAndNotifications" in final_sdl:
+              raise SystemExit(
+                  "❌ Ancienne méthode V2 encore présente dans SDL"
+              )
+
+
+          if "[self fcvvConfigureFirebaseAndNotifications]" in final_sdl:
+              raise SystemExit(
+                  "❌ Ancien appel Firebase encore présent dans SDL"
+              )
+
+
+          # Firebase doit rester disponible dans SDL pour Messaging.
+          if "FirebaseCore/FirebaseCore.h" not in final_sdl:
+              raise SystemExit(
+                  "❌ FirebaseCore absent du SDL .m"
+              )
+
+          if "FirebaseMessaging/FirebaseMessaging.h" not in final_sdl:
+              raise SystemExit(
+                  "❌ FirebaseMessaging absent du SDL .m"
+              )
+
+
+          # ------------------------------------------------------------
+          # MAIN.M
+          # ------------------------------------------------------------
+
+          if MAIN_MARKER not in final_main:
+              raise SystemExit(
+                  "❌ FCVV_FIREBASE_MAIN_V3 absent de main.m"
+              )
+
+
+          if "[FIRApp configure]" not in final_main:
+              raise SystemExit(
+                  "❌ FIRApp configure absent de main.m"
+              )
+
+
+          if "requestAuthorizationWithOptions" not in final_main:
+              raise SystemExit(
+                  "❌ requestAuthorization absent de main.m"
+              )
+
+
+          if "registerForRemoteNotifications" not in final_main:
+              raise SystemExit(
+                  "❌ registerForRemoteNotifications absent de main.m"
+              )
+
+
+          # Firebase ne doit PAS être configuré dans SDL.
+          if "[FIRApp configure]" in final_sdl:
+              raise SystemExit(
+                  "❌ ERREUR : FIRApp configure encore présent dans SDL"
+              )
+
+
+          print("")
+          print("============================================================")
+          print("✓ FCVV PATCH V3 VALIDÉ")
+          print("============================================================")
+          print("✓ Firebase configure : main.m")
+          print("✓ Permission APNs    : main.m")
+          print("✓ register APNs      : main.m")
+          print("✓ APNs token         : SDLUIKitDelegate")
+          print("✓ FCM token          : SDLUIKitDelegate")
+          print("✓ Notifications      : SDLUIKitDelegate")
+          print("✓ Aucun Firebase init dans SDL")
+          print("============================================================")
           PY
 
           chmod +x "$GITHUB_WORKSPACE/apply_fcvv_patch.py"
@@ -721,7 +885,7 @@ jobs:
           python3 -m py_compile \
             "$GITHUB_WORKSPACE/apply_fcvv_patch.py"
 
-          echo "✓ apply_fcvv_patch.py prêt"
+          echo "✓ apply_fcvv_patch.py V3 prêt"
 
       # ============================================================
       # 5. BUILD KIVY-IOS + CREATE XCODE PROJECT
@@ -831,6 +995,86 @@ jobs:
           xcodebuild \
             -project "$PROJECT_FILE" \
             -list
+      
+      # ============================================================
+      # 5B. INSPECT GENERATED main.m
+      # ============================================================
+      - name: Inspect generated main.m
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "============================================================"
+          echo "  RECHERCHE DE main.m"
+          echo "============================================================"
+
+          MAIN_FILES="$(
+            find "$GITHUB_WORKSPACE" \
+              -name "main.m" \
+              -type f \
+              -print
+          )"
+
+          if [ -z "$MAIN_FILES" ]; then
+            echo "❌ Aucun main.m trouvé"
+            exit 1
+          fi
+
+          echo "$MAIN_FILES"
+
+          echo ""
+          echo "============================================================"
+          echo "  CONTENU DES main.m"
+          echo "============================================================"
+
+          while IFS= read -r MAIN_M
+          do
+            echo ""
+            echo "############################################################"
+            echo "### $MAIN_M"
+            echo "############################################################"
+            echo ""
+
+            nl -ba "$MAIN_M"
+
+          done <<< "$MAIN_FILES"
+
+          echo ""
+          echo "============================================================"
+          echo "  STRUCTURE DES RÉPERTOIRES"
+          echo "============================================================"
+
+          while IFS= read -r MAIN_M
+          do
+            DIR="$(dirname "$MAIN_M")"
+
+            echo ""
+            echo "### Répertoire : $DIR"
+            echo ""
+
+            ls -la "$DIR"
+
+          done <<< "$MAIN_FILES"
+
+          echo ""
+          echo "============================================================"
+          echo "  RECHERCHE UIApplicationMain"
+          echo "============================================================"
+
+          while IFS= read -r MAIN_M
+          do
+            echo ""
+            echo "### $MAIN_M"
+
+            grep -n \
+              -E \
+              "UIApplicationMain|int main|@autoreleasepool|SDLUIKitDelegate|IOS_IS_WINDOWED" \
+              "$MAIN_M" \
+              || true
+
+          done <<< "$MAIN_FILES"
+      
+      
       - name: Configure Firebase and install Pods
         shell: bash
         env:
@@ -1338,69 +1582,76 @@ jobs:
           echo "  FIREBASE / COCOAPODS TERMINÉ"
           echo "============================================================"
       # ============================================================
-      # 7. PATCH SDLUIKitDelegate
+      # 7. PATCH SDL + MAIN
       # ============================================================
-      - name: Apply FCVV Firebase patch to SDL
+      - name: Apply FCVV Firebase patch V3
         shell: bash
         run: |
           set -euo pipefail
-      
+
           echo "============================================================"
-          echo "  PATCH SDLUIKitDelegate"
+          echo "  PATCH SDLUIKitDelegate + main.m"
           echo "============================================================"
-      
+
           SDL_FILES="$(
             find "$GITHUB_WORKSPACE/build/sdl2" \
               -name "SDL_uikitappdelegate.m" \
               -type f
           )"
-      
+
           if [ -z "$SDL_FILES" ]; then
             echo "❌ SDL_uikitappdelegate.m introuvable"
             exit 1
           fi
-      
+
+          MAIN_M_FILE="$(
+            find "$GITHUB_WORKSPACE" \
+              -name "main.m" \
+              -type f \
+              -print \
+              -quit
+          )"
+
+          if [ -z "$MAIN_M_FILE" ]; then
+            echo "❌ main.m introuvable"
+            exit 1
+          fi
+
+          echo "✓ main.m : $MAIN_M_FILE"
+
           while IFS= read -r FILE
           do
             echo ""
             echo "============================================================"
-            echo "PATCH : $FILE"
+            echo "PATCH SDL : $FILE"
             echo "============================================================"
-      
+
             cp "$FILE" "$FILE.before-fcvv"
-      
-            HEADER="${FILE%.m}.h"
-      
-            if [ ! -f "$HEADER" ]; then
-              echo "❌ Header compagnon introuvable : $HEADER"
-              exit 1
-            fi
-      
+
             python3 \
               "$GITHUB_WORKSPACE/apply_fcvv_patch.py" \
-              "$FILE"
-      
-            echo ""
-            echo "=== VERIFICATION PATCH V2 ==="
-      
-            grep -n \
-              "FCVV_FCM_CONFIGURATION_V2" \
-              "$FILE"
-      
-            grep -n \
-              "FirebaseMessaging" \
-              "$FILE"
-      
-            grep -n \
-              "dispatch_async(dispatch_get_main_queue()" \
-              "$FILE"
-      
-            echo "✓ Vérification du patch V2 OK"
-      
+              "$FILE" \
+              "$MAIN_M_FILE"
+
           done <<< "$SDL_FILES"
-      
+
           echo ""
-          echo "✓ Tous les SDLUIKitDelegate ont été patchés"
+          echo "============================================================"
+          echo "  VERIFICATION V3"
+          echo "============================================================"
+
+          grep -R -n \
+            "FCVV_FCM_HANDLERS_V3" \
+            "$GITHUB_WORKSPACE/build/sdl2" \
+            || true
+
+          grep -R -n \
+            "FCVV_FIREBASE_MAIN_V3" \
+            "$MAIN_M_FILE" \
+            || true
+
+          echo ""
+          echo "✓ Patch V3 terminé"
 
       # ============================================================
       # 8. REBUILD SDL2 + SYNCHRONISATION DU LIBSDL2.A FINAL
