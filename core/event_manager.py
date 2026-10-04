@@ -906,110 +906,68 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
 
     return chemin
 
-
 def _partager_pdf_ios(chemin):
     """Ouvre la feuille de partage native iOS pour le PDF."""
 
-    print(
-        "[DEBUG] Entree dans _partager_pdf_ios"
-    )
+    print("[DEBUG] Entree dans _partager_pdf_ios")
 
     try:
+        import os
+        import traceback
 
-        # ========================================================
-        # IMPORT PYOBJUS
-        # ========================================================
-
-        print(
-            "[DEBUG] Import de pyobjus..."
-        )
+        print("[DEBUG] Import de pyobjus...")
 
         from pyobjus import autoclass
 
-        print(
-            "[DEBUG] Pyobjus importe avec succes."
-        )
+        print("[DEBUG] Pyobjus importe avec succes.")
 
         # ========================================================
         # CLASSES OBJECTIVE-C
         # ========================================================
 
-        NSURL = autoclass(
-            "NSURL"
-        )
-
+        NSURL = autoclass("NSURL")
+        UIApplication = autoclass("UIApplication")
         UIActivityViewController = autoclass(
             "UIActivityViewController"
-        )
-
-        UIApplication = autoclass(
-            "UIApplication"
         )
 
         # ========================================================
         # VERIFICATION DU PDF
         # ========================================================
 
-        import os
-
         if not os.path.isfile(chemin):
-
             print(
-                "[DEBUG] ERREUR : fichier PDF "
-                f"introuvable : {chemin}"
+                "[DEBUG] ERREUR : fichier PDF introuvable : "
+                f"{chemin}"
             )
-
             return
 
-        taille_pdf = os.path.getsize(
-            chemin
-        )
+        taille_pdf = os.path.getsize(chemin)
 
-        print(
-            "[DEBUG] PDF trouve : "
-            f"{chemin}"
-        )
+        print(f"[DEBUG] PDF trouve : {chemin}")
+        print(f"[DEBUG] Taille PDF : {taille_pdf} octets")
 
-        print(
-            "[DEBUG] Taille PDF : "
-            f"{taille_pdf} octets"
-        )
+        if taille_pdf <= 0:
+            print("[DEBUG] ERREUR : PDF vide.")
+            return
 
         # ========================================================
         # NSURL
         # ========================================================
 
-        file_url = NSURL.fileURLWithPath_(
-            chemin
-        )
+        file_url = NSURL.fileURLWithPath_(chemin)
 
         if not file_url:
-
-            print(
-                "[DEBUG] ERREUR : impossible "
-                "de creer NSURL"
-            )
-
+            print("[DEBUG] ERREUR : impossible de creer NSURL.")
             return
 
-        print(
-            "[DEBUG] NSURL cree avec succes."
-        )
+        print("[DEBUG] NSURL cree avec succes.")
 
         # ========================================================
-        # CONTROLEUR DE PARTAGE
+        # UIActivityViewController
         # ========================================================
 
-        # IMPORTANT :
-        # Aucun import de :
-        #
-        # from pyobjus.objc_py_conversion import python_to_objc
-        #
-        # n'est nécessaire ici.
-
-        activity_items = [
-            file_url
-        ]
+        activity_items = [file_url]
 
         activity_vc = (
             UIActivityViewController
@@ -1021,47 +979,122 @@ def _partager_pdf_ios(chemin):
         )
 
         if not activity_vc:
-
             print(
                 "[DEBUG] ERREUR : "
-                "UIActivityViewController "
-                "non cree"
+                "UIActivityViewController non cree."
             )
-
             return
 
         print(
-            "[DEBUG] UIActivityViewController "
-            "cree."
+            "[DEBUG] UIActivityViewController cree."
         )
 
         # ========================================================
-        # APPLICATION
+        # APPLICATION iOS
         # ========================================================
 
-        app = (
-            UIApplication
-            .sharedApplication()
-        )
+        app = UIApplication.sharedApplication()
 
-        window = app.keyWindow
+        if not app:
+            print(
+                "[DEBUG] ERREUR : UIApplication "
+                "introuvable."
+            )
+            return
+
+        print("[DEBUG] UIApplication recuperee.")
+
+        # ========================================================
+        # RECHERCHE DE LA FENETRE
+        # ========================================================
+
+        window = None
+
+        # --------------------------------------------------------
+        # Methode 1 : keyWindow
+        # --------------------------------------------------------
+
+        try:
+            window = app.keyWindow()
+
+            if window:
+                print(
+                    "[DEBUG] keyWindow trouvee."
+                )
+
+        except Exception as e:
+            print(
+                "[DEBUG] keyWindow() indisponible : "
+                f"{type(e).__name__}: {e}"
+            )
+
+        # --------------------------------------------------------
+        # Methode 2 : windows
+        # --------------------------------------------------------
 
         if not window:
 
-            print(
-                "[DEBUG] keyWindow introuvable, "
-                "recherche dans windows..."
-            )
+            try:
+                windows = app.windows()
 
-            windows = app.windows
+                print(
+                    "[DEBUG] Recherche dans UIApplication.windows()..."
+                )
 
-            if (
-                windows
-                and windows.count() > 0
-            ):
+                if windows:
 
-                window = (
-                    windows.objectAtIndex_(0)
+                    count = windows.count()
+
+                    print(
+                        f"[DEBUG] Nombre de fenetres : {count}"
+                    )
+
+                    for i in range(count):
+
+                        try:
+                            candidate = (
+                                windows.objectAtIndex_(i)
+                            )
+
+                            if candidate:
+
+                                # On cherche de preference
+                                # une fenetre visible.
+                                hidden = False
+
+                                try:
+                                    hidden = (
+                                        candidate.isHidden()
+                                    )
+                                except Exception:
+                                    pass
+
+                                if not hidden:
+                                    window = candidate
+
+                                    print(
+                                        "[DEBUG] Fenetre "
+                                        f"selectionnee : index={i}"
+                                    )
+
+                                    break
+
+                        except Exception as window_error:
+
+                            print(
+                                "[DEBUG] Erreur fenetre "
+                                f"{i} : "
+                                f"{type(window_error).__name__}: "
+                                f"{window_error}"
+                            )
+
+            except Exception as windows_error:
+
+                print(
+                    "[DEBUG] Impossible d'obtenir "
+                    f"UIApplication.windows() : "
+                    f"{type(windows_error).__name__}: "
+                    f"{windows_error}"
                 )
 
         if not window:
@@ -1073,30 +1106,118 @@ def _partager_pdf_ios(chemin):
 
             return
 
-        print(
-            "[DEBUG] Fenetre iOS trouvee."
-        )
+        print("[DEBUG] Fenetre iOS trouvee.")
 
         # ========================================================
         # ROOT VIEW CONTROLLER
         # ========================================================
 
-        root_vc = window.rootViewController
+        try:
+            root_vc = window.rootViewController()
+
+        except Exception as root_error:
+
+            print(
+                "[DEBUG] ERREUR lors de "
+                "rootViewController() : "
+                f"{type(root_error).__name__}: "
+                f"{root_error}"
+            )
+
+            traceback.print_exc()
+
+            return
 
         if not root_vc:
 
             print(
                 "[DEBUG] ERREUR : "
-                "Root ViewController "
-                "introuvable."
+                "Root ViewController introuvable."
             )
 
             return
 
         print(
-            "[DEBUG] Root ViewController "
-            "trouve."
+            "[DEBUG] Root ViewController trouve."
         )
+
+        # ========================================================
+        # RECHERCHE DU VIEW CONTROLLER ACTUEL
+        # ========================================================
+
+        presenter = root_vc
+
+        # NavigationController
+        try:
+            nav_vc = presenter.navigationController()
+
+            if nav_vc:
+                visible_vc = nav_vc.visibleViewController()
+
+                if visible_vc:
+                    presenter = visible_vc
+
+                    print(
+                        "[DEBUG] Visible ViewController "
+                        "selectionne."
+                    )
+
+        except Exception as nav_error:
+
+            print(
+                "[DEBUG] NavigationController "
+                "non exploitable : "
+                f"{type(nav_error).__name__}: "
+                f"{nav_error}"
+            )
+
+        # TabBarController
+        try:
+            tab_vc = presenter.tabBarController()
+
+            if tab_vc:
+                selected_vc = tab_vc.selectedViewController()
+
+                if selected_vc:
+                    presenter = selected_vc
+
+                    print(
+                        "[DEBUG] Selected ViewController "
+                        "selectionne."
+                    )
+
+        except Exception as tab_error:
+
+            print(
+                "[DEBUG] TabBarController "
+                "non exploitable : "
+                f"{type(tab_error).__name__}: "
+                f"{tab_error}"
+            )
+
+        # ========================================================
+        # VERIFICATION : DEJA PRESENTE ?
+        # ========================================================
+
+        try:
+            presented = presenter.presentedViewController()
+
+            if presented:
+                print(
+                    "[DEBUG] Un ViewController est deja "
+                    "presente. Utilisation de celui-ci."
+                )
+
+                presenter = presented
+
+        except Exception as presented_error:
+
+            print(
+                "[DEBUG] Impossible de recuperer "
+                "presentedViewController : "
+                f"{type(presented_error).__name__}: "
+                f"{presented_error}"
+            )
 
         # ========================================================
         # IPAD / POPOVER
@@ -1111,20 +1232,28 @@ def _partager_pdf_ios(chemin):
 
             if popover:
 
-                view = root_vc.view()
-
-                popover.setSourceView_(
-                    view
-                )
-
-                popover.setSourceRect_(
-                    view.bounds
-                )
-
                 print(
-                    "[DEBUG] Popover iPad "
-                    "configure."
+                    "[DEBUG] Configuration du popover iPad..."
                 )
+
+                view = presenter.view()
+
+                if view:
+
+                    popover.setSourceView_(view)
+
+                    try:
+                        bounds = view.bounds()
+
+                    except Exception:
+                        bounds = None
+
+                    if bounds:
+                        popover.setSourceRect_(bounds)
+
+                    print(
+                        "[DEBUG] Popover iPad configure."
+                    )
 
         except Exception as popover_error:
 
@@ -1135,7 +1264,7 @@ def _partager_pdf_ios(chemin):
             )
 
         # ========================================================
-        # AFFICHAGE
+        # PRESENTATION
         # ========================================================
 
         print(
@@ -1143,15 +1272,14 @@ def _partager_pdf_ios(chemin):
             "de partage iOS..."
         )
 
-        root_vc.presentViewController_animated_completion_(
+        presenter.presentViewController_animated_completion_(
             activity_vc,
             True,
             None
         )
 
         print(
-            "[DEBUG] Partage iOS affiche "
-            "avec succes."
+            "[DEBUG] Partage iOS affiche avec succes."
         )
 
     except ImportError as import_error:
@@ -1160,6 +1288,9 @@ def _partager_pdf_ios(chemin):
             "[DEBUG] ERREUR ImportError pyobjus : "
             f"{import_error}"
         )
+
+        import traceback
+        traceback.print_exc()
 
     except Exception as share_error:
 
@@ -1170,7 +1301,6 @@ def _partager_pdf_ios(chemin):
         )
 
         import traceback
-
         traceback.print_exc()
 
 class DateTextInput(TextInput):
