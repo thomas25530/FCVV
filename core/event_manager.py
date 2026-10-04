@@ -132,9 +132,12 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
         pdf.set_font("DejaVu", "B", 17)
         if logo:
             try:
+                print(f"[DEBUG] Ajout du logo : {logo}")
                 pdf.image(logo, 10, 10, 23, 23)
                 pdf.set_xy(38, 16)
+                print("[DEBUG] Logo ajoute avec succes.")
             except Exception:
+                print(f"[DEBUG] ERREUR ajout logo : {type(e).__name__}: {e}")
                 pass
         pdf.cell(0, 10, txt(titre, 60).upper(), align="C")
         pdf.ln(17)
@@ -248,59 +251,144 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             
     return chemin
 
-
 def _partager_pdf_ios(chemin):
-    """Fonction dediee pour ouvrir la feuille de partage native iOS proprement sur le main thread"""
+    """Ouvre la feuille de partage native iOS pour le PDF."""
+
     print("[DEBUG] Entree dans _partager_pdf_ios")
+
     try:
-        print("[DEBUG] Tentative d'importation de pyobjus...")
+        print("[DEBUG] Import de pyobjus...")
+
         from pyobjus import autoclass
-        from pyobjus.objc_py_conversion import python_to_objc
+
         print("[DEBUG] Pyobjus importe avec succes.")
 
         NSURL = autoclass("NSURL")
         UIActivityViewController = autoclass("UIActivityViewController")
         UIApplication = autoclass("UIApplication")
 
-        # Conversion du chemin en NSURL
-        file_url = NSURL.fileURLWithPath_(chemin)
-        
-        # Creation de l'activite de partage avec le fichier PDF
-        activity_items = python_to_objc([file_url])
-        activity_vc = UIActivityViewController.alloc().initWithActivityItems_applicationActivities_(activity_items, None)
+        # ---------------------------------------------------------
+        # 1. Vérification du fichier
+        # ---------------------------------------------------------
 
-        # Recuperation de la fenetre principale et du controleur racine (Root ViewController)
-        app_instance = UIApplication.sharedApplication()
-        window = app_instance.keyWindow
-        if not window:
-            windows = app_instance.windows
-            if windows and windows.count() > 0:
-                window = windows.objectAtIndex_(0)
-        
-        if not window or not window.rootViewController():
-            print("[DEBUG] Erreur iOS : Impossible de trouver le Root ViewController.")
+        import os
+
+        if not os.path.isfile(chemin):
+            print(f"[DEBUG] ERREUR : fichier PDF introuvable : {chemin}")
             return
 
-        root_vc = window.rootViewController()
-        
-        # Gestion des iPads
-        try:
-            if activity_vc.respondsToSelector_(autoclass("NSString").stringWithString_("popoverPresentationController")):
-                popover = activity_vc.popoverPresentationController()
-                if popover:
-                    popover.setSourceView_(root_vc.view())
-        except Exception:
-            pass
+        print(f"[DEBUG] PDF trouve : {chemin}")
+        print(f"[DEBUG] Taille PDF : {os.path.getsize(chemin)} octets")
 
-        # Affichage du menu de partage
+        # ---------------------------------------------------------
+        # 2. Création de l'URL NSURL
+        # ---------------------------------------------------------
+
+        file_url = NSURL.fileURLWithPath_(chemin)
+
+        if not file_url:
+            print("[DEBUG] ERREUR : impossible de créer NSURL")
+            return
+
+        print("[DEBUG] NSURL cree avec succes.")
+
+        # ---------------------------------------------------------
+        # 3. Création du contrôleur de partage
+        # ---------------------------------------------------------
+
+        # IMPORTANT :
+        # Pas de python_to_objc ici.
+        activity_items = [file_url]
+
+        activity_vc = (
+            UIActivityViewController
+            .alloc()
+            .initWithActivityItems_applicationActivities_(
+                activity_items,
+                None
+            )
+        )
+
+        if not activity_vc:
+            print("[DEBUG] ERREUR : UIActivityViewController non cree")
+            return
+
+        print("[DEBUG] UIActivityViewController cree.")
+
+        # ---------------------------------------------------------
+        # 4. Récupération de l'application iOS
+        # ---------------------------------------------------------
+
+        app = UIApplication.sharedApplication()
+
+        window = app.keyWindow
+
+        if not window:
+            print("[DEBUG] keyWindow introuvable, recherche dans windows...")
+
+            windows = app.windows
+
+            if windows and windows.count() > 0:
+                window = windows.objectAtIndex_(0)
+
+        if not window:
+            print("[DEBUG] ERREUR : aucune fenêtre iOS trouvée.")
+            return
+
+        print("[DEBUG] Fenetre iOS trouvee.")
+
+        # ---------------------------------------------------------
+        # 5. Root View Controller
+        # ---------------------------------------------------------
+
+        root_vc = window.rootViewController()
+
+        if not root_vc:
+            print("[DEBUG] ERREUR : Root ViewController introuvable.")
+            return
+
+        print("[DEBUG] Root ViewController trouve.")
+
+        # ---------------------------------------------------------
+        # 6. Gestion iPad / Popover
+        # ---------------------------------------------------------
+
+        try:
+            popover = activity_vc.popoverPresentationController()
+
+            if popover:
+                view = root_vc.view()
+
+                popover.setSourceView_(view)
+                popover.setSourceRect_(view.bounds)
+
+                print("[DEBUG] Popover iPad configure.")
+
+        except Exception as e:
+            print(f"[DEBUG] Popover non configure : {e}")
+
+        # ---------------------------------------------------------
+        # 7. Affichage
+        # ---------------------------------------------------------
+
         print("[DEBUG] Affichage du controleur de partage iOS...")
-        root_vc.presentViewController_animated_completion_(activity_vc, True, None)
+
+        root_vc.presentViewController_animated_completion_(
+            activity_vc,
+            True,
+            None
+        )
+
         print("[DEBUG] Partage iOS affiche avec succes.")
 
-    except ImportError as ie:
-        print(f"[DEBUG] ERREUR ImportError pyobjus : {ie}")
+    except ImportError as e:
+        print(f"[DEBUG] ERREUR ImportError pyobjus : {e}")
+
     except Exception as e:
-        print(f"[DEBUG] ERREUR Generale partage iOS : {e}")
+        print(
+            f"[DEBUG] ERREUR Generale partage iOS : "
+            f"{type(e).__name__}: {e}"
+        )
 
 class DateTextInput(TextInput):
     def insert_text(self, substring, from_undo=False):
