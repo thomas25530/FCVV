@@ -46,11 +46,21 @@ def obtenir_dossier_documents():
     return os.path.expanduser("~/Documents")
 
 def generer_pdf_convocation(match_info, tous_les_joueurs=None):
-    import os
-    import sys
-    from fpdf import FPDF
-    from kivy.app import App
-    from kivy.utils import platform
+    # PREMIER PRINT DE SECURITE (AVANT TOUT IMPORT)
+    print("--- [DEBUG EXTREME] Entree dans generer_pdf_convocation ---")
+
+
+    try:
+        import os
+        import sys
+        from fpdf import FPDF
+        from kivy.app import App
+        from kivy.utils import platform
+        print("[DEBUG] Imports reussis avec succes !")
+    except Exception as e_import:
+        print(f"[CRASH IMPORT] Erreur lors des imports : {type(e_import).__name__}: {e_import}")
+        sys.stdout.flush()
+        return
 
     print("[DEBUG] Debut de la fonction generer_pdf_convocation")
 
