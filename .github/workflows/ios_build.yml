@@ -1680,6 +1680,97 @@ jobs:
           echo "✓ Patch V3 terminé"
 
       # ============================================================
+      # 7.5 AFFICHAGE DU CONTENU REEL DE SDL_uikitappdelegate.m
+      # ============================================================
+      - name: Inspect SDL_uikitappdelegate.m after FCVV patch
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "============================================================"
+          echo "  INSPECTION SDL_uikitappdelegate.m APRES PATCH"
+          echo "============================================================"
+
+          SDL_FILES="$(
+            find "$GITHUB_WORKSPACE/build/sdl2" \
+              -name "SDL_uikitappdelegate.m" \
+              -type f \
+              -print
+          )"
+
+          if [ -z "$SDL_FILES" ]; then
+            echo "❌ SDL_uikitappdelegate.m introuvable"
+            exit 1
+          fi
+
+          while IFS= read -r FILE
+          do
+            echo ""
+            echo "============================================================"
+            echo "FICHIER : $FILE"
+            echo "============================================================"
+
+            echo ""
+            echo "=== TAILLE DU FICHIER ==="
+            wc -l "$FILE"
+
+            echo ""
+            echo "=== CONTENU COMPLET DE SDL_uikitappdelegate.m ==="
+            echo "------------------------------------------------------------"
+
+            nl -ba "$FILE"
+
+            echo "------------------------------------------------------------"
+
+            echo ""
+            echo "=== RECHERCHE UNUserNotificationCenterDelegate ==="
+
+            grep -n \
+              "UNUserNotificationCenterDelegate" \
+              "$FILE" \
+              || echo "⚠️ UNUserNotificationCenterDelegate absent"
+
+            echo ""
+            echo "=== RECHERCHE willPresentNotification ==="
+
+            grep -n \
+              "willPresentNotification" \
+              "$FILE" \
+              || echo "⚠️ willPresentNotification absent"
+
+            echo ""
+            echo "=== RECHERCHE didReceiveNotificationResponse ==="
+
+            grep -n \
+              "didReceiveNotificationResponse" \
+              "$FILE" \
+              || echo "⚠️ didReceiveNotificationResponse absent"
+
+            echo ""
+            echo "=== RECHERCHE UNUserNotificationCenter delegate ==="
+
+            grep -n -E \
+              "setDelegate|\.delegate[[:space:]]*=" \
+              "$FILE" \
+              || echo "⚠️ Aucun delegate UNUserNotificationCenter trouvé"
+
+            echo ""
+            echo "=== RECHERCHE HANDLERS FIREBASE/APNs ==="
+
+            grep -n -E \
+              "didRegisterForRemoteNotificationsWithDeviceToken|didFailToRegisterForRemoteNotificationsWithError|messaging:.*didReceiveRegistrationToken" \
+              "$FILE" \
+              || echo "⚠️ Aucun handler Firebase/APNs trouvé"
+
+          done <<< "$SDL_FILES"
+
+          echo ""
+          echo "============================================================"
+          echo "✓ INSPECTION SDL TERMINEE"
+          echo "============================================================"
+      
+      
+      # ============================================================
       # 8. REBUILD SDL2 + SYNCHRONISATION DU LIBSDL2.A FINAL
       # ============================================================
       - name: Rebuild SDL2 and sync libSDL2.a with fcvv.xcodeproj
