@@ -1250,6 +1250,89 @@ class EventManager:
         
         popup_ref = []
 
+        def demander_commit_et_sauvegarder(executer_sauvegarde):
+            content_commit = BoxLayout(
+                orientation="vertical",
+                padding=dp(15),
+                spacing=dp(10)
+            )
+        
+            ti_commit = TextInput(
+                hint_text="Ex : Modification de l'heure",
+                multiline=False,
+                size_hint_y=None,
+                height=dp(40),
+                background_color=(1, 1, 1, 1),
+                foreground_color=(0.1, 0.1, 0.1, 1),
+                cursor_color=(0.1, 0.1, 0.1, 1)
+            )
+        
+            content_commit.add_widget(ti_commit)
+        
+            btn_valider_commit = Button(
+                text="Confirmer l'enregistrement",
+                size_hint_y=None,
+                height=dp(45),
+                background_normal="",
+                background_color=(0.15, 0.65, 0.35, 1),
+                color=(1, 1, 1, 1),
+                bold=True
+            )
+        
+            content_commit.add_widget(btn_valider_commit)
+        
+            content_commit.add_widget(
+                Label(
+                    text="[b]Motif de la modification[/b]",
+                    markup=True,
+                    size_hint_y=None,
+                    height=dp(30),
+                    color=(0.15, 0.45, 0.25, 1)
+                )
+            )
+        
+            content_commit.add_widget(Widget())
+        
+            popup_commit = Popup(
+                title="Motif de modification",
+                content=content_commit,
+                size_hint=(0.8, 0.4),
+                separator_height=0,
+                auto_dismiss=False
+            )
+        
+            def valider(instance):
+                print("[COMMIT] =============================")
+                print("[COMMIT] BOUTON CONFIRMER")
+                
+                msg = ti_commit.text.strip()
+                print("[COMMIT] message =", repr(msg))
+        
+                # Important iOS
+                ti_commit.focus = False
+        
+                def fermer_et_sauver(dt):
+                    print("[COMMIT] fermeture popup")
+        
+                    if popup_commit._is_open:
+                        popup_commit.dismiss()
+        
+                    if popup_ref and popup_ref[0] and popup_ref[0]._is_open:
+                        popup_ref[0].dismiss()
+        
+                    def lancer(dt2):
+                        print("[COMMIT] >>> EXECUTION SAUVEGARDE")
+                        executer_sauvegarde(msg)
+                        print("[COMMIT] <<< EXECUTION SAUVEGARDE")
+        
+                    Clock.schedule_once(lancer, 0.15)
+        
+                Clock.schedule_once(fermer_et_sauver, 0.3)
+        
+            btn_valider_commit.bind(on_release=valider)
+        
+            popup_commit.open()
+        
         def rafraichir_formulaire(t):
             nonlocal current_type
             current_type = t
@@ -2037,126 +2120,7 @@ class EventManager:
                 
                     if est_une_modification:
                 
-                        print("\n" + "=" * 80)
-                        print("[COMMIT] MODE MODIFICATION")
-                        print("[COMMIT] Creation popup 'Motif de modification'")
-                        print("=" * 80)
-                
-                        content_commit = BoxLayout(
-                            orientation="vertical",
-                            padding=dp(15),
-                            spacing=dp(10)
-                        )
-                
-                        ti_commit = TextInput(
-                            hint_text="Ex: Modification de l'heure du RDV",
-                            multiline=False,
-                            size_hint_y=None,
-                            height=dp(40),
-                            background_color=(1, 1, 1, 1),
-                            foreground_color=(0.1, 0.1, 0.1, 1),
-                            cursor_color=(0.1, 0.1, 0.1, 1)
-                        )
-                
-                        content_commit.add_widget(ti_commit)
-                
-                        btn_valider_commit = Button(
-                            text="Confirmer l'enregistrement",
-                            size_hint_y=None,
-                            height=dp(45),
-                            background_normal="",
-                            background_color=(0.15, 0.65, 0.35, 1),
-                            color=(1, 1, 1, 1),
-                            bold=True
-                        )
-                
-                        content_commit.add_widget(
-                            btn_valider_commit
-                        )
-                
-                        content_commit.add_widget(
-                            Label(
-                                text="[b]Note de modification (optionnel)[/b]",
-                                markup=True,
-                                size_hint_y=None,
-                                height=dp(30),
-                                color=(0.15, 0.45, 0.25, 1)
-                            )
-                        )
-                
-                        content_commit.add_widget(
-                            Widget()
-                        )
-                
-                        popup_commit = Popup(
-                            title="Motif de modification",
-                            content=content_commit,
-                            size_hint=(0.8, 0.4),
-                            separator_height=0,
-                            auto_dismiss=False
-                        )
-                
-                        # ---------------------------------------------------------
-                        # DEBUG POPUP COMMIT
-                        # ---------------------------------------------------------
-                
-                        def debug_popup_open(*args):
-                            print("[POPUP COMMIT] on_open")
-                
-                        def debug_popup_dismiss(*args):
-                            print("[POPUP COMMIT] on_dismiss")
-                            print("[POPUP COMMIT] dismiss declenche")
-                
-                        def debug_popup_touch_down(instance, touch):
-                            print(
-                                "[POPUP COMMIT] touch_down "
-                                f"pos={touch.pos}"
-                            )
-                
-                        popup_commit.bind(
-                            on_open=debug_popup_open,
-                            on_dismiss=debug_popup_dismiss
-                        )
-                
-                        # ---------------------------------------------------------
-                        # CLIC CONFIRMATION
-                        # ---------------------------------------------------------
-                
-                        def valider_avec_commit(instance):
-                            print("[COMMIT BUTTON] CLIC SUR CONFIRMER")
-                        
-                            msg = ti_commit.text.strip()
-                            print("[COMMIT BUTTON] msg =", repr(msg))
-                        
-                            # Important sur iOS :
-                            # retirer le focus du TextInput avant de fermer le Popup.
-                            ti_commit.focus = False
-                        
-                            def fermer_popup_et_sauvegarder(dt):
-                                print("[COMMIT BUTTON] Fermeture popup_commit")
-                        
-                                if popup_commit and popup_commit._is_open:
-                                    popup_commit.dismiss()
-                                if popup_ref and popup_ref[0] and popup_ref[0]._is_open:
-                                    popup_ref[0].dismiss()
-                        
-                                def lancer_sauvegarde(dt2):
-                                    print("[CLOCK COMMIT] Lancement executer_sauvegarde")
-                                    executer_sauvegarde(msg)
-                        
-                                Clock.schedule_once(lancer_sauvegarde, 0.15)
-                        
-                            # Laisser iOS terminer la gestion du clavier virtuel
-                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.3)
-
-                
-                        btn_valider_commit.bind(on_release=valider_avec_commit)
-                        print("[COMMIT] Ouverture popup_commit")
-                        popup_commit.open()
-                
-                        print(
-                            "[COMMIT] popup_commit.open() termine"
-                        )
+                        demander_commit_et_sauvegarder(executer_sauvegarde)
                 
                     # =============================================================
                     # NOUVEL ÉVÉNEMENT
@@ -2403,50 +2367,7 @@ class EventManager:
                             popup_ref[0].dismiss()
 
                     if est_une_modification:
-                        content_commit = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-                        ti_commit = TextInput(hint_text="Ex: Modification de l'heure", multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
-                        content_commit.add_widget(ti_commit)
-                        
-                        btn_valider_commit = Button(text="Confirmer l'enregistrement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
-                        content_commit.add_widget(btn_valider_commit)
-                        content_commit.add_widget(Label(text="[b]Motif de la modification[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
-                        content_commit.add_widget(Widget())
-                        
-                        popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
-                        
-                        # ---------------------------------------------------------
-                        # CLIC CONFIRMATION
-                        # ---------------------------------------------------------
-                
-                        def valider_avec_commit(instance):
-                            print("[COMMIT BUTTON] CLIC SUR CONFIRMER")
-                        
-                            msg = ti_commit.text.strip()
-                            print("[COMMIT BUTTON] msg =", repr(msg))
-                        
-                            # Important sur iOS :
-                            # retirer le focus du TextInput avant de fermer le Popup.
-                            ti_commit.focus = False
-                        
-                            def fermer_popup_et_sauvegarder(dt):
-                                print("[COMMIT BUTTON] Fermeture popup_commit")
-                        
-                                if popup_commit and popup_commit._is_open:
-                                    popup_commit.dismiss()
-                                if popup_ref and popup_ref[0] and popup_ref[0]._is_open:
-                                    popup_ref[0].dismiss()
-                        
-                                def lancer_sauvegarde(dt2):
-                                    print("[CLOCK COMMIT] Lancement executer_sauvegarde")
-                                    executer_sauvegarde(msg)
-                        
-                                Clock.schedule_once(lancer_sauvegarde, 0.15)
-                        
-                            # Laisser iOS terminer la gestion du clavier virtuel
-                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.3)
-                            
-                        btn_valider_commit.bind(on_release=valider_avec_commit)
-                        popup_commit.open()
+                        demander_commit_et_sauvegarder(executer_sauvegarde)
                     else:
                         executer_sauvegarde("Création d'entraînement récurrent" if chk_recurrent.active else "Création de l'entraînement")
 
@@ -2660,56 +2581,7 @@ class EventManager:
                             popup_ref[0].dismiss()
 
                     if est_une_modification:
-                        content_commit = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-                        
-                        # 1. Champ de saisie tout en haut
-                        ti_commit = TextInput(hint_text="Ex: Modification de l'événement", multiline=False, size_hint_y=None, height=dp(40), background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
-                        content_commit.add_widget(ti_commit)
-                        
-                        # 2. Bouton de confirmation juste en dessous
-                        btn_valider_commit = Button(text="Confirmer l'enregistrement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
-                        content_commit.add_widget(btn_valider_commit)
-                        
-                        # 3. Label explicatif placé en dessous
-                        content_commit.add_widget(Label(text="[b]Motif de la modification[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
-                        
-                        content_commit.add_widget(Widget())
-                        
-                        popup_commit = Popup(title="Modification", content=content_commit, size_hint=(0.8, 0.4), separator_height=0)
-                        
-                        # ---------------------------------------------------------
-                        # CLIC CONFIRMATION
-                        # ---------------------------------------------------------
-                
-                        def valider_avec_commit(instance):
-                            print("[COMMIT BUTTON] CLIC SUR CONFIRMER")
-                        
-                            msg = ti_commit.text.strip()
-                            print("[COMMIT BUTTON] msg =", repr(msg))
-                        
-                            # Important sur iOS :
-                            # retirer le focus du TextInput avant de fermer le Popup.
-                            ti_commit.focus = False
-                        
-                            def fermer_popup_et_sauvegarder(dt):
-                                print("[COMMIT BUTTON] Fermeture popup_commit")
-                        
-                                if popup_commit and popup_commit._is_open:
-                                    popup_commit.dismiss()
-                                if popup_ref and popup_ref[0] and popup_ref[0]._is_open:
-                                    popup_ref[0].dismiss()
-                        
-                                def lancer_sauvegarde(dt2):
-                                    print("[CLOCK COMMIT] Lancement executer_sauvegarde")
-                                    executer_sauvegarde(msg)
-                        
-                                Clock.schedule_once(lancer_sauvegarde, 0.15)
-                        
-                            # Laisser iOS terminer la gestion du clavier virtuel
-                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.3)
-                            
-                        btn_valider_commit.bind(on_release=valider_avec_commit)
-                        popup_commit.open()
+                        demander_commit_et_sauvegarder(executer_sauvegarde)
                     else:
                         executer_sauvegarde("Création de l'événement")
 
