@@ -1297,6 +1297,12 @@ class MyApp(App):
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
             notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
+
+            # Même fallback que sur Android
+            if not notif_type:
+                notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
+            
+            print(f"[iOS FCM] notif_type final = {notif_type!r}")
             print("[iOS FCM] ===== DONNEES NOTIFICATION =====")
             print(f"[iOS FCM] Titre      : {titre}")
             print(f"[iOS FCM] Message    : {message}")
@@ -1396,23 +1402,42 @@ class MyApp(App):
                 print(f"[FCM REDIRECT] Erreur abonnement : {e}")
                 
             nt = (notif_type or "").strip().lower()
-            sous_onglet = (
-                "CHAT" if nt == "echange"
-                else "MESSAGES" if nt in (
-                    "chat",
-                    "message",
-                    "messages",
-                    "nouveau_message"
+
+            print("[FCM REDIRECT] ================================")
+            print(f"[FCM REDIRECT] categorie   = {categorie!r}")
+            print(f"[FCM REDIRECT] match_id    = {match_id!r}")
+            print(f"[FCM REDIRECT] notif_type  = {notif_type!r}")
+            print(f"[FCM REDIRECT] nt          = {nt!r}")
+            
+            if nt == "echange":
+                sous_onglet = "CHAT"
+            
+            elif nt in (
+                "chat",
+                "message",
+                "messages",
+                "nouveau_message"
+            ):
+                sous_onglet = "MESSAGES"
+            
+            elif nt in (
+                "evenement",
+                "événement",
+                "event",
+                "creation_evenement",
+                "evenement_creation",
+                "convocation"
+            ):
+                sous_onglet = "CALENDRIER"
+            
+            else:
+                print(
+                    f"[FCM REDIRECT] ⚠️ TYPE INCONNU : {notif_type!r}"
                 )
-                else "CALENDRIER" if nt in (
-                    "evenement",
-                    "événement",
-                    "event",
-                    "creation_evenement",
-                    "evenement_creation"
-                )
-                else "CALENDRIER"
-            )
+                sous_onglet = "CALENDRIER"
+            
+            print(f"[FCM REDIRECT] >>> SOUS-ONGLET = {sous_onglet}")
+            print("[FCM REDIRECT] ================================")
     
             if hasattr(self.root, "switch_screen"):
                 self.root.switch_screen("vestiaire")
