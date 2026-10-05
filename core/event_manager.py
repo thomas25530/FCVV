@@ -18,6 +18,7 @@ from kivy.uix.widget import Widget
 from kivy.graphics import Color, RoundedRectangle
 from kivy.uix.textinput import TextInput
 from kivy.uix.dropdown import DropDown
+from kivy.clock import mainthread
 
 import os
 from pathlib import Path
@@ -906,68 +907,74 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
 
     return chemin
 
-def _partager_pdf_ios(chemin):
-    """Ouvre la feuille de partage native iOS pour le PDF."""
 
-    print("[DEBUG] Entree dans _partager_pdf_ios")
+
+@mainthread
+def _partager_pdf_ios(chemin):
+    """Affiche la feuille de partage iOS pour un PDF."""
+
+    print("=" * 60)
+    print("[IOS SHARE] Debut")
+    print("=" * 60)
 
     try:
         import os
         import traceback
 
-        print("[DEBUG] Import de pyobjus...")
-
         from pyobjus import autoclass
 
-        print("[DEBUG] Pyobjus importe avec succes.")
+        # =====================================================
+        # VERIFICATION PDF
+        # =====================================================
 
-        # ========================================================
-        # CLASSES OBJECTIVE-C
-        # ========================================================
+        if not os.path.isfile(chemin):
+            print(f"[IOS SHARE] PDF introuvable : {chemin}")
+            return
+
+        taille = os.path.getsize(chemin)
+
+        print(f"[IOS SHARE] PDF = {chemin}")
+        print(f"[IOS SHARE] Taille = {taille}")
+
+        if taille <= 0:
+            print("[IOS SHARE] PDF vide")
+            return
+
+        # =====================================================
+        # CLASSES IOS
+        # =====================================================
 
         NSURL = autoclass("NSURL")
         UIApplication = autoclass("UIApplication")
         UIActivityViewController = autoclass(
             "UIActivityViewController"
         )
+        NSMutableArray = autoclass("NSMutableArray")
 
-        # ========================================================
-        # VERIFICATION DU PDF
-        # ========================================================
-
-        if not os.path.isfile(chemin):
-            print(
-                "[DEBUG] ERREUR : fichier PDF introuvable : "
-                f"{chemin}"
-            )
-            return
-
-        taille_pdf = os.path.getsize(chemin)
-
-        print(f"[DEBUG] PDF trouve : {chemin}")
-        print(f"[DEBUG] Taille PDF : {taille_pdf} octets")
-
-        if taille_pdf <= 0:
-            print("[DEBUG] ERREUR : PDF vide.")
-            return
-
-        # ========================================================
-        # NSURL
-        # ========================================================
+        # =====================================================
+        # URL DU PDF
+        # =====================================================
 
         file_url = NSURL.fileURLWithPath_(chemin)
 
         if not file_url:
-            print("[DEBUG] ERREUR : impossible de creer NSURL.")
+            print("[IOS SHARE] Impossible de creer NSURL")
             return
 
-        print("[DEBUG] NSURL cree avec succes.")
+        print("[IOS SHARE] NSURL OK")
 
-        # ========================================================
-        # UIActivityViewController
-        # ========================================================
+        # =====================================================
+        # TABLEAU DES ELEMENTS A PARTAGER
+        # =====================================================
 
-        activity_items = [file_url]
+        activity_items = NSMutableArray.alloc().init()
+        activity_items.addObject_(file_url)
+
+        print("[IOS SHARE] Activity items OK")
+
+        # =====================================================
+        # CONTROLEUR DE PARTAGE
+        # =====================================================
 
         activity_vc = (
             UIActivityViewController
@@ -979,298 +986,141 @@ def _partager_pdf_ios(chemin):
         )
 
         if not activity_vc:
-            print(
-                "[DEBUG] ERREUR : "
-                "UIActivityViewController non cree."
-            )
+            print("[IOS SHARE] Impossible de creer UIActivityViewController")
             return
 
-        print(
-            "[DEBUG] UIActivityViewController cree."
-        )
+        print("[IOS SHARE] UIActivityViewController OK")
 
-        # ========================================================
-        # APPLICATION iOS
-        # ========================================================
+        # =====================================================
+        # APPLICATION
+        # =====================================================
 
         app = UIApplication.sharedApplication()
 
         if not app:
-            print(
-                "[DEBUG] ERREUR : UIApplication "
-                "introuvable."
-            )
+            print("[IOS SHARE] UIApplication introuvable")
             return
 
-        print("[DEBUG] UIApplication recuperee.")
+        print("[IOS SHARE] UIApplication OK")
 
-        # ========================================================
-        # RECHERCHE DE LA FENETRE
-        # ========================================================
+        # =====================================================
+        # FENETRE
+        # =====================================================
 
         window = None
 
-        # --------------------------------------------------------
-        # Methode 1 : keyWindow
-        # --------------------------------------------------------
-
         try:
-            window = app.keyWindow()
+            windows = app.windows()
 
-            if window:
-                print(
-                    "[DEBUG] keyWindow trouvee."
-                )
+            if windows:
+                count = windows.count()
+
+                print(f"[IOS SHARE] Nombre fenetres = {count}")
+
+                for i in range(count):
+                    candidate = windows.objectAtIndex_(i)
+
+                    if candidate:
+                        window = candidate
+                        print(
+                            f"[IOS SHARE] Fenetre selectionnee index={i}"
+                        )
+                        break
 
         except Exception as e:
             print(
-                "[DEBUG] keyWindow() indisponible : "
+                f"[IOS SHARE] Erreur windows() : "
                 f"{type(e).__name__}: {e}"
             )
 
-        # --------------------------------------------------------
-        # Methode 2 : windows
-        # --------------------------------------------------------
-
         if not window:
-
             try:
-                windows = app.windows()
-
+                window = app.keyWindow()
+                print("[IOS SHARE] keyWindow utilisee")
+            except Exception as e:
                 print(
-                    "[DEBUG] Recherche dans UIApplication.windows()..."
-                )
-
-                if windows:
-
-                    count = windows.count()
-
-                    print(
-                        f"[DEBUG] Nombre de fenetres : {count}"
-                    )
-
-                    for i in range(count):
-
-                        try:
-                            candidate = (
-                                windows.objectAtIndex_(i)
-                            )
-
-                            if candidate:
-
-                                # On cherche de preference
-                                # une fenetre visible.
-                                hidden = False
-
-                                try:
-                                    hidden = (
-                                        candidate.isHidden()
-                                    )
-                                except Exception:
-                                    pass
-
-                                if not hidden:
-                                    window = candidate
-
-                                    print(
-                                        "[DEBUG] Fenetre "
-                                        f"selectionnee : index={i}"
-                                    )
-
-                                    break
-
-                        except Exception as window_error:
-
-                            print(
-                                "[DEBUG] Erreur fenetre "
-                                f"{i} : "
-                                f"{type(window_error).__name__}: "
-                                f"{window_error}"
-                            )
-
-            except Exception as windows_error:
-
-                print(
-                    "[DEBUG] Impossible d'obtenir "
-                    f"UIApplication.windows() : "
-                    f"{type(windows_error).__name__}: "
-                    f"{windows_error}"
+                    f"[IOS SHARE] keyWindow erreur : "
+                    f"{type(e).__name__}: {e}"
                 )
 
         if not window:
-
-            print(
-                "[DEBUG] ERREUR : "
-                "aucune fenetre iOS trouvee."
-            )
-
+            print("[IOS SHARE] Aucune UIWindow")
             return
 
-        print("[DEBUG] Fenetre iOS trouvee.")
+        print("[IOS SHARE] UIWindow OK")
+        print(f"[IOS SHARE] window = {window}")
 
-        # ========================================================
+        # =====================================================
         # ROOT VIEW CONTROLLER
-        # ========================================================
+        # =====================================================
 
-        try:
-            root_vc = window.rootViewController()
-
-        except Exception as root_error:
-
-            print(
-                "[DEBUG] ERREUR lors de "
-                "rootViewController() : "
-                f"{type(root_error).__name__}: "
-                f"{root_error}"
-            )
-
-            traceback.print_exc()
-
-            return
+        root_vc = window.rootViewController()
 
         if not root_vc:
-
-            print(
-                "[DEBUG] ERREUR : "
-                "Root ViewController introuvable."
-            )
-
+            print("[IOS SHARE] rootViewController absent")
             return
 
-        print(
-            "[DEBUG] Root ViewController trouve."
-        )
+        print("[IOS SHARE] rootViewController OK")
+        print(f"[IOS SHARE] root_vc = {root_vc}")
 
-        # ========================================================
-        # RECHERCHE DU VIEW CONTROLLER ACTUEL
-        # ========================================================
+        # =====================================================
+        # CONTROLEUR LE PLUS HAUT
+        # =====================================================
 
         presenter = root_vc
 
-        # NavigationController
         try:
-            nav_vc = presenter.navigationController()
+            while True:
+                presented = presenter.presentedViewController()
 
-            if nav_vc:
-                visible_vc = nav_vc.visibleViewController()
-
-                if visible_vc:
-                    presenter = visible_vc
-
-                    print(
-                        "[DEBUG] Visible ViewController "
-                        "selectionne."
-                    )
-
-        except Exception as nav_error:
-
-            print(
-                "[DEBUG] NavigationController "
-                "non exploitable : "
-                f"{type(nav_error).__name__}: "
-                f"{nav_error}"
-            )
-
-        # TabBarController
-        try:
-            tab_vc = presenter.tabBarController()
-
-            if tab_vc:
-                selected_vc = tab_vc.selectedViewController()
-
-                if selected_vc:
-                    presenter = selected_vc
-
-                    print(
-                        "[DEBUG] Selected ViewController "
-                        "selectionne."
-                    )
-
-        except Exception as tab_error:
-
-            print(
-                "[DEBUG] TabBarController "
-                "non exploitable : "
-                f"{type(tab_error).__name__}: "
-                f"{tab_error}"
-            )
-
-        # ========================================================
-        # VERIFICATION : DEJA PRESENTE ?
-        # ========================================================
-
-        try:
-            presented = presenter.presentedViewController()
-
-            if presented:
-                print(
-                    "[DEBUG] Un ViewController est deja "
-                    "presente. Utilisation de celui-ci."
-                )
+                if not presented:
+                    break
 
                 presenter = presented
 
-        except Exception as presented_error:
-
+        except Exception as e:
             print(
-                "[DEBUG] Impossible de recuperer "
-                "presentedViewController : "
-                f"{type(presented_error).__name__}: "
-                f"{presented_error}"
+                f"[IOS SHARE] presentedViewController erreur : "
+                f"{type(e).__name__}: {e}"
             )
 
-        # ========================================================
-        # IPAD / POPOVER
-        # ========================================================
+        print("[IOS SHARE] Presenter OK")
+
+        # =====================================================
+        # IPAD
+        # =====================================================
 
         try:
-
             popover = (
                 activity_vc
                 .popoverPresentationController()
             )
 
             if popover:
-
-                print(
-                    "[DEBUG] Configuration du popover iPad..."
-                )
-
                 view = presenter.view()
 
                 if view:
-
                     popover.setSourceView_(view)
 
                     try:
-                        bounds = view.bounds()
-
+                        popover.setSourceRect_(
+                            view.bounds()
+                        )
                     except Exception:
-                        bounds = None
+                        pass
 
-                    if bounds:
-                        popover.setSourceRect_(bounds)
-
-                    print(
-                        "[DEBUG] Popover iPad configure."
-                    )
-
-        except Exception as popover_error:
-
+                    print("[IOS SHARE] Popover configure")
+        except Exception as e:
             print(
-                "[DEBUG] Popover non configure : "
-                f"{type(popover_error).__name__}: "
-                f"{popover_error}"
+                f"[IOS SHARE] Popover erreur : "
+                f"{type(e).__name__}: {e}"
             )
 
-        # ========================================================
-        # PRESENTATION
-        # ========================================================
+        # =====================================================
+        # AFFICHAGE
+        # =====================================================
 
-        print(
-            "[DEBUG] Affichage du controleur "
-            "de partage iOS..."
-        )
+        print("[IOS SHARE] Presentation...")
 
         presenter.presentViewController_animated_completion_(
             activity_vc,
@@ -1278,30 +1128,21 @@ def _partager_pdf_ios(chemin):
             None
         )
 
-        print(
-            "[DEBUG] Partage iOS affiche avec succes."
-        )
+        print("[IOS SHARE] Feuille de partage affichee")
 
-    except ImportError as import_error:
-
-        print(
-            "[DEBUG] ERREUR ImportError pyobjus : "
-            f"{import_error}"
-        )
-
+    except Exception as e:
         import traceback
+
+        print(
+            f"[IOS SHARE] ERREUR : "
+            f"{type(e).__name__}: {e}"
+        )
+
         traceback.print_exc()
 
-    except Exception as share_error:
-
-        print(
-            "[DEBUG] ERREUR Generale partage iOS : "
-            f"{type(share_error).__name__}: "
-            f"{share_error}"
-        )
-
-        import traceback
-        traceback.print_exc()
+    print("=" * 60)
+    print("[IOS SHARE] Fin")
+    print("=" * 60)
 
 class DateTextInput(TextInput):
     def insert_text(self, substring, from_undo=False):
