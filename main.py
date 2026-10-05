@@ -1047,7 +1047,8 @@ class MyApp(App):
         from kivy.core.window import Window
         
         if platform == "ios":
-            Window.softinput_mode = "below_target"
+            #Window.softinput_mode = "below_target"
+            Window.softinput_mode = ""
             # ============================================================
             # Tentative de forcer l'affichage de la Status Bar iOS
             # ============================================================
