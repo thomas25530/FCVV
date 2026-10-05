@@ -1213,14 +1213,41 @@ class EventManager:
             color=(0.1, 0.1, 0.15, 1),
             halign="center"
         )
+        # 1. Le Titre du popup
         content.add_widget(lbl_titre_popup)
+        
+        # 2. Le bouton d'enregistrement unique tout en haut
+        btn_save = Button(
+            text="Enregistrer",
+            size_hint_y=None,
+            height=dp(45),
+            background_normal="",
+            background_color=(0.15, 0.65, 0.35, 1),
+            color=(1, 1, 1, 1),
+            bold=True
+        )
+        content.add_widget(btn_save)
+
+        # 3. La barre des onglets (MATCH, ENTRAINEMENT, EVENEMENT)        
         tab_layout = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(5))
         tabs = ["MATCH", "ENTRAINEMENT", "EVENEMENT"]
         current_type = match_info.get("type", "MATCH").upper()
         if current_type not in tabs:
             current_type = "MATCH"
         tab_buttons = {}
+        
+        for t in tabs:
+            btn_tab = Button(text=t, background_normal="", bold=True)
+            btn_tab.bind(on_release=lambda btn, mode=t: rafraichir_formulaire(mode))
+            tab_buttons[t] = btn_tab
+            tab_layout.add_widget(btn_tab)
+            
+        content.add_widget(tab_layout)
+
+        # 4. Le conteneur dynamique pour le formulaire (qui contient le ScrollView)
         dynamic_container = BoxLayout(orientation="vertical", size_hint=(1, 1))
+        content.add_widget(dynamic_container)
+        
         popup_ref = []
 
         def rafraichir_formulaire(t):
@@ -1235,8 +1262,13 @@ class EventManager:
                     btn.color = (0.3, 0.3, 0.3, 1)
                 
             dynamic_container.clear_widgets()
+
+            # Nettoyage des anciens binds du bouton global
+            if hasattr(btn_save, '_current_callback'):
+                btn_save.unbind(on_release=btn_save._current_callback)
             
             if current_type == "MATCH":
+                btn_save.text = "Enregistrer le match"
                 form_scroll = ScrollView(size_hint=(1, 1), bar_width=0)
                 form_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10), padding=dp(5))
                 form_box.bind(minimum_height=form_box.setter("height"))
@@ -1573,8 +1605,6 @@ class EventManager:
     
                 form_scroll.add_widget(form_box)
                 dynamic_container.add_widget(form_scroll)
-    
-                btn_save = Button(text="Enregistrer le match", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                 
                 def save_match(x):
                     print("\n" + "=" * 80)
@@ -2137,10 +2167,11 @@ class EventManager:
                         )
 
     
+                btn_save._current_callback = save_match
                 btn_save.bind(on_release=save_match)
-                dynamic_container.add_widget(btn_save)
 
             elif current_type == "ENTRAINEMENT":
+                btn_save.text = "Enregistrer l'entraînement"
                 form_scroll = ScrollView(bar_width=0, size_hint=(1, 1))
                 form_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10), padding=dp(5))
                 form_box.bind(minimum_height=form_box.setter("height"))
@@ -2181,6 +2212,14 @@ class EventManager:
                     cursor_color=(0.1, 0.1, 0.1, 1)
                 )
                 form_box.add_widget(ti_notes)
+
+                # --- SONDAGE DE PRÉSENCE ---
+                sondage_box = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(40), spacing=dp(10))
+                chk_sondage = CheckBox(active=match_info_entrainement.get("sondage_actif", True), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
+                sondage_box.add_widget(chk_sondage)
+                sondage_box.add_widget(Label(text="Activer un sondage de présence requis", color=(0.2, 0.2, 0.25, 1), halign="left"))
+                
+                form_box.add_widget(sondage_box)
 
                 # --- BLOC RÉCURRENCE ---
                 calendrier_actuel = screen_instance._cache_data.get(screen_instance.current_cat, {}).get("calendrier", {})
@@ -2236,17 +2275,8 @@ class EventManager:
 
                     chk_recurrent.bind(active=toggle_recurrence)
 
-                # --- SONDAGE DE PRÉSENCE ---
-                sondage_box = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(40), spacing=dp(10))
-                sondage_box.add_widget(Label(text="Activer un sondage de présence requis", color=(0.2, 0.2, 0.25, 1), halign="left"))
-                chk_sondage = CheckBox(active=match_info_entrainement.get("sondage_actif", True), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
-                sondage_box.add_widget(chk_sondage)
-                form_box.add_widget(sondage_box)
-
                 form_scroll.add_widget(form_box)
                 dynamic_container.add_widget(form_scroll)
-
-                btn_save = Button(text="Enregistrer l'entraînement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                 
                 def save_entrainement(x):
                     date_deb_str = ti_date_debut.text.strip()
@@ -2411,11 +2441,12 @@ class EventManager:
                     else:
                         executer_sauvegarde("Création d'entraînement récurrent" if chk_recurrent.active else "Création de l'entraînement")
 
+                btn_save._current_callback = save_entrainement
                 btn_save.bind(on_release=save_entrainement)
-                dynamic_container.add_widget(btn_save)
 
             # --- ONGLET EVENEMENT ---
             else:
+                btn_save.text = "Enregistrer l'événement"
                 form_scroll = ScrollView(bar_width=0, size_hint=(1, 1))
                 form_box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(10), padding=dp(5))
                 form_box.bind(minimum_height=form_box.setter("height"))
@@ -2535,8 +2566,6 @@ class EventManager:
 
                 form_scroll.add_widget(form_box)
                 dynamic_container.add_widget(form_scroll)
-
-                btn_save = Button(text="Enregistrer l'événement", size_hint_y=None, height=dp(45), background_normal="", background_color=(0.15, 0.65, 0.35, 1), color=(1, 1, 1, 1), bold=True)
                 
                 def save_evenement(x):
                     date_val = ti_date.text.strip()
@@ -2673,24 +2702,8 @@ class EventManager:
                     else:
                         executer_sauvegarde("Création de l'événement")
 
+                btn_save._current_callback = save_evenement
                 btn_save.bind(on_release=save_evenement)
-                dynamic_container.add_widget(btn_save)
-
-        # Création des boutons d'onglets supérieurs
-        for t in tabs:
-            btn = Button(
-                text=t.capitalize(),
-                bold=True,
-                background_normal="",
-                background_color=(0.2, 0.6, 0.3, 1) if t == current_type else (0.85, 0.85, 0.88, 1),
-                color=(1, 1, 1, 1) if t == current_type else (0.3, 0.3, 0.3, 1)
-            )
-            btn.bind(on_release=lambda x, tab=t: rafraichir_formulaire(tab))
-            tab_buttons[t] = btn
-            tab_layout.add_widget(btn)
-
-        content.add_widget(tab_layout)
-        content.add_widget(dynamic_container)
 
         # --- PARAMÉTRAGE DE LA POPUP ---
         popup = Popup(
