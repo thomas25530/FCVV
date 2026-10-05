@@ -82,6 +82,7 @@ jobs:
 
           SDL_MARKER = "FCVV_FCM_HANDLERS_V3"
           MAIN_MARKER = "FCVV_FIREBASE_MAIN_V3"
+          DELEGATE_MARKER = "FCVV_UN_NOTIFICATION_DELEGATE_V1"
 
 
           if len(sys.argv) != 3:
@@ -396,6 +397,57 @@ jobs:
               )
 
 
+          
+          # ============================================================
+          # UNUserNotificationCenter DELEGATE
+          # ============================================================
+          
+          if DELEGATE_MARKER not in sdl_text:
+          
+              delegate_block = r'''
+              // ==========================================================
+              // FCVV_UN_NOTIFICATION_DELEGATE_V1
+              //
+              // Permet à iOS d'appeler willPresentNotification lorsque
+              // l'application est au premier plan.
+              // ==========================================================
+          
+              UNUserNotificationCenter *center =
+                  [UNUserNotificationCenter currentNotificationCenter];
+          
+              center.delegate = self;
+              '''
+          
+              launch_pattern = re.compile(
+                  r"""
+                  (
+                      -\s*\(BOOL\)\s*application\s*:
+                      \s*\(UIApplication\s*\*\)\s*application
+                      \s*didFinishLaunchingWithOptions\s*:
+                      \s*\(NSDictionary\s*\*\)\s*launchOptions
+                      \s*\{
+                  )
+                  """,
+                  re.DOTALL | re.VERBOSE
+              )
+          
+              launch_match = launch_pattern.search(sdl_text)
+          
+              if not launch_match:
+                  raise SystemExit(
+                      "❌ application:didFinishLaunchingWithOptions: introuvable dans SDL"
+                  )
+          
+              sdl_text = (
+                  sdl_text[:launch_match.end()]
+                  + "\n\n"
+                  + delegate_block
+                  + "\n"
+                  + sdl_text[launch_match.end():]
+              )
+          
+              print("✓ UNUserNotificationCenter.delegate = self injecté dans SDL")
+          
           # ============================================================
           # HANDLERS FIREBASE / APNs
           #
@@ -825,6 +877,16 @@ jobs:
               )
 
 
+          if DELEGATE_MARKER not in final_sdl:
+              raise SystemExit(
+                  "❌ FCVV_UN_NOTIFICATION_DELEGATE_V1 absent du SDL .m"
+              )
+          
+          if "center.delegate = self;" not in final_sdl:
+              raise SystemExit(
+                  "❌ UNUserNotificationCenter.delegate = self absent du SDL"
+              )
+          
           if "fcvvConfigureFirebaseAndNotifications" in final_sdl:
               raise SystemExit(
                   "❌ Ancienne méthode V2 encore présente dans SDL"
@@ -906,7 +968,9 @@ jobs:
           print("✓ register APNs      : main.m")
           print("✓ APNs token         : SDLUIKitDelegate")
           print("✓ FCM token          : SDLUIKitDelegate")
-          print("✓ Notifications      : SDLUIKitDelegate")
+          print("✓ Notification delegate : SDLUIKitDelegate")
+          print("✓ Foreground notifications : willPresentNotification")
+          print("✓ Notification response     : didReceiveNotificationResponse")
           print("✓ Aucun Firebase init dans SDL")
           print("============================================================")
           PY
