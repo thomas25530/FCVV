@@ -49,7 +49,6 @@ jobs:
           pip install \
             "Cython>=3.0,<3.1" \
             "kivy-ios==2025.5.17" \
-            pillow \
             requests \
             urllib3 \
             pyyaml \
@@ -79,6 +78,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "========== CLEAN =========="
+          rm -rf ~/.kivy-ios
+          rm -rf build
+          rm -rf dist
+          
           toolchain build \
             python3 \
             kivy \
@@ -87,17 +92,23 @@ jobs:
             pyobjus
           
           toolchain pip install \
+            --no-deps \
             pyyaml \
             requests \
             urllib3 \
             fpdf2 \
             fonttools \
-            plyer \
-            pyobjus
+            plyer
 
           echo "FIX FONTTOOLS CYTHON CRASH ON IOS"
           # Utilisation d'un wildcard (python3.*) pour s'adapter automatiquement à la version active
           find dist/root/python3/lib/python3.*/site-packages/fontTools -name "*.so" -delete
+
+          echo "========== PILLOW VERSION =========="
+          grep "__version__" \
+          dist/root/python3/lib/python3.*/site-packages/PIL/__init__.py || true
+
+          exit 1
       # ============================================================
       # 6. PREPARE IOS SOURCES
       # ============================================================
