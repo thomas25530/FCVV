@@ -64,7 +64,7 @@ jobs:
           set -euo pipefail
           brew install autoconf automake libtool pkg-config cmake cocoapods rsync
           python -m pip install --upgrade pip
-          pip install "Cython>=3.0,<3.1" "kivy-ios==2025.5.17" pillow requests urllib3 pyyaml fpdf2 fonttools plyer pyobjus
+          pip install "Cython>=3.0,<3.1" "kivy-ios==2025.5.17" requests urllib3 pyyaml fpdf2 fonttools plyer
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
       # ============================================================
       # 4. CREATE FCVV SDL + MAIN PATCHER (V3)
@@ -572,50 +572,245 @@ jobs:
 
           // ==========================================================
           // NOTIFICATION OUVERTE
+          //
+          // Appelé lorsque l'utilisateur tape sur une notification.
+          //
+          // Flux :
+          //
+          // FCM/APNs
+          //    ↓
+          // didReceiveNotificationResponse
+          //    ↓
+          // NSUserDefaults
+          //    ↓
+          // Kivy on_resume()
+          //    ↓
+          // verifier_redirection_notification_ios()
+          //    ↓
+          // HOME / VESTIAIRE
           // ==========================================================
 
           - (void)userNotificationCenter:(UNUserNotificationCenter *)center
               didReceiveNotificationResponse:(UNNotificationResponse *)response
               withCompletionHandler:(void (^)(void))completionHandler {
-          
+
               NSLog(
                   @"[FCVV] Réponse à une notification reçue"
               );
-          
+
+
               // ==========================================================
-              // REMISE À ZÉRO DU BADGE
+              // 1. RÉCUPÉRATION DES DONNÉES FCM / APNs
               // ==========================================================
-          
+
+              NSDictionary *userInfo =
+                  response.notification.request.content.userInfo;
+
+              NSLog(
+                  @"[FCVV] userInfo notification : %@",
+                  userInfo
+              );
+
+
+              // ==========================================================
+              // 2. RÉCUPÉRATION APS / ALERT
+              //
+              // Fallback pour title/body si nécessaire.
+              // ==========================================================
+
+              NSDictionary *aps =
+                  [userInfo objectForKey:@"aps"];
+
+              NSDictionary *alert =
+                  [aps objectForKey:@"alert"];
+
+
+              NSString *title =
+                  [userInfo objectForKey:@"title"];
+
+              NSString *body =
+                  [userInfo objectForKey:@"body"];
+
+
+              if (title == nil || ![title isKindOfClass:[NSString class]]) {
+
+                  if ([alert isKindOfClass:[NSDictionary class]]) {
+
+                      title =
+                          [alert objectForKey:@"title"];
+                  }
+              }
+
+
+              if (body == nil || ![body isKindOfClass:[NSString class]]) {
+
+                  if ([alert isKindOfClass:[NSDictionary class]]) {
+
+                      body =
+                          [alert objectForKey:@"body"];
+                  }
+              }
+
+
+              // ==========================================================
+              // 3. DONNÉES MÉTIER FCVV
+              // ==========================================================
+
+              NSString *categorie =
+                  [userInfo objectForKey:@"categorie"];
+
+
+              // Compatibilité avec les notifications qui utilisent
+              // éventuellement "topic" au lieu de "categorie".
+              if (categorie == nil ||
+                  ![categorie isKindOfClass:[NSString class]] ||
+                  categorie.length == 0) {
+
+                  categorie =
+                      [userInfo objectForKey:@"topic"];
+              }
+
+
+              NSString *matchID =
+                  [userInfo objectForKey:@"match_id"];
+
+
+              NSString *notifType =
+                  [userInfo objectForKey:@"notif_type"];
+
+
+              // ==========================================================
+              // 4. SÉCURISATION DES VALEURS
+              // ==========================================================
+
+              if (title == nil ||
+                  ![title isKindOfClass:[NSString class]]) {
+
+                  title = @"";
+              }
+
+
+              if (body == nil ||
+                  ![body isKindOfClass:[NSString class]]) {
+
+                  body = @"";
+              }
+
+
+              if (categorie == nil ||
+                  ![categorie isKindOfClass:[NSString class]]) {
+
+                  categorie = @"";
+              }
+
+
+              if (matchID == nil ||
+                  ![matchID isKindOfClass:[NSString class]]) {
+
+                  matchID = @"";
+              }
+
+
+              if (notifType == nil ||
+                  ![notifType isKindOfClass:[NSString class]]) {
+
+                  notifType = @"";
+              }
+
+
+              NSLog(
+                  @"[FCVV] Notification : title=%@ body=%@ categorie=%@ match_id=%@ notif_type=%@",
+                  title,
+                  body,
+                  categorie,
+                  matchID,
+                  notifType
+              );
+
+
+              // ==========================================================
+              // 5. STOCKAGE POUR PYTHON / KIVY
+              //
+              // verifier_redirection_notification_ios()
+              // lit exactement ces clés.
+              // ==========================================================
+
+              NSUserDefaults *defaults =
+                  [NSUserDefaults standardUserDefaults];
+
+
+              [defaults setBool:YES
+                         forKey:@"FCVV_NOTIFICATION_PENDING"];
+
+
+              [defaults setObject:title
+                           forKey:@"FCVV_NOTIFICATION_TITLE"];
+
+
+              [defaults setObject:body
+                           forKey:@"FCVV_NOTIFICATION_BODY"];
+
+
+              [defaults setObject:categorie
+                           forKey:@"FCVV_NOTIFICATION_TOPIC"];
+
+
+              [defaults setObject:matchID
+                           forKey:@"FCVV_NOTIFICATION_MATCH_ID"];
+
+
+              [defaults setObject:notifType
+                           forKey:@"FCVV_NOTIFICATION_TYPE"];
+
+
+              [defaults synchronize];
+
+
+              NSLog(
+                  @"[FCVV] ✓ Données notification sauvegardées dans NSUserDefaults"
+              );
+
+
+              // ==========================================================
+              // 6. REMISE À ZÉRO DU BADGE
+              // ==========================================================
+
               if (@available(iOS 16.0, *)) {
-          
+
                   [center setBadgeCount:0
                       withCompletionHandler:^(NSError * _Nullable error) {
-          
+
                           if (error) {
-          
+
                               NSLog(
                                   @"[FCVV] ❌ Erreur remise badge à 0 : %@",
                                   error
                               );
-          
+
                           } else {
-          
+
                               NSLog(
                                   @"[FCVV] ✓ Badge remis à 0"
                               );
                           }
                       }
                   ];
-          
+
               } else {
-          
-                  [UIApplication sharedApplication].applicationIconBadgeNumber = 0;
-          
+
+                  [UIApplication sharedApplication]
+                      .applicationIconBadgeNumber = 0;
+
                   NSLog(
                       @"[FCVV] ✓ Badge remis à 0"
                   );
               }
-          
+
+
+              // ==========================================================
+              // 7. FIN CALLBACK iOS
+              // ==========================================================
+
               completionHandler();
           }
 
@@ -1044,6 +1239,7 @@ jobs:
           echo "============================================================"
 
           toolchain pip install \
+            --no-deps \
             pyyaml \
             requests \
             urllib3 \
