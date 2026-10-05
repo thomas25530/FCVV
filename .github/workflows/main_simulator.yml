@@ -54,8 +54,7 @@ jobs:
             pyyaml \
             fpdf2 \
             fonttools \
-            plyer \
-            pyobjus
+            plyer
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
           
       # ============================================================
@@ -105,8 +104,15 @@ jobs:
           find dist/root/python3/lib/python3.*/site-packages/fontTools -name "*.so" -delete
 
           echo "========== PILLOW VERSION =========="
-          grep "__version__" \
-          dist/root/python3/lib/python3.*/site-packages/PIL/__init__.py || true
+          echo "========== PIL VERSION =========="
+          python - <<'PY'
+          from pathlib import Path
+          import glob
+
+          for f in glob.glob("dist/root/python3/lib/python3.*/site-packages/PIL/_version.py"):
+            print("FOUND:", f)
+            print(Path(f).read_text())
+          PY
 
           exit 1
       # ============================================================
