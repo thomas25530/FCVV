@@ -2431,8 +2431,10 @@ class EventManager:
                             def fermer_popup_et_sauvegarder(dt):
                                 print("[COMMIT BUTTON] Fermeture popup_commit")
                         
-                                if popup_commit._is_open:
+                                if popup_commit and popup_commit._is_open:
                                     popup_commit.dismiss()
+                                if popup_ref and popup_ref[0] and popup_ref[0]._is_open:
+                                    popup_ref[0].dismiss()
                         
                                 def lancer_sauvegarde(dt2):
                                     print("[CLOCK COMMIT] Lancement executer_sauvegarde")
@@ -2441,7 +2443,7 @@ class EventManager:
                                 Clock.schedule_once(lancer_sauvegarde, 0.15)
                         
                             # Laisser iOS terminer la gestion du clavier virtuel
-                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.15)
+                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.3)
                             
                         btn_valider_commit.bind(on_release=valider_avec_commit)
                         popup_commit.open()
@@ -2692,8 +2694,10 @@ class EventManager:
                             def fermer_popup_et_sauvegarder(dt):
                                 print("[COMMIT BUTTON] Fermeture popup_commit")
                         
-                                if popup_commit._is_open:
+                                if popup_commit and popup_commit._is_open:
                                     popup_commit.dismiss()
+                                if popup_ref and popup_ref[0] and popup_ref[0]._is_open:
+                                    popup_ref[0].dismiss()
                         
                                 def lancer_sauvegarde(dt2):
                                     print("[CLOCK COMMIT] Lancement executer_sauvegarde")
@@ -2702,7 +2706,7 @@ class EventManager:
                                 Clock.schedule_once(lancer_sauvegarde, 0.15)
                         
                             # Laisser iOS terminer la gestion du clavier virtuel
-                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.15)
+                            Clock.schedule_once(fermer_popup_et_sauvegarder, 0.3)
                             
                         btn_valider_commit.bind(on_release=valider_avec_commit)
                         popup_commit.open()
