@@ -1133,23 +1133,10 @@ class EventManager:
                 dynamic_container.add_widget(form_scroll)
                 
                 def save_match(x):
-                    print("\n" + "=" * 80)
-                    print("[SAVE] CLIC SUR 'Enregistrer le match'")
-                    print(f"[SAVE] platform = {platform}")
-                    print(f"[SAVE] match_id = {match_id!r}")
-                    print(f"[SAVE] current_cat = {screen_instance.current_cat!r}")
-                    print("=" * 80)
-                
                     date_val = ti_date.text.strip()
-                
-                    print(f"[SAVE] Date saisie = {date_val!r}")
-                
                     try:
                         datetime.strptime(date_val, "%d/%m/%Y")
-                        print("[SAVE] Date valide")
                     except ValueError:
-                        print("[SAVE] Date invalide -> ouverture popup erreur")
-                
                         p_err = Popup(
                             title="Erreur de format",
                             content=Label(
@@ -1160,7 +1147,6 @@ class EventManager:
                             size_hint=(0.7, 0.3),
                             separator_height=0
                         )
-                
                         p_err.open()
                         return
                 
@@ -1171,41 +1157,16 @@ class EventManager:
                     )
                 
                     est_une_modification = bool(match_id) and match_id in calendrier_actuel
-                
-                    print(f"[SAVE] est_une_modification = {est_une_modification}")
-                    print(f"[SAVE] calendrier contient match_id = {match_id in calendrier_actuel}")
-                
                     def executer_sauvegarde(commit_message=""):
-                
-                        print("\n" + "-" * 80)
-                        print("[EXEC] >>> ENTREE executer_sauvegarde()")
-                        print(f"[EXEC] platform = {platform}")
-                        print(f"[EXEC] commit_message = {commit_message!r}")
-                        print("-" * 80)
-                
                         joueurs_convoques = []
-                
-                        print(f"[EXEC] chk_convocation.active = {chk_convocation.active}")
-                        print(f"[EXEC] Nombre checkboxes = {len(checkboxes_joueurs)}")
-                
                         if chk_convocation.active:
-                
                             for cb in checkboxes_joueurs:
                                 if cb.active:
-                
                                     nom = getattr(cb, "nom_joueur", "").strip().upper()
                                     prenom = getattr(cb, "prenom_joueur", "").strip()
                                     cat_equipe = screen_instance.current_cat
                                     cat_joueur = getattr(cb, "categorie", "").strip().upper()
                                     est_manuel = getattr(cb, "est_manuel", False)
-                
-                                    print(
-                                        f"[EXEC] Joueur selectionne: "
-                                        f"{nom} {prenom} | "
-                                        f"cat={cat_joueur} | "
-                                        f"manuel={est_manuel}"
-                                    )
-                
                                     if est_manuel or cat_equipe:
                                         joueurs_convoques.append({
                                             "nom": nom,
@@ -1216,17 +1177,9 @@ class EventManager:
                                         })
                                     else:
                                         nom_complet = f"{nom} {prenom}".strip()
-                
                                         if nom_complet:
                                             joueurs_convoques.append(nom_complet)
-                
-                        print(
-                            f"[EXEC] Nombre joueurs_convoques = "
-                            f"{len(joueurs_convoques)}"
-                        )
-                
                         maintenant_str = datetime.now().strftime("%d/%m/%Y à %H:%M")
-                
                         match_info_match.update({
                             "type": "MATCH",
                             "titre": ti_titre.text.strip(),
@@ -1246,48 +1199,22 @@ class EventManager:
                             "timestamp_action": maintenant_str,
                             "est_modification": est_une_modification
                         })
-                
-                        print("[EXEC] match_info_match construit")
-                        print(f"[EXEC] titre = {match_info_match.get('titre')!r}")
-                        print(f"[EXEC] adversaire = {match_info_match.get('adversaire')!r}")
-                        print(f"[EXEC] date = {match_info_match.get('date')!r}")
-                        print(f"[EXEC] commit = {match_info_match.get('dernier_commit')!r}")
-                
                         # ---------------------------------------------------------
                         # PDF
                         # ---------------------------------------------------------
-                
-                        print(
-                            f"[PDF] chk_exporter_pdf.active = "
-                            f"{chk_exporter_pdf.active}"
-                        )
-                
                         if chk_exporter_pdf.active:
-                            print("[PDF] Debut generation PDF")
-                
                             try:
-                                generer_pdf_convocation(
-                                    match_info_match,
-                                    liste_joueurs
-                                )
-                
-                                print("[PDF] Generation PDF terminee")
-                
+                                generer_pdf_convocation(match_info_match,liste_joueurs)
                             except Exception as e_pdf:
                                 print(
                                     f"[PDF] ERREUR generation PDF : "
                                     f"{type(e_pdf).__name__}: {e_pdf}"
                                 )
-                
                         # ---------------------------------------------------------
                         # KEY
                         # ---------------------------------------------------------
-                
                         if est_une_modification:
                             key = match_id
-                
-                            print(f"[EXEC] Modification -> key = {key!r}")
-                
                         else:
                             adv_clean = (
                                 ti_adversaire.text
@@ -1296,113 +1223,56 @@ class EventManager:
                                 .lower()
                                 or "inconnu"
                             )
-                
                             date_clean = date_val.replace("/", "-")
-                
                             heure_clean = (
                                 ti_heure_rdv.text
                                 .strip()
                                 .replace(":", "h")
                                 or "00h00"
                             )
-                
                             key = (
                                 f"match_{adv_clean}_"
                                 f"{date_clean}_"
                                 f"{heure_clean}"
                             )
-                
-                            print(f"[EXEC] Creation -> key = {key!r}")
-                
                         # ---------------------------------------------------------
                         # CACHE LOCAL
                         # ---------------------------------------------------------
-                
-                        data = screen_instance._cache_data.get(
-                            screen_instance.current_cat,
-                            {}
-                        )
-                
+                        data = screen_instance._cache_data.get(screen_instance.current_cat,{})
                         if "calendrier" not in data:
-                            print("[CACHE] calendrier absent -> creation")
                             data["calendrier"] = {}
-                
                         if est_une_modification and match_id in data["calendrier"]:
-                
                             if match_id != key:
-                
-                                print(
-                                    f"[CACHE] Suppression ancienne cle : "
-                                    f"{match_id!r}"
-                                )
-                
-                                data["calendrier"].pop(
-                                    match_id,
-                                    None
-                                )
-                
+                                data["calendrier"].pop(match_id,None)
                         data["calendrier"][key] = match_info_match
-                
-                        print("[CACHE] evenement enregistre dans le cache")
-                        print(f"[CACHE] key = {key!r}")
-                        print(
-                            f"[CACHE] Nombre evenements = "
-                            f"{len(data['calendrier'])}"
-                        )
-                
                         # ---------------------------------------------------------
                         # URL API
                         # ---------------------------------------------------------
-                
                         url = (
                             "https://fcvv-api.onrender.com/"
                             f"convocations/update/"
                             f"{screen_instance.current_cat}/"
                             f"{key}"
                         )
-                
-                        print("\n[API] URL PUT :")
-                        print(url)
-                
                         # ---------------------------------------------------------
                         # API THREAD
                         # ---------------------------------------------------------
-                
                         def do_api_save():
-                
-                            print("\n" + "=" * 80)
-                            print("[THREAD API] DeMARRAGE")
-                            print(f"[THREAD API] platform = {platform}")
-                            print(f"[THREAD API] key = {key!r}")
-                            print("=" * 80)
-                
                             try:
-                
                                 headers = (
                                     screen_instance.get_user_header()
                                     if hasattr(screen_instance, "get_user_header")
                                     else {}
                                 )
-                
-                                print(
-                                    f"[THREAD API] headers presents = "
-                                    f"{bool(headers)}"
-                                )
-                
                                 if headers:
                                     print(
                                         f"[THREAD API] header keys = "
                                         f"{list(headers.keys())}"
                                     )
-                
                                 is_windows = (platform == "win")
-                
                                 # -------------------------------------------------
                                 # PUT
                                 # -------------------------------------------------
-                
-                                print("[PUT] Envoi de la requete...")
-                
                                 response = requests.put(
                                     url,
                                     json=match_info_match,
@@ -1410,65 +1280,26 @@ class EventManager:
                                     timeout=10,
                                     verify=not is_windows
                                 )
-                
-                                print(
-                                    f"[PUT] status_code = "
-                                    f"{response.status_code}"
-                                )
-                
-                                print(
-                                    f"[PUT] response = "
-                                    f"{response.text[:1000]!r}"
-                                )
-                
                                 response.raise_for_status()
-                
-                                print("[PUT] PUT reussi")
-                
                                 # -------------------------------------------------
                                 # POST HISTORIQUE
                                 # -------------------------------------------------
-                
                                 stats_url = (
                                     "https://fcvv-api.onrender.com/"
                                     f"stats/historique/evenement/"
                                     f"{screen_instance.current_cat}/"
                                     f"{key}"
                                 )
-                
-                                print("\n[POST] URL historique :")
-                                print(stats_url)
-                
                                 response_stats = requests.post(
                                     stats_url,
                                     headers=headers,
                                     timeout=10,
                                     verify=not is_windows
-                                )
-                
-                                print(
-                                    f"[POST] status_code = "
-                                    f"{response_stats.status_code}"
-                                )
-                
-                                print(
-                                    f"[POST] response = "
-                                    f"{response_stats.text[:1000]!r}"
-                                )
-                
+                                )                
                                 response_stats.raise_for_status()
-                
-                                print("[POST] POST historique reussi")
-                
                                 # -------------------------------------------------
                                 # REFRESH UI
                                 # -------------------------------------------------
-                
-                                print(
-                                    "[API] Programmation de "
-                                    "fetch_convocations_from_firebase()"
-                                )
-                
                                 Clock.schedule_once(
                                     lambda dt: (
                                         print(
@@ -1480,107 +1311,39 @@ class EventManager:
                                         )
                                     )
                                 )
-                
-                                print("[THREAD API] FIN NORMALE")
-                
                             except Exception as e:
-                
-                                print("\n" + "!" * 80)
-                                print("[THREAD API] ERREUR")
-                                print(f"type = {type(e).__name__}")
-                                print(f"message = {e}")
-                                print("!" * 80)
-                
-                                Clock.schedule_once(
-                                    lambda dt: (
-                                        print("[CLOCK] update_ui() après erreur API"),
-                                        screen_instance.update_ui()
-                                    )
-                                )
-                
+                                Clock.schedule_once(lambda dt: (print("[CLOCK] update_ui() après erreur API"),screen_instance.update_ui()))
                         # ---------------------------------------------------------
                         # DÉMARRAGE THREAD
                         # ---------------------------------------------------------
-                
-                        print("[THREAD] Creation du thread API")
-                
-                        thread = threading.Thread(
-                            target=do_api_save,
-                            daemon=True
-                        )
-                
+                        thread = threading.Thread(target=do_api_save,daemon=True)
                         thread.start()
-                
-                        print(
-                            f"[THREAD] Thread demarre : "
-                            f"{thread.name}"
-                        )
-                
                         # ---------------------------------------------------------
                         # FERMETURE POPUP PRINCIPALE
                         # ---------------------------------------------------------
-                
-                        print(
-                            f"[POPUP MAIN] popup_ref = {popup_ref!r}"
-                        )
-                
                         if popup_ref:
-                
-                            print(
-                                "[POPUP MAIN] Appel popup_ref[0].dismiss()"
-                            )
-                
+                            print("[POPUP MAIN] Appel popup_ref[0].dismiss()")
                             try:
-                                print("[POPUP MAIN] popup_ref[0] =", popup_ref[0])
-                                print("[POPUP MAIN] is_open =", popup_ref[0]._is_open)
                                 popup_ref[0].dismiss()
-
-                                print("[POPUP MAIN] dismiss terminé")
-                                print("[POPUP MAIN] is_open apres =", popup_ref[0]._is_open)
-                
-                                print(
-                                    "[POPUP MAIN] dismiss() appele"
-                                )
-                
+                                print("[POPUP MAIN] dismiss() appele")
                             except Exception as e_popup:
-                
                                 print(
                                     f"[POPUP MAIN] ERREUR dismiss : "
                                     f"{type(e_popup).__name__}: {e_popup}"
                                 )
-                
                         else:
-                
-                            print(
-                                "[POPUP MAIN] popup_ref est VIDE !"
-                            )
-                
+                            print("[POPUP MAIN] popup_ref est VIDE !")
                         print("[EXEC] <<< SORTIE executer_sauvegarde()")
-                
-                    # =============================================================
+                    # ============================================================
                     # MODIFICATION
                     # =============================================================
-                
                     if est_une_modification:
-                
                         demander_commit_et_sauvegarder(executer_sauvegarde)
-                
                     # =============================================================
                     # NOUVEL ÉVÉNEMENT
                     # =============================================================
-                
                     else:
-                
-                        print("\n" + "=" * 80)
-                        print("[SAVE] MODE CReATION")
-                        print("[SAVE] Appel executer_sauvegarde() direct")
-                        print("=" * 80)
-                
-                        executer_sauvegarde(
-                            "Création de l'événement"
-                        )
-
-    
+                        executer_sauvegarde("Création de l'événement")
                 btn_save._current_callback = save_match
                 btn_save.bind(on_release=save_match)
 
