@@ -32,6 +32,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 from kivy.utils import escape_markup
 from kivy.uix.image import Image
+from kivy.core.window import Window
 import requests
 import yaml
 from kivy.uix.modalview import ModalView
@@ -2223,9 +2224,16 @@ class VestiaireScreen(Screen):
         except Exception as e:
             print(f"Erreur ouverture URL : {e}")
     
-    
+    def on_leave(self):
+        if platform == "ios":
+            Window.softinput_mode = ""
     
     def render_content(self, data):
+        if platform == "ios":
+            if self.current_sub_tab in ("MESSAGES", "CHAT"):
+                Window.softinput_mode = "below_target"
+            else:
+                Window.softinput_mode = ""
         self.scroll_content.clear_widgets()
         self.scroll_content.scroll_y = 1
         fs = get_user_font_size()
