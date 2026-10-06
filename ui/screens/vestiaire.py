@@ -1689,9 +1689,24 @@ class VestiaireScreen(Screen):
         print("[ROLE TRACE] Lancement de la synchro FCM globale via l'App")
         app.gerer_abonnements_fcm(app.authorized_vestiaires)
     
+    def show_popup(self, titre, message):
+        content = BoxLayout(orientation='vertical',padding=dp(10),spacing=dp(10))
+        content.add_widget(Label(text=message,halign='center'))
+        btn = Button(text="OK",size_hint_y=None,height=dp(45))
+        content.add_widget(btn)
+        popup = Popup(title=titre,content=content,size_hint=(0.8, 0.4))
+        btn.bind(on_release=popup.dismiss)
+        popup.open()
+    
     def on_enter(self, *args):
         self.invalidate_stats()
         app = App.get_running_app()
+        # VERIFICATION CGU - bug
+        accepte = app.config.get("User","vestiaire_cgu_accept",fallback="0")
+        if accepte != "1":
+            self.show_popup("Conditions obligatoires","Vous devez accepter les CGU avant d'accéder au vestiaire.")
+            Clock.schedule_once(lambda dt: app.root.switch_screen("login_vestiaire"),0)
+            return
         if not getattr(app, "authorized_vestiaires", None):
             if hasattr(getattr(app, "root", None), "switch_screen"):
                 app.root.switch_screen("login_vestiaire")
