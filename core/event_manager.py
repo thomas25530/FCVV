@@ -46,101 +46,60 @@ def obtenir_dossier_documents():
         pass
     return os.path.expanduser("~/Documents")
 
-
 def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     # ============================================================
     # SECURITE
     # ============================================================
-
-    print("--- [DEBUG EXTREME] Entree dans generer_pdf_convocation ---")
-
     try:
         import os
         import sys
-
         from fpdf import FPDF
-
         from kivy.app import App
         from kivy.utils import platform
         from kivy.clock import Clock
-
-        print("[DEBUG] Imports reussis avec succes !")
-
     except Exception as import_error:
         print(
             f"[CRASH IMPORT] Erreur lors des imports : "
             f"{type(import_error).__name__}: {import_error}"
         )
-
         try:
             sys.stdout.flush()
         except Exception:
             pass
-
         return
-
-    print("[DEBUG] Debut de la fonction generer_pdf_convocation")
-
     # ============================================================
     # DONNEES
     # ============================================================
-
     tous_les_joueurs = tous_les_joueurs or []
-
     def txt(value, max_length=60):
         return (
             str(value or "-")
             .replace("\n", " ")
             .strip()[:max_length]
         )
-
     # ============================================================
     # LICENCES
     # ============================================================
-
     licences = {}
-
     for joueur_data in tous_les_joueurs:
-
         if isinstance(joueur_data, dict):
-
-            nom = txt(
-                joueur_data.get("nom"),
-                40
-            ).upper()
-
-            prenom = txt(
-                joueur_data.get("prenom"),
-                30
-            ).capitalize()
-
+            nom = txt(joueur_data.get("nom"),40).upper()
+            prenom = txt(joueur_data.get("prenom"),30).capitalize()
             licence = txt(
                 joueur_data.get("licence")
                 or joueur_data.get("num_licence")
                 or joueur_data.get("numero_licence"),
                 25
             )
-
             licences[
                 f"{nom} {prenom}".upper()
             ] = licence
-
     # ============================================================
     # FICHIER DE SORTIE
     # ============================================================
-
     dossier = obtenir_dossier_documents()
-
-    os.makedirs(
-        dossier,
-        exist_ok=True
-    )
-
-    titre = txt(
-        match_info.get("titre"),
-        50
-    )
-
+    os.makedirs(dossier,exist_ok=True)
+    titre = txt(match_info.get("titre"),50)
     def safe_filename(value):
         return (
             "".join(
@@ -150,24 +109,16 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             ).strip()
             or "Match"
         )
-
     chemin = os.path.join(
         dossier,
         f"Convocation_"
         f"{safe_filename(titre)}_"
         f"{safe_filename(match_info.get('date', 'date'))}.pdf"
     )
-
-    print(
-        f"[DEBUG] Chemin du PDF cible : {chemin}"
-    )
-
     # ============================================================
     # RECHERCHE DES ASSETS
     # ============================================================
-
     bases = []
-
     for base_candidate in (
         os.path.dirname(__file__),
         getattr(
@@ -184,265 +135,107 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
     ):
 
         if base_candidate:
-
             bases.append(
                 os.path.abspath(
                     base_candidate
                 )
             )
-
     def asset(asset_name):
-
         visited = set()
-
         for base in bases:
-
             while base not in visited:
-
                 visited.add(base)
-
-                asset_path = os.path.join(
-                    base,
-                    "assets",
-                    asset_name
-                )
-
+                asset_path = os.path.join(base,"assets",asset_name)
                 if os.path.isfile(asset_path):
                     return asset_path
-
                 parent = os.path.dirname(base)
-
                 if parent == base:
                     break
-
                 base = parent
-
         return None
-
-    font = asset(
-        "fonts/DejaVuSans.ttf"
-    )
-
-    bold = asset(
-        "fonts/DejaVuSans-Bold.ttf"
-    )
-
-    logo = asset(
-        "logo.png"
-    )
-
-    print(
-        f"[DEBUG] Police normale : {font}"
-    )
-
-    print(
-        f"[DEBUG] Police bold : {bold}"
-    )
-
-    print(
-        f"[DEBUG] Logo : {logo}"
-    )
-
+    font = asset("fonts/DejaVuSans.ttf")
+    bold = asset("fonts/DejaVuSans-Bold.ttf")
+    logo = asset("logo.png")
     if not font or not bold:
-
         print(
             "[DEBUG] ERREUR : "
             "Polices DejaVu introuvables !"
         )
-
-        raise FileNotFoundError(
-            "Polices DejaVu introuvables dans assets/fonts/"
-        )
-
+        raise FileNotFoundError("Polices DejaVu introuvables dans assets/fonts/")
     # ============================================================
     # CONSTRUCTION DU PDF
     # ============================================================
-
     try:
-
-        print(
-            "[DEBUG] Debut de la construction "
-            "du PDF avec FPDF..."
-        )
-
-        pdf = FPDF(
-            "P",
-            "mm",
-            "A4"
-        )
-
-        pdf.set_margins(
-            10,
-            10,
-            10
-        )
-
-        pdf.set_auto_page_break(
-            True,
-            12
-        )
-
-        pdf.add_font(
-            "DejaVu",
-            "",
-            font
-        )
-
-        pdf.add_font(
-            "DejaVu",
-            "B",
-            bold
-        )
-
+        pdf = FPDF("P","mm","A4")
+        pdf.set_margins(10,10,10)
+        pdf.set_auto_page_break(True,12)
+        pdf.add_font("DejaVu","",font)
+        pdf.add_font("DejaVu","B",bold)
         pdf.add_page()
-
         # ========================================================
         # SECTIONS
         # ========================================================
-
         def section(section_title):
-
             pdf.ln(3)
-
-            pdf.set_font(
-                "DejaVu",
-                "B",
-                12
-            )
-
-            pdf.set_text_color(
-                45,
-                106,
-                79
-            )
-
-            pdf.cell(
-                0,
-                7,
-                txt(section_title, 60)
-            )
-
+            pdf.set_font("DejaVu","B",12)
+            pdf.set_text_color(45,106,79)
+            pdf.cell(0,7,txt(section_title, 60))
             pdf.ln(7)
-
         # ========================================================
         # EN-TETE
         # ========================================================
-
-        pdf.set_text_color(
-            27,
-            67,
-            50
-        )
-
-        pdf.set_font(
-            "DejaVu",
-            "B",
-            17
-        )
-
+        pdf.set_text_color(27,67,50)
+        pdf.set_font("DejaVu","B",17)
         # --------------------------------------------------------
         # LOGO
         # --------------------------------------------------------
-
         if logo:
-
             try:
-
-                print(
-                    f"[DEBUG] Ajout du logo : {logo}"
-                )
-
+                print(f"[DEBUG] Ajout du logo : {logo}")
                 # Test Pillow uniquement pour diagnostic.
                 try:
-
                     from PIL import Image
-
-                    print(
-                        "[DEBUG] Pillow importe avec succes."
-                    )
-
-                    test_image = Image.open(
-                        logo
-                    )
-
+                    print("[DEBUG] Pillow importe avec succes.")
+                    test_image = Image.open(logo)
                     print(
                         "[DEBUG] Logo lisible : "
                         f"format={test_image.format}, "
                         f"size={test_image.size}, "
                         f"mode={test_image.mode}"
                     )
-
                     test_image.close()
-
                 except Exception as pillow_error:
-
                     print(
                         "[DEBUG] ERREUR Pillow lors "
                         f"du test du logo : "
                         f"{type(pillow_error).__name__}: "
                         f"{pillow_error}"
                     )
-
                 # Ajout réel du logo dans le PDF.
-                pdf.image(
-                    logo,
-                    10,
-                    10,
-                    23,
-                    23
-                )
-
-                pdf.set_xy(
-                    38,
-                    16
-                )
-
-                print(
-                    "[DEBUG] Logo ajoute avec succes."
-                )
-
+                pdf.image(logo,10,10,23,23)
+                pdf.set_xy(38,16)
+                print("[DEBUG] Logo ajoute avec succes.")
             except Exception as logo_error:
-
                 print(
                     "[DEBUG] ERREUR ajout logo : "
                     f"{type(logo_error).__name__}: "
                     f"{logo_error}"
                 )
-
                 import traceback
-
                 traceback.print_exc()
-
                 # On continue sans logo.
-                pdf.set_xy(
-                    10,
-                    16
-                )
-
+                pdf.set_xy(10,16)
         else:
-
             print(
                 "[DEBUG] Logo introuvable, "
                 "generation sans logo."
             )
-
-        pdf.cell(
-            0,
-            10,
-            txt(titre, 60).upper(),
-            align="C"
-        )
-
+        pdf.cell(0,10,txt(titre, 60).upper(),align="C")
         pdf.ln(17)
-
         # ========================================================
         # INFORMATIONS DU MATCH
         # ========================================================
-
-        section(
-            "Details du Match"
-        )
-
+        section("Details du Match")
         infos = [
             (
                 "Adversaire :",
@@ -463,50 +256,21 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
                 match_info.get("lieu")
             )
         ]
-
-        widths = [
-            34,
-            50,
-            34,
-            52
-        ]
-
+        widths = [34,50,34,52]
         for row in infos:
-
             for index, value in enumerate(row):
-
                 pdf.set_font(
                     "DejaVu",
                     "B" if index in (0, 2) else "",
                     8
                 )
-
-                pdf.set_fill_color(
-                    248,
-                    249,
-                    250
-                )
-
-                pdf.set_draw_color(
-                    225,
-                    228,
-                    230
-                )
-
-                pdf.cell(
-                    widths[index],
-                    8,
-                    txt(value, 35),
-                    border=1,
-                    fill=True
-                )
-
+                pdf.set_fill_color(248,249,250)
+                pdf.set_draw_color(225,228,230)
+                pdf.cell(widths[index],8,txt(value, 35),border=1,fill=True)
             pdf.ln()
-
         # ========================================================
         # ENTRAINEURS
         # ========================================================
-
         entraineurs = [
             entraineur.strip()
             for entraineur in str(
@@ -517,78 +281,35 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             ).split(",")
             if entraineur.strip()
         ]
-
         coachs = []
-
         for entraineur in entraineurs:
-
             morceaux = entraineur.split()
-
             if len(morceaux) > 1:
-
                 nom_entraineur = (
                     " ".join(
                         morceaux[:-1]
                     ).upper()
                 )
-
-                prenom_entraineur = (
-                    morceaux[-1].capitalize()
-                )
-
+                prenom_entraineur = (morceaux[-1].capitalize())
             else:
-
-                nom_entraineur = (
-                    entraineur.upper()
-                )
-
+                nom_entraineur = (entraineur.upper())
                 prenom_entraineur = ""
-
             licence_entraineur = licences.get(
                 f"{nom_entraineur} "
                 f"{prenom_entraineur}".upper(),
                 "-"
             )
-
             if licence_entraineur != "-":
-
                 coachs.append(
                     f"{entraineur} "
                     f"(Licence : {licence_entraineur})"
                 )
-
             else:
-
-                coachs.append(
-                    entraineur
-                )
-
-        pdf.set_font(
-            "DejaVu",
-            "B",
-            8
-        )
-
-        pdf.set_fill_color(
-            248,
-            249,
-            250
-        )
-
-        pdf.cell(
-            34,
-            8,
-            "Entraineur(s) :",
-            border=1,
-            fill=True
-        )
-
-        pdf.set_font(
-            "DejaVu",
-            "",
-            8
-        )
-
+                coachs.append(entraineur)
+        pdf.set_font("DejaVu","B",8)
+        pdf.set_fill_color(248,249,250)
+        pdf.cell(34,8,"Entraineur(s) :",border=1,fill=True)
+        pdf.set_font("DejaVu","",8)
         pdf.multi_cell(
             136,
             8,
@@ -599,134 +320,46 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
             border=1,
             fill=True
         )
-
         # ========================================================
         # NOTES
         # ========================================================
-
-        notes = txt(
-            match_info.get("notes"),
-            500
-        )
-
+        notes = txt(match_info.get("notes"),500)
         if notes != "-":
-
             pdf.ln(2)
-
-            pdf.set_font(
-                "DejaVu",
-                "B",
-                8
-            )
-
-            pdf.cell(
-                0,
-                6,
-                "Notes :"
-            )
-
+            pdf.set_font("DejaVu","B",8)
+            pdf.cell(0,6,"Notes :")
             pdf.ln(5)
-
-            pdf.set_font(
-                "DejaVu",
-                "",
-                8
-            )
-
-            pdf.multi_cell(
-                0,
-                5,
-                notes
-            )
-
+            pdf.set_font("DejaVu","",8)
+            pdf.multi_cell(0,5,notes)
         # ========================================================
         # JOUEURS
         # ========================================================
-
         joueurs = match_info.get(
             "joueurs_convoques",
             []
         )
-
         if (
             match_info.get(
                 "activer_convocation"
             )
             and joueurs
         ):
-
             section(
                 f"Joueurs Convoques "
                 f"({len(joueurs)})"
             )
-
-            headers = [
-                "#",
-                "Nom",
-                "Prenom",
-                "Categorie",
-                "N Licence"
-            ]
-
-            widths = [
-                9,
-                39,
-                39,
-                31,
-                42
-            ]
-
-            pdf.set_font(
-                "DejaVu",
-                "B",
-                8
-            )
-
-            pdf.set_text_color(
-                255,
-                255,
-                255
-            )
-
-            pdf.set_fill_color(
-                45,
-                106,
-                79
-            )
-
+            headers = ["#","Nom","Prenom","Categorie","N Licence"]
+            widths = [9,39,39,31,42]
+            pdf.set_font("DejaVu","B",8)
+            pdf.set_text_color(255,255,255)
+            pdf.set_fill_color(45,106,79)
             for index, header in enumerate(headers):
-
-                pdf.cell(
-                    widths[index],
-                    8,
-                    header,
-                    border=1,
-                    align="C",
-                    fill=True
-                )
-
+                pdf.cell(widths[index],8,header,border=1,align="C",fill=True)
             pdf.ln()
-
-            for index, joueur in enumerate(
-                joueurs,
-                1
-            ):
-
-                if isinstance(
-                    joueur,
-                    dict
-                ):
-
-                    nom = txt(
-                        joueur.get("nom"),
-                        40
-                    ).upper()
-
-                    prenom = txt(
-                        joueur.get("prenom"),
-                        25
-                    ).capitalize()
-
+            for index, joueur in enumerate(joueurs,1):
+                if isinstance(joueur,dict):
+                    nom = txt(joueur.get("nom"),40).upper()
+                    prenom = txt(joueur.get("prenom"),25).capitalize()
                     categorie = txt(
                         joueur.get(
                             "categorie_joueur"
@@ -736,74 +369,27 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
                         ),
                         18
                     ).upper()
-
                 else:
-
-                    joueur_parts = txt(
-                        joueur,
-                        60
-                    ).split()
-
+                    joueur_parts = txt(joueur,60).split()
                     if len(joueur_parts) > 1:
-
-                        nom = " ".join(
-                            joueur_parts[:-1]
-                        ).upper()
-
-                        prenom = (
-                            joueur_parts[-1]
-                            .capitalize()
-                        )
-
+                        nom = " ".join(joueur_parts[:-1]).upper()
+                        prenom = (joueur_parts[-1].capitalize())
                     else:
-
                         nom = (
                             joueur_parts[0].upper()
                             if joueur_parts
                             else "-"
                         )
-
                         prenom = ""
-
                     categorie = "-"
-
-                licence_joueur = licences.get(
-                    f"{nom} {prenom}".upper(),
-                    "-"
-                )
-
-                row = [
-                    index,
-                    nom,
-                    prenom,
-                    categorie,
-                    licence_joueur
-                ]
-
-                pdf.set_text_color(
-                    43,
-                    43,
-                    43
-                )
-
+                licence_joueur = licences.get(f"{nom} {prenom}".upper(),"-")
+                row = [index,nom,prenom,categorie,licence_joueur]
+                pdf.set_text_color(43,43,43)
                 if index % 2 == 0:
-
-                    pdf.set_fill_color(
-                        241,
-                        245,
-                        242
-                    )
-
+                    pdf.set_fill_color(241,245,242)
                 else:
-
-                    pdf.set_fill_color(
-                        255,
-                        255,
-                        255
-                    )
-
+                    pdf.set_fill_color(255,255,255)
                 for column_index, value in enumerate(row):
-
                     pdf.cell(
                         widths[column_index],
                         7,
@@ -816,166 +402,99 @@ def generer_pdf_convocation(match_info, tous_les_joueurs=None):
                         ),
                         fill=True
                     )
-
                 pdf.ln()
-
         # ========================================================
         # SAUVEGARDE
         # ========================================================
-
-        pdf.output(
-            chemin
-        )
-
-        print(
-            "[DEBUG] Succes : PDF cree sur le disque -> "
-            f"{chemin}"
-        )
-
+        pdf.output(chemin)
         # Vérification supplémentaire
         if os.path.isfile(chemin):
-
-            taille_pdf = os.path.getsize(
-                chemin
-            )
-
+            taille_pdf = os.path.getsize(chemin)
             print(
                 "[DEBUG] Verification PDF : "
                 f"{taille_pdf} octets"
             )
-
         else:
-
             print(
                 "[DEBUG] ATTENTION : "
                 "pdf.output() termine mais "
                 "le fichier n'existe pas."
             )
-
     except Exception as pdf_error:
-
         print(
             "[DEBUG] ERREUR lors de la generation "
             "du PDF FPDF : "
             f"{type(pdf_error).__name__}: "
             f"{pdf_error}"
         )
-
         import traceback
-
         traceback.print_exc()
-
         raise
-
     # ============================================================
     # OUVERTURE / PARTAGE SELON LA PLATEFORME
     # ============================================================
-
     if platform == "win":
-
         try:
-
-            os.startfile(
-                chemin
-            )
-
+            os.startfile(chemin)
         except Exception as windows_error:
-
             print(
                 "[DEBUG] Ouverture PDF impossible : "
                 f"{windows_error}"
             )
-
     elif platform == "android":
-
         print(
             f"PDF enregistre dans le stockage : "
             f"{chemin}"
         )
-
     elif platform == "ios":
-
         print(
             "[DEBUG] Planification du partage "
             "iOS via Clock..."
         )
-
-        Clock.schedule_once(
-            lambda dt: _partager_pdf_ios(chemin),
-            0
-        )
-
+        Clock.schedule_once(lambda dt: _partager_pdf_ios(chemin),0)
     return chemin
-
-
 
 @mainthread
 def _partager_pdf_ios(chemin):
     """Affiche la feuille de partage iOS pour un PDF."""
-
-    print("=" * 60)
-    print("[IOS SHARE] Debut")
-    print("=" * 60)
-
     try:
         import os
         import traceback
-
         from pyobjus import autoclass
-
         # =====================================================
         # VERIFICATION PDF
         # =====================================================
-
         if not os.path.isfile(chemin):
             print(f"[IOS SHARE] PDF introuvable : {chemin}")
             return
-
         taille = os.path.getsize(chemin)
-
-        print(f"[IOS SHARE] PDF = {chemin}")
-        print(f"[IOS SHARE] Taille = {taille}")
-
         if taille <= 0:
             print("[IOS SHARE] PDF vide")
             return
-
         # =====================================================
         # CLASSES IOS
         # =====================================================
-
         NSURL = autoclass("NSURL")
         UIApplication = autoclass("UIApplication")
-        UIActivityViewController = autoclass(
-            "UIActivityViewController"
-        )
+        UIActivityViewController = autoclass("UIActivityViewController")
         NSMutableArray = autoclass("NSMutableArray")
-
         # =====================================================
         # URL DU PDF
         # =====================================================
-
         file_url = NSURL.fileURLWithPath_(chemin)
-
         if not file_url:
             print("[IOS SHARE] Impossible de creer NSURL")
             return
-
         print("[IOS SHARE] NSURL OK")
-
         # =====================================================
         # TABLEAU DES ELEMENTS A PARTAGER
         # =====================================================
-
         activity_items = NSMutableArray.alloc().init()
         activity_items.addObject_(file_url)
-
         print("[IOS SHARE] Activity items OK")
-
         # =====================================================
         # CONTROLEUR DE PARTAGE
         # =====================================================
-
         activity_vc = (
             UIActivityViewController
             .alloc()
@@ -984,55 +503,38 @@ def _partager_pdf_ios(chemin):
                 None
             )
         )
-
         if not activity_vc:
             print("[IOS SHARE] Impossible de creer UIActivityViewController")
             return
-
         print("[IOS SHARE] UIActivityViewController OK")
-
         # =====================================================
         # APPLICATION
         # =====================================================
-
         app = UIApplication.sharedApplication()
-
         if not app:
             print("[IOS SHARE] UIApplication introuvable")
             return
-
         print("[IOS SHARE] UIApplication OK")
-
         # =====================================================
         # FENETRE
         # =====================================================
-
         window = None
-
         try:
             windows = app.windows()
-
             if windows:
                 count = windows.count()
-
                 print(f"[IOS SHARE] Nombre fenetres = {count}")
-
                 for i in range(count):
                     candidate = windows.objectAtIndex_(i)
-
                     if candidate:
                         window = candidate
-                        print(
-                            f"[IOS SHARE] Fenetre selectionnee index={i}"
-                        )
+                        print(f"[IOS SHARE] Fenetre selectionnee index={i}")
                         break
-
         except Exception as e:
             print(
                 f"[IOS SHARE] Erreur windows() : "
                 f"{type(e).__name__}: {e}"
             )
-
         if not window:
             try:
                 window = app.keyWindow()
@@ -1042,107 +544,64 @@ def _partager_pdf_ios(chemin):
                     f"[IOS SHARE] keyWindow erreur : "
                     f"{type(e).__name__}: {e}"
                 )
-
         if not window:
             print("[IOS SHARE] Aucune UIWindow")
             return
-
-        print("[IOS SHARE] UIWindow OK")
-        print(f"[IOS SHARE] window = {window}")
-
         # =====================================================
         # ROOT VIEW CONTROLLER
         # =====================================================
-
         root_vc = window.rootViewController()
-
         if not root_vc:
             print("[IOS SHARE] rootViewController absent")
             return
-
-        print("[IOS SHARE] rootViewController OK")
-        print(f"[IOS SHARE] root_vc = {root_vc}")
-
         # =====================================================
         # CONTROLEUR LE PLUS HAUT
         # =====================================================
-
         presenter = root_vc
-
         try:
             while True:
                 presented = presenter.presentedViewController()
-
                 if not presented:
                     break
-
                 presenter = presented
-
         except Exception as e:
             print(
                 f"[IOS SHARE] presentedViewController erreur : "
                 f"{type(e).__name__}: {e}"
             )
-
         print("[IOS SHARE] Presenter OK")
-
         # =====================================================
         # IPAD
         # =====================================================
-
         try:
-            popover = (
-                activity_vc
-                .popoverPresentationController()
-            )
-
+            popover = (activity_vc.popoverPresentationController())
             if popover:
                 view = presenter.view()
-
                 if view:
                     popover.setSourceView_(view)
-
                     try:
-                        popover.setSourceRect_(
-                            view.bounds()
-                        )
+                        popover.setSourceRect_(view.bounds())
                     except Exception:
                         pass
-
                     print("[IOS SHARE] Popover configure")
         except Exception as e:
             print(
                 f"[IOS SHARE] Popover erreur : "
                 f"{type(e).__name__}: {e}"
             )
-
         # =====================================================
         # AFFICHAGE
         # =====================================================
-
         print("[IOS SHARE] Presentation...")
-
-        presenter.presentViewController_animated_completion_(
-            activity_vc,
-            True,
-            None
-        )
-
+        presenter.presentViewController_animated_completion_(activity_vc,True,None)
         print("[IOS SHARE] Feuille de partage affichee")
-
     except Exception as e:
         import traceback
-
         print(
             f"[IOS SHARE] ERREUR : "
             f"{type(e).__name__}: {e}"
         )
-
         traceback.print_exc()
-
-    print("=" * 60)
-    print("[IOS SHARE] Fin")
-    print("=" * 60)
 
 class DateTextInput(TextInput):
     def insert_text(self, substring, from_undo=False):
@@ -1302,35 +761,19 @@ class EventManager:
             )
         
             def valider(instance):
-                print("[COMMIT] =============================")
-                print("[COMMIT] BOUTON CONFIRMER")
-                
                 msg = ti_commit.text.strip()
-                print("[COMMIT] message =", repr(msg))
-        
                 # Important iOS
                 ti_commit.focus = False
-        
                 def fermer_et_sauver(dt):
-                    print("[COMMIT] fermeture popup")
-        
                     if popup_commit._is_open:
                         popup_commit.dismiss()
-        
                     if popup_ref and popup_ref[0] and popup_ref[0]._is_open:
                         popup_ref[0].dismiss()
-        
                     def lancer(dt2):
-                        print("[COMMIT] >>> EXECUTION SAUVEGARDE")
                         executer_sauvegarde(msg)
-                        print("[COMMIT] <<< EXECUTION SAUVEGARDE")
-        
                     Clock.schedule_once(lancer, 0.15)
-        
                 Clock.schedule_once(fermer_et_sauver, 0.3)
-        
             btn_valider_commit.bind(on_release=valider)
-        
             popup_commit.open()
         
         def rafraichir_formulaire(t):
