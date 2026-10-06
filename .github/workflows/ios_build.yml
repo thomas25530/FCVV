@@ -775,36 +775,36 @@ jobs:
               // 6. REMISE À ZÉRO DU BADGE
               // ==========================================================
 
-              if (@available(iOS 16.0, *)) {
+              //if (@available(iOS 16.0, *)) {
 
-                  [center setBadgeCount:0
-                      withCompletionHandler:^(NSError * _Nullable error) {
+                  //[center setBadgeCount:0
+                      //withCompletionHandler:^(NSError * _Nullable error) {
 
-                          if (error) {
+                          //if (error) {
 
-                              NSLog(
-                                  @"[FCVV] ❌ Erreur remise badge à 0 : %@",
-                                  error
-                              );
+                              //NSLog(
+                                  //@"[FCVV] ❌ Erreur remise badge à 0 : %@",
+                                  //error
+                              //);
 
-                          } else {
+                          //} else {
 
-                              NSLog(
-                                  @"[FCVV] ✓ Badge remis à 0"
-                              );
-                          }
-                      }
-                  ];
+                              //NSLog(
+                                  //@"[FCVV] ✓ Badge remis à 0"
+                              //);
+                          //}
+                      //}
+                  //];
 
-              } else {
+              //} else {
 
-                  [UIApplication sharedApplication]
-                      .applicationIconBadgeNumber = 0;
+                  //[UIApplication sharedApplication]
+                      //.applicationIconBadgeNumber = 0;
 
-                  NSLog(
-                      @"[FCVV] ✓ Badge remis à 0"
-                  );
-              }
+                  //NSLog(
+                      //@"[FCVV] ✓ Badge remis à 0"
+                  //);
+              //}
 
 
               // ==========================================================
