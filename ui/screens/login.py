@@ -254,7 +254,7 @@ class LoginScreen(Screen):
         super().on_leave()
         if platform == "ios":
             from kivy.core.window import Window
-            Window.softinput_mode = "below_target"
+            Window.softinput_mode = ""
     
     def on_enter(self):
         app = App.get_running_app()
