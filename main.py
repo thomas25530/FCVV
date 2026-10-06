@@ -995,6 +995,73 @@ class MyApp(App):
             print(f"[ROLE API ERROR] {cat} : {e}")
             return self.get_role_for_cat(cat)
 
+    
+    def synchroniser_badge_ios(self):
+        """
+        Lit le compteur Firestore et met à jour le badge iOS.
+        """
+        if platform != "ios":
+            return
+        nom_parent = self.get_current_user_name()
+        if not nom_parent:
+            return
+        def worker():
+            try:
+                import requests
+                response = requests.get(
+                    "https://fcvv-api.onrender.com/notifications/badge",
+                    headers={"nom_parent": nom_parent},
+                    timeout=10
+                )
+                if response.status_code != 200:
+                    return
+                badge = int(response.json().get("badge", 0))
+                Clock.schedule_once(lambda dt: self.set_ios_badge(badge),0)
+            except Exception as e:
+                print(f"[BADGE SYNC ERROR] {e}")
+        threading.Thread(target=worker,daemon=True).start()    
+    
+    def set_ios_badge(self, count):
+        if platform != "ios":
+            return
+        try:
+            from pyobjus import autoclass
+            UIApplication = autoclass("UIApplication")
+            app = UIApplication.sharedApplication()
+            app.setApplicationIconBadgeNumber_(int(max(0, count)))
+            print(
+                f"[BADGE IOS] "
+                f"badge={count}"
+            )
+        except Exception as e:
+            print(f"[BADGE IOS ERROR] {e}")
+    
+    def decrementer_badge_depuis_api(self):
+        import threading
+        import requests
+        nom_parent = self.get_current_user_name()
+        if not nom_parent:
+            return
+        def worker():
+            try:
+                response = requests.post(
+                    "https://fcvv-api.onrender.com/notifications/decrement",
+                    headers={
+                        "nom_parent": nom_parent
+                    },
+                    timeout=10
+                )
+                if response.status_code != 200:
+                    print("[BADGE] Echec decrement")
+                    return
+                badge = int(response.json().get("badge", 0))
+                Clock.schedule_once(lambda dt:self.set_ios_badge(badge),0)
+                print(f"[BADGE] Nouveau badge={badge}")
+            except Exception as e:
+                print(f"[BADGE ERROR] {e}")
+    
+        threading.Thread(target=worker,daemon=True).start()
+    
     def on_start(self):
         threading.Thread(target=self.warmup_server,daemon=True).start()
         auth_str = self.config.get("User","authorized_list",fallback="")
@@ -1016,6 +1083,7 @@ class MyApp(App):
                     Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),6.0)
                     Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),12.0)
                     Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),20.0)
+                    Clock.schedule_once(lambda dt: self.synchroniser_badge_ios(),8)
                     # Synchronisation des topics de catégories
                     # Synchronisation des topics de catégories (uniquement celles dont le switch est actif)
                     if self.authorized_vestiaires:
@@ -1259,6 +1327,8 @@ class MyApp(App):
     
     def on_resume(self):
         # Utilisation de in ("android", "ios") pour couvrir les deux plateformes
+        if platform == "ios":
+            self.synchroniser_badge_ios()
         if platform in ("android", "ios"):
             Clock.schedule_once(lambda dt: self.verifier_redirection_notification(), 0.3)
         return True
@@ -1313,6 +1383,10 @@ class MyApp(App):
             print("[iOS FCM] ==================================")
             # 3. Traitement de la redirection
             nt = notif_type.strip().lower()
+            # ==================================================
+            # DECREMENT DU BADGE SERVEUR
+            # ==================================================
+            self.decrementer_badge_depuis_api()
             if nt in ("manual", "home") or not categorie:
                 print("[iOS FCM] Redirection -> HOME")
                 Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
