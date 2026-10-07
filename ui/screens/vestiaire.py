@@ -1691,11 +1691,15 @@ class VestiaireScreen(Screen):
         app.gerer_abonnements_fcm(app.authorized_vestiaires)
     
     def show_popup(self, titre, message):
-        content = BoxLayout(orientation='vertical',padding=dp(10),spacing=dp(10))
-        content.add_widget(Label(text=message,halign='center'))
-        btn = Button(text="OK",size_hint_y=None,height=dp(45))
+        content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(15))
+        # Label avec retour à la ligne automatique
+        msg_label = Label(text=message,halign='center',valign='middle',font_size='14sp')
+        # On lie la largeur du texte à la largeur disponible du label
+        msg_label.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
+        content.add_widget(msg_label)
+        btn = Button(text="OK", size_hint_y=None, height=dp(45), bold=True)
         content.add_widget(btn)
-        popup = Popup(title=titre,content=content,size_hint=(0.8, 0.4))
+        popup = Popup(title=titre,content=content,size_hint=(0.8, 0.4),auto_dismiss=True)
         btn.bind(on_release=popup.dismiss)
         popup.open()
     
