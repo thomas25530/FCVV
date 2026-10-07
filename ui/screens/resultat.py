@@ -7,6 +7,7 @@ from kivy.graphics import Color, RoundedRectangle
 from kivy.app import App
 from kivy.metrics import dp
 from kivy.clock import Clock
+from kivy.uix.widget import Widget
 import json
 import hashlib
 import threading
@@ -304,4 +305,5 @@ class ResultatScreen(Screen):
                 
                 self.container.add_widget(BoxLayout(size_hint_y=None, height=dp(15)))
                 
+        self.container.add_widget(Widget(size_hint_y=None, height=dp(50)))
         self._is_refreshing = False
