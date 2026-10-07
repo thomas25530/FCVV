@@ -167,13 +167,13 @@ class EventCard(BoxLayout):
         details_box = BoxLayout(orientation="vertical",spacing=dp(2),size_hint_x=0.75,size_hint_y=None,)
         details_box.bind(minimum_height=details_box.setter("height"))
         if evt_type == "MATCH" and adversaire_evt:
-            details_box.add_widget(make_lbl(f"Adversaire : {escape_markup(adversaire_evt)}",(0.3, 0.3, 0.3, 1),-4,halign="left"))
+            details_box.add_widget(make_lbl(f"Adversaire : [b]{escape_markup(adversaire_evt)}[/b]",(0.3, 0.3, 0.3, 1),-4,halign="left"))
         sub_text = (
-            f"Lieu : {lieu_evt}"
+            f"Lieu : [b]{escape_markup(lieu_evt)}[/b]"
             if lieu_evt
             else "Cliquez pour voir les détails et voter"
         )
-        details_box.add_widget(make_lbl(escape_markup(sub_text),(0.5, 0.5, 0.5, 1),-5,halign="left"))
+        details_box.add_widget(make_lbl(sub_text,(0.5, 0.5, 0.5, 1),-5,halign="left"))
         details_row.add_widget(details_box)
         # --------------------------------------------------
         # PARTIE DROITE (BALLON + BADGES)
@@ -219,179 +219,463 @@ class EventCard(BoxLayout):
         if not hasattr(self, "lbl_coach_resume"):
             return
         votes = self.match_data.get("votes", {}) or {}
-        type_sondage = self.match_data.get("type_sondage", "classique")
-        if type_sondage == "multiple":
-            self.lbl_coach_resume.text = (f"Total votants : {len(votes)}")
+        type_sondage = self.match_data.get("type_sondage","classique")
+        sondage_actif = bool(self.match_data.get("sondage_actif",True))
+        sondage_classique = self.match_data.get("sondage_classique",type_sondage == "classique" and sondage_actif)
+        sondage_multiple = self.match_data.get("sondage_multiple",type_sondage == "multiple" and sondage_actif)
+        # Aucun sondage
+        if not sondage_classique and not sondage_multiple:
+            self.lbl_coach_resume.text = ""
             return
-        presents = []
-        absents = []
+        presents = 0
+        absents = 0
         for _, d in votes.items():
-            disp = d.get("disponibilite") if isinstance(d, dict) else d
-            if disp == "Présent":
-                presents.append(1)
-            elif disp == "Absent":
-                absents.append(1)
-        self.lbl_coach_resume.text = (
-            f"[color=1a8c38][b]Présents : {len(presents)}[/b][/color]"
-            f"  |  "
-            f"[color=d93838][b]Absents : {len(absents)}[/b][/color]"
-            f"  |  Total : {len(votes)}"
-        )
+            disp = (
+                d.get("disponibilite")
+                if isinstance(d, dict)
+                else d
+            )
+            if str(disp).strip().lower() == "présent":
+                presents += 1
+            elif str(disp).strip().lower() == "absent":
+                absents += 1
+        total = len(votes)
+        # --------------------------------------------------
+        # CLASSIQUE SEUL
+        # --------------------------------------------------
+        if sondage_classique and not sondage_multiple:
+            self.lbl_coach_resume.text = (
+                f"[color=1a8c38][b]Présents : {presents}[/b][/color]"
+                f"  |  "
+                f"[color=d93838][b]Absents : {absents}[/b][/color]"
+                f"  |  "
+                f"[b]Total : {total}[/b]"
+            )
+        # --------------------------------------------------
+        # MULTIPLE SEUL
+        # --------------------------------------------------
+        elif sondage_multiple and not sondage_classique:
+            self.lbl_coach_resume.text = (f"[b]Total : {total}[/b]")
+        # -------------------------------------------------
+        # CLASSIQUE + MULTIPLE
+        # --------------------------------------------------
+        else:
+            self.lbl_coach_resume.text = (
+                f"[color=1a8c38][b]Présents : {presents}[/b][/color]"
+                f"  |  "
+                f"[color=d93838][b]Absents : {absents}[/b][/color]"
+                f"  |  "
+                f"[b]Total : {total}[/b]"
+            )
     
     def _build_coach_votes_summary(self):
-        """Construit un bloc visible sur la carte montrant le résumé des votants et un bouton d'accès rapide."""
+        """Construit le résumé coach + bouton Résultats sur la carte."""
         data = self.match_data or {}
         votes = data.get("votes", {}) or {}
-        type_sondage = data.get("type_sondage", "classique")
-        sondage_actif = bool(data.get("sondage_actif"))
-        if not sondage_actif and not votes:
+        # ============================================================
+        # DÉTERMINER LES SONDAGES ACTIFS
+        # ============================================================
+        type_sondage = str(data.get("type_sondage", "classique")).strip().lower()
+        sondage_actif = bool(data.get("sondage_actif", True))
+        valeur_classique = data.get("sondage_classique", None)
+        valeur_multiple = data.get("sondage_multiple", None)
+        if valeur_classique is None:
+            sondage_classique = (type_sondage == "classique" and sondage_actif)
+        else:
+            sondage_classique = bool(valeur_classique)
+        if valeur_multiple is None:
+            sondage_multiple = (type_sondage == "multiple" and sondage_actif)
+        else:
+            sondage_multiple = bool(valeur_multiple)
+        # ============================================================
+        # COMPATIBILITÉ / DÉTECTION DES VOTES PRÉSENT-ABSENT
+        # ============================================================
+        presents = []
+        absents = []
+        for nom, vote in votes.items():
+            if isinstance(vote, dict):
+                disponibilite = vote.get("disponibilite")
+            else:
+                disponibilite = vote
+            valeur = str(disponibilite or "").strip().casefold()
+            if valeur == "présent":
+                presents.append(nom)
+    
+            elif valeur == "absent":
+                absents.append(nom)
+    
+        if presents or absents:
+            sondage_classique = True
+        # ============================================================
+        # AUCUN CONTENU
+        # ============================================================
+        if not (sondage_classique or sondage_multiple or votes):
             return None
-        container = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(58), spacing=dp(6), padding=[0, dp(5), 0, 0])
-        container.bind(minimum_height=container.setter("height"))
-        presents, absents, total_votes = [], [], len(votes)
-        # --- Fonction interne pour trier les votants par timestamp (du plus ancien au plus récent) ---
-        def trier_par_timestamp(liste_noms):
+        total_votes = len(votes)
+        # ============================================================
+        # TRI PAR TIMESTAMP
+        # ============================================================
+        def trier_par_timestamp(liste_noms, source_votes=None):
+            source_votes = source_votes or votes
             def extraire_ts(nom):
-                # Nettoyage si le nom contient déjà des parenthèses ou du formatage
-                nom_pur = nom.split(" (")[0].strip()
-                # On cherche dans votes avec correspondance insensible à la casse
-                d = next((v for k, v in votes.items() if str(k).strip().lower() == nom_pur.lower()), {})
+                nom_pur = str(nom).split(" (")[0].strip()
+                d = next(
+                    (
+                        v
+                        for k, v in source_votes.items()
+                        if str(k).strip().casefold()
+                        == nom_pur.casefold()
+                    ),
+                    {}
+                )
                 if not isinstance(d, dict):
                     return datetime.min
                 ts_str = d.get("timestamp", "")
                 try:
-                    return datetime.strptime(ts_str, "%d/%m/%Y à %H:%M")
-                except (ValueError, TypeError):
+                    return datetime.strptime(ts_str,"%d/%m/%Y à %H:%M")
+                except (ValueError,TypeError):
                     return datetime.min
-            return sorted(liste_noms, key=extraire_ts)
-
-        # --- Fonction interne pour formater l'affichage avec le timestamp ---
-        def formater_avec_timestamp(nom):
-            nom_pur = nom.split(" (")[0].strip()
-            d = next((v for k, v in votes.items() if str(k).strip().lower() == nom_pur.lower()), {})
-            if isinstance(d, dict):
-                ts = d.get("timestamp")
-                if ts:
-                    return f"{nom}\n[color=888888]{ts}[/color]"
-            return nom
-
-        if type_sondage == "multiple":
-            details_str = f"Total votants : {total_votes}"
+            return sorted(liste_noms,key=extraire_ts)
+        presents = trier_par_timestamp(presents)
+        absents = trier_par_timestamp(absents)
+        # ============================================================
+        # RÉSUMÉ
+        # ============================================================
+        if sondage_classique:
+            details_str = (
+                f"[color=1a8c38][b]"
+                f"Présents : {len(presents)}"
+                f"[/b][/color]"
+                f"  |  "
+                f"[color=d93838][b]"
+                f"Absents : {len(absents)}"
+                f"[/b][/color]"
+                f"  |  "
+                f"[b]Total : {total_votes}[/b]"
+            )
+        elif sondage_multiple:
+            details_str = (
+                f"[b]Total votants : {total_votes}[/b]"
+            )
         else:
-            for n, d in votes.items():
-                disp = d.get("disponibilite") if isinstance(d, dict) else d
-                if disp == "Présent": presents.append(n)
-                elif disp == "Absent": absents.append(n)
-            
-            # Tri des listes par ordre de vote
-            presents = trier_par_timestamp(presents)
-            absents = trier_par_timestamp(absents)
-            details_str = f"[color=1a8c38][b]Présents : {len(presents)}[/b][/color]  |  [color=d93838][b]Absents : {len(absents)}[/b][/color]  |  Total : {total_votes}"
-        self.lbl_coach_resume = Label(text=details_str,markup=True,font_size=f"{self.user_font_size - 4}sp",size_hint_y=None,height=dp(20),halign="left",valign="center",)
-        self.lbl_coach_resume.bind(size=lambda s, z: setattr(s, "text_size", z))
+            details_str = (f"[b]Total votants : {total_votes}[/b]")
+        # ============================================================
+        # CONTAINER PRINCIPAL
+        # ============================================================
+        container = BoxLayout(orientation="vertical",size_hint_y=None,spacing=dp(6),padding=[dp(2),dp(5),dp(2),dp(5)])
+        # ============================================================
+        # LABEL RÉSUMÉ
+        # ============================================================
+        self.lbl_coach_resume = Label(text=details_str,markup=True,color=(0.2, 0.2, 0.2, 1),font_size=f"{self.user_font_size - 4}sp",size_hint_y=None,size_hint_x=1,halign="center",valign="middle",)
+        # IMPORTANT :
+        # On donne uniquement la largeur au text_size.
+        # On laisse Kivy calculer automatiquement la hauteur.
+        def update_resume_text_size(instance, width):
+            instance.text_size = (max(1, width - dp(4)),None)
+    
+        self.lbl_coach_resume.bind(width=update_resume_text_size)
+        def update_resume_height(instance, texture_size):
+            instance.height = max(dp(24),texture_size[1] + dp(2))
+    
+        self.lbl_coach_resume.bind(texture_size=update_resume_height)
         container.add_widget(self.lbl_coach_resume)
+        # ============================================================
+        # BOUTON RÉSULTATS
+        # ============================================================
         btn_resultats = StopPropagationButton(
             text="Résultats & Votants",
             size_hint_y=None,
             height=dp(34),
             background_normal="",
-            background_color=(0.1, 0.45, 0.85, 1),
+            background_color=(
+                0.1,
+                0.45,
+                0.85,
+                1
+            ),
             color=(1, 1, 1, 1),
             bold=True,
             font_size=f"{self.user_font_size - 4}sp"
         )
-        
+        # ============================================================
+        # FORMATAGE PLACES VALDAHON
+        # ============================================================
         def format_nom_avec_places(nom, dict_vote):
-            """Helper pour formater uniquement 'Nom (X places)' pour Valdahon si renseigné."""
             if isinstance(dict_vote, dict):
-                nb = dict_vote.get("nb_places") if dict_vote.get("nb_places") is not None else dict_vote.get("nombre_de_places")
+                nb = (
+                    dict_vote.get("nb_places")
+                    if dict_vote.get("nb_places") is not None
+                    else dict_vote.get("nombre_de_places")
+                )
                 if nb is not None:
                     try:
                         nb_int = int(nb)
-                        txt_pl = "place" if nb_int <= 1 else "places"
-                        return f"{nom} ({nb_int} {txt_pl})"
-                    except (ValueError, TypeError):
+                        txt_pl = (
+                            "place"
+                            if nb_int <= 1
+                            else "places"
+                        )
+                        return (
+                            f"{nom} "
+                            f"({nb_int} {txt_pl})"
+                        )
+                    except (ValueError,TypeError):
                         pass
             return nom
-
+        # ============================================================
+        # FORMATAGE TIMESTAMP
+        # ============================================================
+        def formater_avec_timestamp(nom,source_votes=None):
+            source_votes = source_votes or votes
+            nom_pur = str(nom).split(" (")[0].strip()
+            d = next(
+                (
+                    v
+                    for k, v in source_votes.items()
+                    if str(k).strip().casefold()
+                    == nom_pur.casefold()
+                ),
+                {}
+            )
+            if isinstance(d, dict):
+                ts = d.get("timestamp")
+                if ts:
+                    return (
+                        f"{nom}\n"
+                        f"[color=888888]{ts}[/color]"
+                    )
+            return str(nom)
+        # ============================================================
+        # OUVERTURE DES RÉSULTATS
+        # ============================================================
         def ouvrir_resultats(instance):
-            if type_sondage == "multiple":
-                opts = data.get("options_sondage", ["1", "2", "3", "4", "5"])
-                t_sond = data.get("titre_sondage_multiple", "Votre Choix")
-                sec_m = {
-                    f"Option : {o}": [
-                        formater_avec_timestamp(n) for n in trier_par_timestamp([n for n, d in votes.items() if isinstance(d, dict) and str(d.get("choix_multiple")) == str(o)])
-                    ] for o in opts
-                }
-                self._afficher_popup_resultats_coach(f"Votes - {t_sond}",sec_m,self.match_data)
-            else:
-                votes = self.match_data.get("votes", {}) or {}
-                presents, absents = self.recuperer_votes_presence()
-                presents = trier_par_timestamp(presents)
-                absents = trier_par_timestamp(absents)
-                presents_finaux = [
-                    formater_avec_timestamp(n)
-                    for n in presents
+            current_data = self.match_data or {}
+            current_votes = (current_data.get("votes", {}) or {})
+            current_type_sondage = str(current_data.get("type_sondage","classique")).strip().lower()
+            current_sondage_actif = bool(current_data.get("sondage_actif",True))
+            valeur_classique = current_data.get("sondage_classique",None)
+            valeur_multiple = current_data.get("sondage_multiple",None)
+            current_sondage_classique = (
+                bool(valeur_classique)
+                if valeur_classique is not None
+                else (
+                    current_type_sondage == "classique"
+                    and current_sondage_actif
+                )
+            )
+            current_sondage_multiple = (
+                bool(valeur_multiple)
+                if valeur_multiple is not None
+                else (
+                    current_type_sondage == "multiple"
+                    and current_sondage_actif
+                )
+            )
+            current_presents = []
+            current_absents = []
+            for nom, vote in current_votes.items():
+                disponibilite = (
+                    vote.get("disponibilite")
+                    if isinstance(vote, dict)
+                    else vote
+                )
+                valeur = str(disponibilite or "").strip().casefold()
+                if valeur == "présent":
+                    current_presents.append(nom)
+                elif valeur == "absent":
+                    current_absents.append(nom)
+            if current_presents or current_absents:
+                current_sondage_classique = True
+            sections = {}
+            # --------------------------------------------------------
+            # PRÉSENCE
+            # --------------------------------------------------------
+            if current_sondage_classique:
+                current_presents = trier_par_timestamp(current_presents,current_votes)
+                current_absents = trier_par_timestamp(current_absents,current_votes)
+                sections["Présents"] = [
+                    formater_avec_timestamp(
+                        n,
+                        current_votes
+                    )
+                    for n in current_presents
                 ]
-                absents_finaux = [
-                    formater_avec_timestamp(n)
-                    for n in absents
+    
+                sections["Absents"] = [
+                    formater_avec_timestamp(
+                        n,
+                        current_votes
+                    )
+                    for n in current_absents
                 ]
-                sec_v = {"Présents": presents_finaux,"Absents": absents_finaux}
-                if data.get("sondage_trajet"):
+                # ----------------------------------------------------
+                # TRAJET
+                # ----------------------------------------------------
+                if current_data.get("sondage_trajet"):
                     valdahon_list = []
                     total_places_valdahon = 0
-                    for n, d in votes.items():
-                        if (isinstance(d, dict) and d.get("trajet") == "Valdahon"):
-                            nom_formate = format_nom_avec_places(n, d)
+                    for nom, vote in current_votes.items():
+                        if not isinstance(vote, dict):
+                            continue
+                        disponibilite = str(vote.get("disponibilite","")).strip().casefold()
+                        if disponibilite == "absent":
+                            continue
+                        if vote.get("trajet") == "Valdahon":
+                            nom_formate = (format_nom_avec_places(nom,vote))
                             valdahon_list.append(nom_formate)
                             nb = (
-                                d.get("nb_places")
-                                if d.get("nb_places") is not None
-                                else d.get("nombre_de_places")
+                                vote.get("nb_places")
+                                if vote.get("nb_places") is not None
+                                else vote.get(
+                                    "nombre_de_places"
+                                )
                             )
                             if nb is not None:
                                 try:
                                     total_places_valdahon += int(nb)
-                                except (ValueError, TypeError):
+                                except (ValueError,TypeError):
                                     pass
+    
                     valdahon_list = [
-                        formater_avec_timestamp(n)
-                        for n in trier_par_timestamp(valdahon_list)
+                        formater_avec_timestamp(
+                            n,
+                            current_votes
+                        )
+                        for n in trier_par_timestamp(
+                            valdahon_list,
+                            current_votes
+                        )
                     ]
+    
                     stade_adverse_list = [
-                        formater_avec_timestamp(n)
-                        for n in trier_par_timestamp([
-                            n for n, d in votes.items()
-                            if (
-                                isinstance(d, dict)
-                                and d.get("trajet") == "Stade adverse"
-                            )
-                        ])
+                        formater_avec_timestamp(
+                            n,
+                            current_votes
+                        )
+                        for n in trier_par_timestamp(
+                            [
+                                nom
+                                for nom, vote
+                                in current_votes.items()
+                                if (
+                                    isinstance(vote, dict)
+                                    and str(
+                                        vote.get(
+                                            "disponibilite",
+                                            ""
+                                        )
+                                    ).strip().casefold()
+                                    != "absent"
+                                    and vote.get("trajet")
+                                    == "Stade adverse"
+                                )
+                            ],
+                            current_votes
+                        )
                     ]
+    
                     besoin_voiture_list = [
-                        formater_avec_timestamp(n)
-                        for n in trier_par_timestamp([
-                            n for n, d in votes.items()
-                            if (
-                                isinstance(d, dict)
-                                and d.get("trajet") == "Besoin voiture"
-                            )
-                        ])
+                        formater_avec_timestamp(
+                            n,
+                            current_votes
+                        )
+                        for n in trier_par_timestamp(
+                            [
+                                nom
+                                for nom, vote
+                                in current_votes.items()
+                                if (
+                                    isinstance(vote, dict)
+                                    and str(
+                                        vote.get(
+                                            "disponibilite",
+                                            ""
+                                        )
+                                    ).strip().casefold()
+                                    != "absent"
+                                    and vote.get("trajet")
+                                    == "Besoin voiture"
+                                )
+                            ],
+                            current_votes
+                        )
                     ]
-                    lbl_valdahon = (
-                        f"Valdahon ({total_places_valdahon} place{'s' if total_places_valdahon > 1 else ''} dispo)"
-                        if total_places_valdahon > 0
-                        else "Valdahon (Départ)"
-                    )
-                    sec_v[lbl_valdahon] = valdahon_list
-                    sec_v["Stade Adverse"] = stade_adverse_list
-                    sec_v["Besoin Voiture"] = besoin_voiture_list
-            
-                self._afficher_popup_resultats_coach("Résultats des votes",sec_v,self.match_data)
-
+    
+                    if total_places_valdahon > 0:
+    
+                        lbl_valdahon = (
+                            f"Valdahon "
+                            f"({total_places_valdahon} "
+                            f"{'place' if total_places_valdahon <= 1 else 'places'} dispo)"
+                        )
+    
+                    else:
+                        lbl_valdahon = ("Valdahon (Départ)")
+                    sections[lbl_valdahon] = valdahon_list
+                    sections["Stade Adverse"] = stade_adverse_list
+                    sections["Besoin Voiture"] = besoin_voiture_list
+            # --------------------------------------------------------
+            # SONDAGE MULTIPLE
+            # --------------------------------------------------------
+            if current_sondage_multiple:
+                opts = current_data.get("options_sondage",["1","2","3","4","5"])
+                for option in opts:
+                    liste_option = []
+                    for nom, vote in current_votes.items():
+                        if not isinstance(vote, dict):
+                            continue
+                        disponibilite = str(vote.get("disponibilite","")).strip().casefold()
+                        if disponibilite == "absent":
+                            continue
+                        choix_multiple = vote.get("choix_multiple")
+                        if str(choix_multiple) == str(option):
+                            liste_option.append(nom)
+    
+                    liste_option = trier_par_timestamp(liste_option,current_votes)
+                    sections[
+                        f"Option : {option}"
+                    ] = [
+                        formater_avec_timestamp(
+                            n,
+                            current_votes
+                        )
+                        for n in liste_option
+                    ]
+            # --------------------------------------------------------
+            # TITRE
+            # --------------------------------------------------------
+            if (current_sondage_classique and current_sondage_multiple):
+                titre_resultats = ("Résultats - Disponibilité + Sondage")
+            elif current_sondage_multiple:
+                titre_personnalise = str(current_data.get("titre_sondage_multiple","Votre Choix")).strip()
+                if not titre_personnalise:
+                    titre_personnalise = "Votre Choix"
+                titre_resultats = (f"Résultats - {titre_personnalise}")
+            elif current_sondage_classique:
+                titre_resultats = ("Résultats - Disponibilité")
+            else:
+                titre_resultats = "Résultats"
+    
+            self._afficher_popup_resultats_coach(titre_resultats,sections,self.match_data)
+    
         btn_resultats.bind(on_release=ouvrir_resultats)
         container.add_widget(btn_resultats)
+        # ============================================================
+        # HAUTEUR DU CONTAINER
+        # ============================================================
+        container.bind(minimum_height=container.setter("height"))
+        # Force une première mesure correcte
+        Clock.schedule_once(
+            lambda *_: setattr(
+                container,
+                "height",
+                max(
+                    container.minimum_height,
+                    dp(50)
+                )
+            ),
+            0
+        )
         return container
 
     def _afficher_popup_resultats_coach(self, titre_votes, sections_dict, match_info=None):
@@ -640,21 +924,11 @@ class EventCard(BoxLayout):
             _ignorer_verification_enfants=_ignorer_verification_enfants
         )
 
-    def _executer_envoi_vote(
-        self,
-        match_id,
-        categorie,
-        choix,
-        choix_trajet,
-        choix_multiple,
-        second_vote,
-        joueur_concerne,
-        nb_places=None
-    ):
+    def _executer_envoi_vote(self,match_id,categorie,choix,choix_trajet,choix_multiple,second_vote,joueur_concerne,nb_places=None):
         app = App.get_running_app()
         target_cat = (categorie or getattr(app, "categorie_courante", "U14_U15"))
         p_cfg = (
-            app.config.get("User", "nom_parent", fallback="").strip()
+            app.config.get("User","nom_parent",fallback="").strip()
             if app
             and hasattr(app, "config")
             and app.config.has_section("User")
@@ -669,6 +943,17 @@ class EventCard(BoxLayout):
         if not nom_parent:
             return print("[ERREUR VOTE] Nom du parent introuvable.")
         joueur = (joueur_concerne or "").strip()
+        # ============================================================
+        # ABSENT :
+        # Le trajet, le nombre de places et le sondage personnalisé
+        # ne sont plus valables.
+        # ============================================================
+        joueur_absent = (choix is not None and str(choix).strip().lower() == "absent")
+        if joueur_absent:
+            choix_trajet = None
+            choix_multiple = None
+            nb_places = None
+    
         payload = {
             "id_sondage": match_id,
             "nom_parent": nom_parent,
@@ -685,19 +970,24 @@ class EventCard(BoxLayout):
                 if v is not None
             }
         }
+    
         def envoyer_requete():
             try:
                 print(
                     f"[VOTE] Categorie = {target_cat} | "
                     f"Parent = {nom_parent!r} | "
                     f"Joueur = {joueur!r} | "
-                    f"Places = {nb_places}"
+                    f"Places = {nb_places} | "
+                    f"Absent = {joueur_absent}"
                 )
-                api_url = getattr(app,"api_url","https://fcvv-api.onrender.com")
+                api_url = getattr(
+                    app,
+                    "api_url",
+                    "https://fcvv-api.onrender.com"
+                )
                 headers = {"nom_parent": nom_parent,"Content-Type": "application/json",}
                 # ============================================================
                 # 1. ROUTE EXISTANTE
-                #    NE PAS MODIFIER LE BACKEND
                 # ============================================================
                 res = requests.post(f"{api_url}/voter/{target_cat}",json=payload,headers=headers,timeout=5,verify=(platform != "win"))
                 if res.status_code != 200:
@@ -707,10 +997,11 @@ class EventCard(BoxLayout):
                     )
                     return
                 print("[VOTE] Vote principal enregistre.")
-
+                # ============================================================
+                # 2. HISTORIQUE
+                # ============================================================
                 try:
-                    res_stats = requests.post(
-                        f"{api_url}/stats/historique/vote/{target_cat}",json=payload,headers=headers,timeout=8,verify=(platform != "win"))
+                    res_stats = requests.post(f"{api_url}/stats/historique/vote/{target_cat}",json=payload,headers=headers,timeout=8,verify=(platform != "win"))
                     if res_stats.status_code == 200:
                         print("[STATS] Vote sauvegarde definitivement.")
                     else:
@@ -719,20 +1010,15 @@ class EventCard(BoxLayout):
                             f"{res_stats.status_code} "
                             f"{res_stats.text}"
                         )
-
                 except Exception as e:
                     print(f"[ERREUR RESEAU STATS] {e}")
                 # ============================================================
-                # 3. MISE À JOUR LOCALE DE LA CARTE
-                #    Ton fonctionnement actuel est conservé.
+                # 3. MISE A JOUR LOCALE DE LA CARTE
                 # ============================================================
                 if joueur:
                     votes = self.match_data.setdefault("votes",{})
-                    norm = lambda s: (
-                        " ".join(
-                            str(s).strip().lower().split()
-                        )
-                    )
+    
+                    norm = lambda s: (" ".join(str(s).strip().lower().split()))
                     cle = next(
                         (
                             k
@@ -742,72 +1028,227 @@ class EventCard(BoxLayout):
                         joueur
                     )
                     vote = votes.setdefault(cle, {})
-                    for attr, val in [
-                        ("disponibilite", choix),
-                        ("trajet", choix_trajet),
-                        ("choix_multiple", choix_multiple),
-                        ("nb_places", nb_places),
-                        ("nombre_de_places", nb_places),
-                    ]:
-    
-                        if val is not None:
-                            vote[attr] = val
-                    
-                    cache = getattr(app, "_cache_data", {})
-
+                    # --------------------------------------------------------
+                    # IMPORTANT :
+                    # Si le joueur devient ABSENT, on supprime les anciennes
+                    # informations qui ne sont plus valables.
+                    # --------------------------------------------------------
+                    if joueur_absent:
+                        vote["disponibilite"] = "Absent"
+                        vote.pop("trajet", None)
+                        vote.pop("nb_places", None)
+                        vote.pop("nombre_de_places", None)
+                        vote.pop("choix_multiple", None)
+                        print(
+                            f"[VOTE] {joueur} est ABSENT : "
+                            "trajet, places et sondage multiple supprimes."
+                        )
+                    else:
+                        # ----------------------------------------------------
+                        # Vote normal : on ne modifie que les valeurs reçues.
+                        # ----------------------------------------------------
+                        for attr, val in [
+                            ("disponibilite", choix),
+                            ("trajet", choix_trajet),
+                            ("choix_multiple", choix_multiple),
+                            ("nb_places", nb_places),
+                            ("nombre_de_places", nb_places),
+                        ]:
+                            if val is not None:
+                                vote[attr] = val
+                    # ========================================================
+                    # CACHE LOCAL
+                    # ========================================================
+                    cache = getattr(app,"_cache_data",{})
                     if target_cat in cache:
-                        for evt in cache[target_cat].get("evenements", []):
+                        for evt in cache[target_cat].get("evenements",[]):
                             if str(evt.get("id")) == str(match_id):
-                                evt["votes"] = self.match_data["votes"]
+                                evt["votes"] = (self.match_data["votes"])
                                 break
+                # ============================================================
+                # 4. RAFRAICHISSEMENT DE LA CARTE
+                # ============================================================
+                Clock.schedule_once(
+                    lambda dt: (
+                        self.mettre_a_jour(
+                            self.match_data
+                        ),
+                        setattr(
+                            self,
+                            "height",
+                            self.minimum_height
+                        ),
+                    ),
+                    0.05,
+                )
     
-                Clock.schedule_once(lambda dt: (self.mettre_a_jour(self.match_data),setattr(self,"height",self.minimum_height),),0.05,)
             except Exception as e:
                 print(f"[ERREUR RESEAU VOTE] {e}")
+    
         threading.Thread(target=envoyer_requete,daemon=True).start()
 
     def calculer_etat_vote(self):
         data = self.match_data or {}
-        s_actif, s_trajet, type_s = bool(data.get("sondage_actif")), bool(data.get("sondage_trajet")), data.get("type_sondage", "classique")
-        target_cat = getattr(self, "categorie", None) or data.get("categorie")
-        associes = list(dict.fromkeys(str(n).strip() for n in (self.get_joueurs_associes_pour_parent(self.nom_parent, target_cat) or []) if str(n).strip()))
-        if not (s_actif or s_trajet) or not associes: return []
+        # ============================================================
+        # Déterminer les sondages actifs
+        # ============================================================
+        type_s = data.get("type_sondage", "classique")
+        s_actif = bool(data.get("sondage_actif", True))
+        s_classique = bool(data.get("sondage_classique",type_s == "classique" and s_actif))
+        s_multiple = bool(data.get("sondage_multiple",type_s == "multiple" and s_actif))
+        s_trajet = bool(data.get("sondage_trajet"))
+        target_cat = (getattr(self, "categorie", None) or data.get("categorie"))
+        associes = list(dict.fromkeys(
+            str(n).strip()
+            for n in (
+                self.get_joueurs_associes_pour_parent(
+                    self.nom_parent,
+                    target_cat
+                ) or []
+            )
+            if str(n).strip()
+        ))
+        if not (s_classique or s_multiple or s_trajet) or not associes:
+            return []
+        # ============================================================
+        # Normalisation des noms
+        # ============================================================
         norm = lambda s: " ".join(str(s or "").strip().lower().split())
-        votes_norm = {norm(k): v for k, v in (data.get("votes", {}) or {}).items()}
-        joueurs, coachs = [n for n in associes if not n.upper().startswith("COACH_")], [n for n in associes if n.upper().startswith("COACH_")]
-        statuts_colores, complet, total = [], True, len(joueurs) + len(coachs)
-
+        votes_norm = {
+            norm(k): v
+            for k, v in (data.get("votes", {}) or {}).items()
+        }
+        joueurs = [
+            n for n in associes
+            if not n.upper().startswith("COACH_")
+        ]
+        coachs = [
+            n for n in associes
+            if n.upper().startswith("COACH_")
+        ]
+        statuts_colores = []
+        complet = True
+        total = len(joueurs) + len(coachs)
+        # ============================================================
+        # Parcours des joueurs / coachs
+        # ============================================================
         for nom in joueurs + coachs:
             vote = votes_norm.get(norm(nom), {})
             v_dict = vote if isinstance(vote, dict) else {}
-            dispo = v_dict.get("disponibilite") if v_dict else vote
-            st = str(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if (s_actif and (v_dict.get("choix_multiple") if type_s == "multiple" else dispo)) else None
-            if s_trajet and dispo != "Absent" and v_dict.get("trajet"):
-                tr = "Valdahon" if "Valdahon" in str(v_dict["trajet"]) else ("Direct" if "Stade" in str(v_dict["trajet"]) else "Voiture")
-                # --- CORRECTION 2 : Accepter 'nb_places' ET 'nombre_de_places' envoyés par l'API ---
-                places = v_dict.get("nb_places") if v_dict.get("nb_places") is not None else v_dict.get("nombre_de_places")
+            # --------------------------------------------------------
+            # Présence / Absence
+            # --------------------------------------------------------
+            dispo = (
+                v_dict.get("disponibilite")
+                if v_dict
+                else vote
+            )
+            # --------------------------------------------------------
+            # Sondage personnalisé
+            # --------------------------------------------------------
+            choix_multiple = v_dict.get("choix_multiple")
+            # --------------------------------------------------------
+            # Trajet
+            # --------------------------------------------------------
+            trajet = v_dict.get("trajet")
+            # --------------------------------------------------------
+            # État de complétude de CE joueur
+            # --------------------------------------------------------
+            vote_complet = True
+            # Présence obligatoire si le sondage classique est actif
+            if s_classique and not dispo:
+                vote_complet = False
+            # --------------------------------------------------------
+            # Sondage personnalisé
+            # Seulement obligatoire si le joueur est PRÉSENT
+            # --------------------------------------------------------
+            if (s_multiple and dispo != "Absent" and not choix_multiple):
+                vote_complet = False
+            # --------------------------------------------------------
+            # Trajet
+            # Seulement obligatoire si le joueur est PRÉSENT
+            # --------------------------------------------------------
+            if (s_trajet and dispo != "Absent" and not trajet):
+                vote_complet = False
+            # --------------------------------------------------------
+            # Construire le statut affiché
+            # --------------------------------------------------------
+            statuts = []
+            # Présence
+            if s_classique and dispo:
+                statuts.append(str(dispo))
+            # Sondage personnalisé
+            # NON affiché si Absent
+            if (s_multiple and dispo != "Absent" and choix_multiple):
+                statuts.append(str(choix_multiple))
+    
+            # Trajet
+            # NON affiché si Absent
+            if (s_trajet and dispo != "Absent" and trajet):
+                tr = (
+                    "Valdahon"
+                    if "Valdahon" in str(trajet)
+                    else (
+                        "Direct"
+                        if "Stade" in str(trajet)
+                        else "Voiture"
+                    )
+                )
+                # Accepter nb_places ET nombre_de_places
+                places = (
+                    v_dict.get("nb_places")
+                    if v_dict.get("nb_places") is not None
+                    else v_dict.get("nombre_de_places")
+                )
                 if tr == "Valdahon" and places is not None:
                     tr = f"Valdahon ({places})"
-                st = f"{st} - {tr}" if st else tr
-            if nom in joueurs:
-                p_ok = bool(v_dict.get("choix_multiple") if type_s == "multiple" else dispo) if s_actif else True
-                if not (p_ok and (dispo == "Absent" or not s_trajet or bool(v_dict.get("trajet")))):
-                    complet = False
-
-            if nom in coachs and not st: continue
-
-            prenom = str(nom).replace("COACH_", "").replace("coach_", "").strip().split(" ")[-1]
-            if st and total > 1: st = st.replace("Présent", "Prés").replace("Absent", "Abs")
-
-            txt = (f"{prenom} : {st}" if st else f"{prenom} : VOTE") if total > 1 else (str(st) if st else "VOTE")
-            statuts_colores.append((txt, (0.9, 0.5, 0.1, 1) if "Abs" in str(st) else (0.1, 0.7, 0.3, 1)))
-
+                statuts.append(tr)
+            # --------------------------------------------------------
+            # Mise à jour de l'état global
+            # --------------------------------------------------------
+            if nom in joueurs and not vote_complet:
+                complet = False
+            # Les coachs non votants ne bloquent pas l'état
+            if nom in coachs and not statuts:
+                continue
+            # --------------------------------------------------------
+            # Texte final
+            # --------------------------------------------------------
+            st = " - ".join(statuts) if statuts else None
+            prenom = (str(nom).replace("COACH_", "").replace("coach_", "").strip().split(" ")[-1])
+            if st and total > 1:
+                st = (st.replace("Présent", "Prés").replace("Absent", "Abs"))
+            txt = (
+                f"{prenom} : {st}"
+                if st and total > 1
+                else (
+                    f"{prenom} : VOTE"
+                    if total > 1
+                    else (
+                        str(st)
+                        if st
+                        else "VOTE"
+                    )
+                )
+            )
+            statuts_colores.append(
+                (
+                    txt,
+                    (
+                        (0.9, 0.5, 0.1, 1)
+                        if "Abs" in str(st)
+                        else (0.1, 0.7, 0.3, 1)
+                    )
+                )
+            )
+        # ============================================================
+        # Affichage VOTE si un sondage obligatoire manque
+        # ============================================================
         if not complet and self.nom_parent != "anonymous":
             if coachs:
                 return [(" ", (1, 1, 1, 0))]
             if joueurs:
                 return [("/!\\ VOTE", (0.9, 0.2, 0.2, 1))]
-        
         return statuts_colores
 
     def ouvrir_popup_nb_places(self, match_id, nom_enfant, parent_popup):
@@ -977,88 +1418,393 @@ class EventCard(BoxLayout):
                     return datetime.min
         
             return sorted(noms_joueurs, key=extraire_timestamp, reverse=reverse)
-        type_sondage, sondage_actif, sondage_trajet = self.match_data.get("type_sondage", "classique"), bool(self.match_data.get("sondage_actif")), bool(self.match_data.get("sondage_trajet"))
-
-        # SECTION MULTIPLE
-        if sondage_actif and type_sondage == "multiple":
-            opts, t_sond = self.match_data.get("options_sondage", ["1", "2", "3", "4", "5"]), self.match_data.get("titre_sondage_multiple", "Votre Choix")
-            info_box.add_widget(make_lbl(f"[b]--- {escape_markup(str(t_sond))} ---[/b]", (0.1, 0.3, 0.8, 1), 0, "center", dp(35)))
-            val_m = get_vote_sel().get("choix_multiple") if isinstance(get_vote_sel(), dict) else None
-
-            grid_m = GridLayout(cols=min(len(opts), 3), size_hint_y=None, height=dp(45 * ((len(opts) - 1) // 3 + 1)), spacing=dp(5))
-            for opt in opts:
-                c = (0.1, 0.7, 0.3, 1) if (not val_m or str(val_m) == str(opt)) else (0.85, 0.85, 0.85, 1)
-                grid_m.add_widget(make_btn(str(opt), (1,1,1,1), c, lambda x, o=opt: (self.on_presence_click(self.match_id, choix_multiple=o, joueur_concerne=nom_enfant), popup.dismiss())))
-            info_box.add_widget(grid_m)
-
-            sec_m = {f"Option : {o}": [n for n, d in votes.items() if isinstance(d, dict) and str(d.get("choix_multiple")) == str(o)] for o in opts}
-            info_box.add_widget(make_btn("Voir les votes", (0.15, 0.15, 0.15, 1), (1.0, 0.85, 0.2, 1), lambda x: afficher_popup_votes(f"Votes - {t_sond}", sec_m)))
-
-        # SECTION DISPONIBILITE
-        elif sondage_actif:
-            info_box.add_widget(make_lbl("[b]--- Votre Disponibilité ---[/b]", (0.1, 0.3, 0.8, 1), 0, "center", dp(35)))
-            val_d = get_vote_sel().get("disponibilite") if isinstance(get_vote_sel(), dict) else None
-
-            box_v = BoxLayout(orientation="horizontal", size_hint_y=None, height=dp(45), spacing=dp(10))
-            for choice, color in [("Présent", (0.1, 0.7, 0.3, 1)), ("Absent", (0.8, 0.2, 0.2, 1))]:
-                bg = color if (not val_d or val_d == choice) else (0.85, 0.85, 0.85, 1)
-                box_v.add_widget(make_btn(choice, (1,1,1,1), bg, lambda x, c=choice: (self.on_presence_click(self.match_id, choix=c, joueur_concerne=nom_enfant), popup.dismiss()), dp(45)))
+        
+        # ============================================================
+        # ÉTAT DES SONDAGES
+        # ============================================================
+        type_sondage = self.match_data.get("type_sondage","classique")
+        sondage_actif = bool(self.match_data.get("sondage_actif", False))
+        # Nouveaux champs indépendants
+        # Rétrocompatibilité avec les anciens événements.
+        sondage_classique = bool(
+            self.match_data.get(
+                "sondage_classique",
+                type_sondage == "classique" and sondage_actif
+            )
+        )
+        sondage_multiple = bool(self.match_data.get("sondage_multiple",type_sondage == "multiple" and sondage_actif))
+        sondage_trajet = bool(self.match_data.get("sondage_trajet", False))
+        
+        # ============================================================
+        # SECTION SONDAGE CLASSIQUE
+        # ===========================================================
+        if sondage_classique:
+            info_box.add_widget(
+                make_lbl(
+                    "[b]--- Votre Disponibilité ---[/b]",
+                    (0.1, 0.3, 0.8, 1),
+                    0,
+                    "center",
+                    dp(35)
+                )
+            )
+            vote_sel = get_vote_sel()
+            val_d = (
+                vote_sel.get("disponibilite")
+                if isinstance(vote_sel, dict)
+                else None
+            )
+            box_v = BoxLayout(orientation="horizontal",size_hint_y=None,height=dp(45),spacing=dp(10))
+            for choice, color in [("Présent", (0.1, 0.7, 0.3, 1)),("Absent", (0.8, 0.2, 0.2, 1))]:
+                bg = (
+                    color
+                    if (
+                        not val_d
+                        or val_d == choice
+                    )
+                    else
+                    (0.85, 0.85, 0.85, 1)
+                )
+                box_v.add_widget(
+                    make_btn(
+                        choice,
+                        (1, 1, 1, 1),
+                        bg,
+                        lambda x, c=choice: (
+                            self.on_presence_click(
+                                self.match_id,
+                                choix=c,
+                                joueur_concerne=nom_enfant
+                            ),
+                            popup.dismiss()
+                        ),
+                        dp(45)
+                    )
+                )
+        
             info_box.add_widget(box_v)
-
-            presents_bruts = [n for n, d in votes.items() if (d.get("disponibilite") if isinstance(d, dict) else d) == "Présent"]
-            absents_bruts = [n for n, d in votes.items() if (d.get("disponibilite") if isinstance(d, dict) else d) == "Absent"]
-            
-            # Tri chronologique (du premier au dernier votant, mettez reverse=True pour l'inverse)
-            presents = trier_votants(presents_bruts, votes)
-            absents = trier_votants(absents_bruts, votes)
-            
-            info_box.add_widget(make_btn("Voir les votes", (0.15, 0.15, 0.15, 1), (1.0, 0.85, 0.2, 1), lambda x: afficher_popup_votes("Votes - Disponibilité", {"Présents": presents, "Absents": absents})))
-
-        # SECTION TRAJET
-        if sondage_trajet and type_sondage != "multiple" and isinstance(get_vote_sel(), dict) and get_vote_sel().get("disponibilite") != "Absent":
-            info_box.add_widget(make_lbl("[b]--- Choix du Trajet ---[/b]", (0.1, 0.3, 0.8, 1), 0, "center", dp(35)))
-            val_t = get_vote_sel().get("trajet")
-
-            box_t = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(125), spacing=dp(5))
-            trajets = [
-                ("Valdahon (Départ club)", "Valdahon", (0.1, 0.5, 0.8, 1)), 
-                ("Directement au Stade du Match", "Stade adverse", (0.1, 0.7, 0.3, 1)), 
-                ("Besoin d'une Voiture (Transport)", "Besoin voiture", (0.8, 0.5, 0.1, 1))
+            presents_bruts = [
+                n
+                for n, d in votes.items()
+                if (
+                    d.get("disponibilite")
+                    if isinstance(d, dict)
+                    else d
+                ) == "Présent"
             ]
-
+            absents_bruts = [
+                n
+                for n, d in votes.items()
+                if (
+                    d.get("disponibilite")
+                    if isinstance(d, dict)
+                    else d
+                ) == "Absent"
+            ]
+            presents = trier_votants(presents_bruts,votes)
+            absents = trier_votants(absents_bruts,votes)
+            info_box.add_widget(
+                make_btn(
+                    "Voir les votes",
+                    (0.15, 0.15, 0.15, 1),
+                    (1.0, 0.85, 0.2, 1),
+                    lambda x: afficher_popup_votes(
+                        "Votes - Disponibilité",
+                        {
+                            "Présents": presents,
+                            "Absents": absents
+                        }
+                    )
+                )
+            )
+        # ============================================================
+        # SECTION SONDAGE CHOIX MULTIPLES
+        # UNIQUEMENT SI LE JOUEUR EST PRÉSENT
+        # ============================================================
+        vote_sel = get_vote_sel()
+        
+        val_d = (
+            vote_sel.get("disponibilite")
+            if isinstance(vote_sel, dict)
+            else None
+        )
+        
+        joueur_present = (
+            val_d is not None
+            and str(val_d).strip().lower() == "présent"
+        )
+        
+        if sondage_multiple and joueur_present:
+        
+            opts = self.match_data.get(
+                "options_sondage",
+                ["1", "2", "3", "4", "5"]
+            )
+        
+            if not isinstance(opts, list):
+                opts = [str(opts)]
+        
+            opts = [
+                str(opt).strip()
+                for opt in opts
+                if str(opt).strip()
+            ]
+        
+            if not opts:
+                opts = ["1", "2", "3", "4", "5"]
+        
+            t_sond = self.match_data.get(
+                "titre_sondage_multiple",
+                "Votre Choix"
+            )
+        
+            if not str(t_sond).strip():
+                t_sond = "Votre Choix"
+        
+            # --------------------------------------------------------
+            # Titre du sondage
+            # --------------------------------------------------------
+            info_box.add_widget(
+                make_lbl(
+                    f"[b]--- {escape_markup(str(t_sond))} ---[/b]",
+                    (0.1, 0.3, 0.8, 1),
+                    0,
+                    "center",
+                    dp(35)
+                )
+            )
+        
+            val_m = (
+                vote_sel.get("choix_multiple")
+                if isinstance(vote_sel, dict)
+                else None
+            )
+        
+            # --------------------------------------------------------
+            # Boutons des options
+            # --------------------------------------------------------
+            nb_lignes = (len(opts) - 1) // 3 + 1
+        
+            grid_m = GridLayout(
+                cols=min(len(opts), 3),
+                size_hint_y=None,
+                height=dp(45 * nb_lignes),
+                spacing=dp(5)
+            )
+        
+            for opt in opts:
+        
+                bg = (
+                    (0.1, 0.7, 0.3, 1)
+                    if (
+                        not val_m
+                        or str(val_m) == str(opt)
+                    )
+                    else
+                    (0.85, 0.85, 0.85, 1)
+                )
+        
+                grid_m.add_widget(
+                    make_btn(
+                        str(opt),
+                        (1, 1, 1, 1),
+                        bg,
+                        lambda x, o=opt: (
+                            self.on_presence_click(
+                                self.match_id,
+                                choix_multiple=o,
+                                joueur_concerne=nom_enfant
+                            ),
+                            popup.dismiss()
+                        )
+                    )
+                )
+        
+            info_box.add_widget(grid_m)
+        
+            # --------------------------------------------------------
+            # Résultats du sondage multiple
+            # --------------------------------------------------------
+            sec_m = {
+                f"Option : {o}": [
+                    n
+                    for n, d in votes.items()
+                    if (
+                        isinstance(d, dict)
+                        and str(d.get("choix_multiple")) == str(o)
+                    )
+                ]
+                for o in opts
+            }
+        
+            info_box.add_widget(
+                make_btn(
+                    "Voir les votes",
+                    (0.15, 0.15, 0.15, 1),
+                    (1.0, 0.85, 0.2, 1),
+                    lambda x: afficher_popup_votes(
+                        f"Votes - {t_sond}",
+                        sec_m
+                    )
+                )
+            )
+        
+        
+        # ============================================================
+        # SECTION TRAJET
+        # UNIQUEMENT SI LE JOUEUR EST PRÉSENT
+        # ============================================================
+        if (
+            sondage_trajet
+            and sondage_classique
+            and joueur_present
+        ):
+        
+            info_box.add_widget(
+                make_lbl(
+                    "[b]--- Choix du Trajet ---[/b]",
+                    (0.1, 0.3, 0.8, 1),
+                    0,
+                    "center",
+                    dp(35)
+                )
+            )
+        
+            val_t = (
+                vote_sel.get("trajet")
+                if isinstance(vote_sel, dict)
+                else None
+            )
+        
+            box_t = BoxLayout(
+                orientation="vertical",
+                size_hint_y=None,
+                height=dp(125),
+                spacing=dp(5)
+            )
+        
+            trajets = [
+                (
+                    "Valdahon (Départ club)",
+                    "Valdahon",
+                    (0.1, 0.5, 0.8, 1)
+                ),
+                (
+                    "Directement au Stade du Match",
+                    "Stade adverse",
+                    (0.1, 0.7, 0.3, 1)
+                ),
+                (
+                    "Besoin d'une Voiture (Transport)",
+                    "Besoin voiture",
+                    (0.8, 0.5, 0.1, 1)
+                )
+            ]
+        
             def gerer_clic_trajet(val_btn):
+        
                 if val_btn == "Valdahon":
-                    # Ouvre la popup pour demander le nombre de places disponibles
-                    self.ouvrir_popup_nb_places(self.match_id, nom_enfant, popup)
+        
+                    self.ouvrir_popup_nb_places(
+                        self.match_id,
+                        nom_enfant,
+                        popup
+                    )
+        
                 else:
-                    self.on_presence_click(self.match_id, choix_trajet=val_btn, joueur_concerne=nom_enfant)
+        
+                    self.on_presence_click(
+                        self.match_id,
+                        choix_trajet=val_btn,
+                        joueur_concerne=nom_enfant
+                    )
+        
                     popup.dismiss()
-
+        
             for txt_btn, val_btn, color in trajets:
-                bg = color if (not val_t or val_t == val_btn) else (0.85, 0.85, 0.85, 1)
-                box_t.add_widget(make_btn(txt_btn, (1,1,1,1), bg, lambda x, v=val_btn: gerer_clic_trajet(v), dp(35)))
+        
+                bg = (
+                    color
+                    if (
+                        not val_t
+                        or val_t == val_btn
+                    )
+                    else
+                    (0.85, 0.85, 0.85, 1)
+                )
+        
+                box_t.add_widget(
+                    make_btn(
+                        txt_btn,
+                        (1, 1, 1, 1),
+                        bg,
+                        lambda x, v=val_btn: gerer_clic_trajet(v),
+                        dp(35)
+                    )
+                )
             info_box.add_widget(box_t)
-
-            # Formate 'Nom (X places)' pour la popup de détails (Uniquement Valdahon)
+            # --------------------------------------------------------
+            # Formate Nom (X places) pour Valdahon
+            # --------------------------------------------------------
             def format_nom_valdahon(n, d):
                 if isinstance(d, dict):
-                    # Accepte 'nb_places' ET 'nombre_de_places'
-                    nb = d.get("nb_places") if d.get("nb_places") is not None else d.get("nombre_de_places")
+                    nb = (
+                        d.get("nb_places")
+                        if d.get("nb_places") is not None
+                        else d.get("nombre_de_places")
+                    )
                     if nb is not None:
                         try:
                             nb_int = int(nb)
-                            txt_pl = "place" if nb_int <= 1 else "places"
+                            txt_pl = (
+                                "place"
+                                if nb_int <= 1
+                                else "places"
+                            )
                             return f"{n} ({nb_int} {txt_pl})"
-                        except ValueError:
+                        except (ValueError, TypeError):
                             pass
                 return n
-
             sec_t = {
-                "Valdahon (Départ club)": [format_nom_valdahon(n, d) for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Valdahon"],
-                "Sur place": [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Stade adverse"],
-                "Besoin voiture": [n for n, d in votes.items() if isinstance(d, dict) and d.get("trajet") == "Besoin voiture"]
+                "Valdahon (Départ club)": [
+                    format_nom_valdahon(n, d)
+                    for n, d in votes.items()
+                    if (
+                        isinstance(d, dict)
+                        and d.get("trajet") == "Valdahon"
+                    )
+                ],
+        
+                "Sur place": [
+                    n
+                    for n, d in votes.items()
+                    if (
+                        isinstance(d, dict)
+                        and d.get("trajet") == "Stade adverse"
+                    )
+                ],
+        
+                "Besoin voiture": [
+                    n
+                    for n, d in votes.items()
+                    if (
+                        isinstance(d, dict)
+                        and d.get("trajet") == "Besoin voiture"
+                    )
+                ]
             }
-            info_box.add_widget(make_btn("Voir les votes", (0.15, 0.15, 0.15, 1), (1.0, 0.85, 0.2, 1), lambda x: afficher_popup_votes("Votes - Trajets", sec_t)))
+        
+            info_box.add_widget(
+                make_btn(
+                    "Voir les votes",
+                    (0.15, 0.15, 0.15, 1),
+                    (1.0, 0.85, 0.2, 1),
+                    lambda x: afficher_popup_votes(
+                        "Votes - Trajets",
+                        sec_t
+                    )
+                )
+            )
 
         # SECTION CONVOCATIONS (AVEC TOTAL DES CONVOQUÉS)
         if self.match_data.get("activer_convocation", False):
