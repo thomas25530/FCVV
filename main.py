@@ -402,10 +402,11 @@ class RootLayout(FloatLayout):
         self.main_ui.add_widget(self.sm)
         self.add_widget(self.main_ui)
         # Overlay
-        self.overlay = Widget(size_hint=(None, None), size=(0, 0), opacity=0)
+        self.overlay = FloatLayout(size_hint=(1, 1),opacity=0)
         with self.overlay.canvas.before:
-            self.overlay_color = Color(0, 0, 0, 0.4)
-            self.overlay_rect = Rectangle(pos=self.pos, size=self.size)
+            self.overlay_color = Color(0, 0, 0, 0)
+            self.overlay_rect = Rectangle(pos=(0, 0),size=Window.size)
+        self.overlay.bind(pos=lambda *x: setattr(self.overlay_rect, "pos", self.overlay.pos),size=lambda *x: setattr(self.overlay_rect, "size", self.overlay.size))
         self.add_widget(self.overlay)
         # --- MENU SCROLLABLE ---
         self.menu_scroll = ScrollView(
@@ -636,19 +637,20 @@ class RootLayout(FloatLayout):
         self.overlay.size_hint = (1, 1)
         self.overlay.pos = self.pos
         self.overlay.size = self.size
-        Animation(opacity=1, d=0.2).start(self.overlay)
-        Animation(x=0, d=0.25, t='out_quad').start(self.menu_scroll)
+        self.overlay.opacity = 1
+        Animation(a=0.7, d=0.2).start(self.overlay_color)
+        Animation(x=0,d=0.25,t='out_quad').start(self.menu_scroll)
 
     def close_menu(self, *args):
         self.menu_open = False
-        Animation(opacity=0, d=0.2).start(self.overlay)
-        # On anime le SCROLLVIEW
-        anim = Animation(x=-self.menu_width, d=0.25, t='out_quad')
+        Animation(a=0, d=0.2).start(self.overlay_color)
+        anim = Animation(x=-self.menu_width,d=0.25,t='out_quad')
         anim.bind(on_complete=self._disable_overlay)
         anim.start(self.menu_scroll)
 
     def _disable_overlay(self, *args):
         if not self.menu_open:
+            self.overlay.opacity = 0
             self.overlay.size_hint = (None, None)
             self.overlay.size = (0, 0)
 
