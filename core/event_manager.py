@@ -663,17 +663,16 @@ class EventManager:
         content.bind(pos=lambda obj, val: setattr(self_bg, 'pos', val),
                      size=lambda obj, val: setattr(self_bg, 'size', val))
     
-        lbl_titre_popup = Label(
-            text="[b]Édition de l'événement[/b]",
-            markup=True,
-            size_hint_y=None,
-            height=dp(35),
-            font_size=dp(18),
-            color=(0.1, 0.1, 0.15, 1),
-            halign="center"
-        )
-        # 1. Le Titre du popup
-        content.add_widget(lbl_titre_popup)
+        popup_ref = []
+        # EN-TÊTE AVEC TITRE ET BOUTON FERMER
+        header_layout = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(10))
+        lbl_titre_popup = Label(text="[b]Édition de l'événement[/b]",markup=True,font_size=dp(18),color=(0.1, 0.1, 0.15, 1),halign="left",valign="middle")
+        lbl_titre_popup.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
+        header_layout.add_widget(lbl_titre_popup)
+        btn_close = Button(text="X",size_hint=(None, None),size=(dp(35), dp(35)),background_normal="",background_color=(0.85, 0.2, 0.2, 1),color=(1, 1, 1, 1),bold=True,font_size=dp(16))
+        btn_close.bind(on_release=lambda x: popup_ref[0].dismiss() if popup_ref else None)
+        header_layout.add_widget(btn_close)
+        content.add_widget(header_layout)
         
         # 2. Le bouton d'enregistrement unique tout en haut
         btn_save = Button(
@@ -706,8 +705,6 @@ class EventManager:
         # 4. Le conteneur dynamique pour le formulaire (qui contient le ScrollView)
         dynamic_container = BoxLayout(orientation="vertical", size_hint=(1, 1))
         content.add_widget(dynamic_container)
-        
-        popup_ref = []
 
         def demander_commit_et_sauvegarder(executer_sauvegarde):
             content_commit = BoxLayout(
@@ -1630,25 +1627,31 @@ class EventManager:
                 # ============================================================
                 # VALEURS EXISTANTES
                 # ==========================================
-                type_sondage_actuel = match_info_evenement.get("type_sondage","classique")
-                sondage_actif_actuel = match_info_evenement.get("sondage_actif",True)
-                # Nouveaux champs indépendants
-                # Permet d'avoir les deux sondages actifs simultanément.
-                sondage_classique_actuel = match_info_evenement.get("sondage_classique",type_sondage_actuel == "classique" and sondage_actif_actuel)
-                sondage_multiple_actuel = match_info_evenement.get("sondage_multiple",type_sondage_actuel == "multiple" and sondage_actif_actuel)
-
+                type_sondage_actuel = match_info_evenement.get("type_sondage", "classique")
+                sondage_actif_actuel = match_info_evenement.get("sondage_actif", True)
+                # Rétrocompatibilité robuste pour les deux sondages indépendants
+                val_classique = match_info_evenement.get("sondage_classique")
+                if val_classique is not None:
+                    sondage_classique_actuel = bool(val_classique)
+                else:
+                    sondage_classique_actuel = (type_sondage_actuel == "classique" and sondage_actif_actuel)
+                val_multiple = match_info_evenement.get("sondage_multiple")
+                if val_multiple is not None:
+                    sondage_multiple_actuel = bool(val_multiple)
+                else:
+                    sondage_multiple_actuel = (type_sondage_actuel == "multiple" and sondage_actif_actuel)
                 box_sondage_classique = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
-                chk_sondage_classique = CheckBox(active=(type_sondage_actuel == "classique" and sondage_actif_actuel), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
+                chk_sondage_classique = CheckBox(active=sondage_classique_actuel, size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
                 box_sondage_classique.add_widget(chk_sondage_classique)
                 box_sondage_classique.add_widget(Label(text="Activer Sondage Classique (Présent / Absent)", halign="left", color=(0.2, 0.2, 0.25, 1)))
                 form_box.add_widget(box_sondage_classique)
 
                 box_sondage_multiple = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
-                chk_sondage_multiple = CheckBox(active=(type_sondage_actuel == "multiple" and sondage_actif_actuel), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
+                chk_sondage_multiple = CheckBox(active=sondage_multiple_actuel, size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
                 box_sondage_multiple.add_widget(chk_sondage_multiple)
                 box_sondage_multiple.add_widget(Label(text="Activer Sondage Choix Multiples", halign="left", color=(0.2, 0.2, 0.25, 1)))
                 form_box.add_widget(box_sondage_multiple)
-
+                
                 container_options_multiple = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(5))
                 container_options_multiple.bind(minimum_height=container_options_multiple.setter('height'))
                 form_box.add_widget(container_options_multiple)
