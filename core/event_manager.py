@@ -891,7 +891,7 @@ class EventManager:
                     cursor_color=(0.1, 0.1, 0.1, 1)
                 )
                 form_box.add_widget(ti_notes)
-    
+                
                 form_box.add_widget(Label(text="[b]Sondages & Options[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
                 
                 # --- NOUVELLE OPTION : EXPORTER PDF ---
@@ -1623,11 +1623,19 @@ class EventManager:
                     cursor_color=(0.1, 0.1, 0.1, 1)
                 )
                 form_box.add_widget(ti_notes)
-
+                # ===========================================================
+                # SECTION SONDAGES
+                # ============================================================
                 form_box.add_widget(Label(text="[b]Sondages[/b]", markup=True, size_hint_y=None, height=dp(30), color=(0.15, 0.45, 0.25, 1)))
-
-                type_sondage_actuel = match_info_evenement.get("type_sondage", "classique")
-                sondage_actif_actuel = match_info_evenement.get("sondage_actif", True)
+                # ============================================================
+                # VALEURS EXISTANTES
+                # ==========================================
+                type_sondage_actuel = match_info_evenement.get("type_sondage","classique")
+                sondage_actif_actuel = match_info_evenement.get("sondage_actif",True)
+                # Nouveaux champs indépendants
+                # Permet d'avoir les deux sondages actifs simultanément.
+                sondage_classique_actuel = match_info_evenement.get("sondage_classique",type_sondage_actuel == "classique" and sondage_actif_actuel)
+                sondage_multiple_actuel = match_info_evenement.get("sondage_multiple",type_sondage_actuel == "multiple" and sondage_actif_actuel)
 
                 box_sondage_classique = BoxLayout(size_hint_y=None, height=dp(40), spacing=dp(10))
                 chk_sondage_classique = CheckBox(active=(type_sondage_actuel == "classique" and sondage_actif_actuel), size_hint_x=None, width=dp(40), color=(0.2, 0.2, 0.2, 1))
@@ -1652,48 +1660,41 @@ class EventManager:
                 en_cours_de_mise_a_jour = False
 
                 def actualiser_options_multiple(checkbox, value):
-                    nonlocal ti_titre_multiple, ti_options_multiple, en_cours_de_mise_a_jour
-                    if en_cours_de_mise_a_jour:
-                        return
-
-                    en_cours_de_mise_a_jour = True
-                    try:
-                        # 1. Gestion de l'exclusivité des cases
-                        if checkbox == chk_sondage_multiple and value:
-                            chk_sondage_classique.active = False
-                        elif checkbox == chk_sondage_classique and value:
-                            chk_sondage_multiple.active = False
-
-                        # 2. Réinitialisation et reconstruction unique
-                        container_options_multiple.clear_widgets()
-                        
-                        if chk_sondage_multiple.active:
-                            container_options_multiple.add_widget(Label(
-                                text="Titre personnalisé du sondage (ex: Nombre de places)",
-                                size_hint_y=None, height=dp(25), halign="left", font_size=dp(12), color=(0.3, 0.3, 0.35, 1)
-                            ))
-                            defaut_titre = match_info_evenement.get("titre_sondage_multiple", "Votre Choix")
-                            ti_titre_multiple = TextInput(
-                                text=defaut_titre, multiline=False, size_hint_y=None, height=dp(40),
-                                background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1)
-                            )
-                            container_options_multiple.add_widget(ti_titre_multiple)
-
-                            container_options_multiple.add_widget(Label(
-                                text="Options de réponse (séparées par des virgules, ex: 1, 2, 3, 4, 5)",
-                                size_hint_y=None, height=dp(25), halign="left", font_size=dp(12), color=(0.3, 0.3, 0.35, 1)
-                            ))
-                            defaut_opts = ", ".join(match_info_evenement.get("options_sondage", ["1", "2", "3", "4", "5"]))
-                            ti_options_multiple = TextInput(
-                                text=defaut_opts, multiline=False, size_hint_y=None, height=dp(40),
-                                background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1)
-                            )
-                            container_options_multiple.add_widget(ti_options_multiple)
-                        else:
-                            ti_titre_multiple = None
-                            ti_options_multiple = None
-                    finally:
-                        en_cours_de_mise_a_jour = False
+                    nonlocal ti_titre_multiple, ti_options_multiple
+                    container_options_multiple.clear_widgets()
+                    ti_titre_multiple = None
+                    ti_options_multiple = None
+                    if chk_sondage_multiple.active:
+                        lbl_titre_multiple = Label(text="Titre personnalisé du sondage (ex : Nombre de places)",size_hint_y=None,font_size=dp(12),color=(0.3, 0.3, 0.35, 1),halign="left",valign="middle")
+                        lbl_titre_multiple.bind(width=lambda instance, width:
+                            setattr(instance, "text_size", (width, None)))
+                        lbl_titre_multiple.bind(texture_size=lambda instance, texture_size:
+                           setattr(instance,"height", max(dp(25), texture_size[1] + dp(4))))
+                        container_options_multiple.add_widget(lbl_titre_multiple)
+                        defaut_titre = match_info_evenement.get("titre_sondage_multiple","Votre Choix")
+                        ti_titre_multiple = TextInput(text=str(defaut_titre),multiline=False,size_hint_y=None,height=dp(36),font_size=dp(12),background_color=(1, 1, 1, 1),foreground_color=(0.1, 0.1, 0.1, 1),cursor_color=(0.1, 0.1, 0.1, 1))
+                        container_options_multiple.add_widget(ti_titre_multiple)
+                        lbl_options_multiple = Label(
+                            text=(
+                                "Options de réponse "
+                                "(séparées par des virgules, ex : 1, 2, 3, 4, 5)"
+                            ),
+                            size_hint_y=None,font_size=dp(12),color=(0.3, 0.3, 0.35, 1),halign="left",valign="middle")
+                        lbl_options_multiple.bind(width=lambda instance, width:
+                            setattr(instance, "text_size", (width, None)))
+                        lbl_options_multiple.bind(
+                            texture_size=lambda instance, texture_size:
+                            setattr(instance,"height",max(dp(25), texture_size[1] + dp(4))))
+                        container_options_multiple.add_widget(lbl_options_multiple) 
+                        options_existantes = match_info_evenement.get("options_sondage",["1", "2", "3", "4", "5"])
+                        if not isinstance(options_existantes, list):
+                            options_existantes = [str(options_existantes)]
+                        defaut_opts = ", ".join(
+                            str(option)
+                            for option in options_existantes
+                        )
+                        ti_options_multiple = TextInput(text=defaut_opts,multiline=False,size_hint_y=None,height=dp(40),font_size=dp(12),background_color=(1, 1, 1, 1),foreground_color=(0.1, 0.1, 0.1, 1),cursor_color=(0.1, 0.1, 0.1, 1))
+                        container_options_multiple.add_widget(ti_options_multiple)
 
                 # Activation des événements et rendu initial propre
                 chk_sondage_multiple.bind(active=actualiser_options_multiple)
@@ -1717,27 +1718,27 @@ class EventManager:
 
                     def executer_sauvegarde(commit_message=""):
                         maintenant_str = datetime.now().strftime("%d/%m/%Y à %H:%M")
-                        
-                        if chk_sondage_multiple.active:
+                        sondage_classique_actif = bool(chk_sondage_classique.active)
+                        sondage_multiple_actif = bool(chk_sondage_multiple.active)
+                        sondage_actif = (sondage_classique_actif or sondage_multiple_actif)
+                        if sondage_multiple_actif:
                             type_sondage = "multiple"
-                            sondage_actif = True
-                        elif chk_sondage_classique.active:
+                        elif sondage_classique_actif:
                             type_sondage = "classique"
-                            sondage_actif = True
                         else:
                             type_sondage = "classique"
-                            sondage_actif = False
-
                         options_sondage = []
-                        if type_sondage == "multiple" and ti_options_multiple:
-                            options_sondage = [opt.strip() for opt in ti_options_multiple.text.split(",") if opt.strip()]
+                        if sondage_multiple_actif and ti_options_multiple:
+                            options_sondage = [
+                                opt.strip()
+                                for opt in ti_options_multiple.text.split(",")
+                                if opt.strip()
+                            ]
                             if not options_sondage:
-                                options_sondage = ["1", "2", "3", "4", "5"]
-
+                                options_sondage = ["1","2","3","4","5"] 
                         titre_sondage_multiple = "Votre Choix"
-                        if type_sondage == "multiple" and ti_titre_multiple:
-                            titre_sondage_multiple = ti_titre_multiple.text.strip() or "Votre Choix"
-
+                        if sondage_multiple_actif and ti_titre_multiple:
+                            titre_sondage_multiple = (ti_titre_multiple.text.strip() or "Votre Choix")
                         match_info_evenement.update({
                             "type": "EVENEMENT",
                             "titre": ti_titre.text.strip(),
@@ -1745,6 +1746,8 @@ class EventManager:
                             "heure": ti_heure.text.strip(),
                             "lieu": ti_lieu.text.strip(),
                             "notes": ti_notes.text.strip(),
+                            "sondage_classique": sondage_classique_actif,
+                            "sondage_multiple": sondage_multiple_actif,
                             "sondage_actif": sondage_actif,
                             "type_sondage": type_sondage,
                             "titre_sondage_multiple": titre_sondage_multiple,
@@ -1753,7 +1756,6 @@ class EventManager:
                             "timestamp_action": maintenant_str,
                             "est_modification": est_une_modification
                         })
-
                         if est_une_modification:
                             key = match_id
                         else:
