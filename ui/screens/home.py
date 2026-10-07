@@ -34,6 +34,15 @@ def get_local_image_path(url, app):
             return os.path.join(app.cache_images_dir, f)
     return None
 
+def get_user_font_size():
+    app = App.get_running_app()
+    if app and hasattr(app, 'config') and app.config.has_section('User'):
+        try:
+            return app.config.getint('User', 'font_size_factor')
+        except:
+            pass
+    return 18
+
 class ImagePreview(ModalView):
     def __init__(self, img_sources, index=0, **kwargs):
         super().__init__(**kwargs)
@@ -286,6 +295,8 @@ class NewsCard(BoxLayout):
             if media_zone:
                 self.add_widget(media_zone)
         self.bind(minimum_height=self.setter('height'))
+        self.has_reached_end = False
+        self._last_known_font_size = get_user_font_size()
         
     def on_parent(self, instance, value):
         if value is None:
@@ -452,7 +463,8 @@ class HomeScreen(Screen):
         self.current_max_days = self._get_step_days()
         self.filtered_news_cache = []   
         self.displayed_titles_set = set() 
-        self.has_reached_end = False 
+        self.has_reached_end = False
+        self._last_known_font_size = get_user_font_size()
         # 2. Structure principale
         self.main_layout = FloatLayout() 
         self.container = BoxLayout(orientation="vertical")
@@ -485,6 +497,12 @@ class HomeScreen(Screen):
         self.scroll_content.add_widget(self.news_layout)
         self.footer_layout = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(15), padding=[0, dp(10), 0, dp(20)])
         self.footer_layout.bind(minimum_height=self.footer_layout.setter('height'))
+        # Gestion dynamique de la police utilisateur
+        app = App.get_running_app()
+        user_font_size = 18
+        if app and hasattr(app, 'config') and app.config.has_section('User'):
+            try: user_font_size = app.config.getint('User', 'font_size_factor')
+            except: pass
         self.no_news_label = Label(text="Aucune actualité.", size_hint_y=None, height=dp(30), opacity=0)
         self.period_status_label = Label(text="", size_hint_y=None, height=dp(35), font_size="18sp")
         self.more_btn = Button(
@@ -630,6 +648,12 @@ class HomeScreen(Screen):
             Clock.schedule_once(lambda dt: self.update_ui_from_config(force=force), 0.5)
             return False
 
+        # --- MISE À JOUR DYNAMIQUE DES POLICES DU FOOTER ---
+        current_font_size = get_user_font_size()
+        self.no_news_label.font_size = f"{current_font_size - 2}sp"
+        self.period_status_label.font_size = f"{current_font_size}sp"
+        self.more_btn.font_size = f"{current_font_size}sp"
+        
         # --- CORRECTION 1 : Récupérer le réglage utilisateur actuel ---
         configured_step = self._get_step_days()
         
@@ -645,7 +669,12 @@ class HomeScreen(Screen):
         num_children = len(self.news_layout.children)
 
         # --- CORRECTION 2 : ANTI-FLASH INTELLIGENT ---
-        if current_hash == getattr(self, 'last_config_hash', None) and num_children > 0 and not period_changed:
+        # Si la police a changé, on force le rechargement même si le hash des actus est identique
+        font_size_changed = getattr(self, '_last_known_font_size', 18) != current_font_size
+        if font_size_changed:
+            self._last_known_font_size = current_font_size
+            force = True
+        if current_hash == getattr(self, 'last_config_hash', None) and num_children > 0 and not period_changed and not force:
             self.is_updating = False
             self.show_main_loader(False)
             return False
@@ -659,8 +688,17 @@ class HomeScreen(Screen):
     def on_enter(self, dt=None):
         app = App.get_running_app()
 
-        # Récupération de la période configurée actuellement
+        # Récupération de la période et de la police configurées actuellement
         configured_step = self._get_step_days()
+        current_font_size = get_user_font_size()
+
+        # Vérifie si l'utilisateur a changé la taille de la police dans les paramètres
+        font_size_changed = getattr(self, '_last_known_font_size', 18) != current_font_size
+        if font_size_changed:
+            print(f"[UI] Changement de taille de police detecte ({self._last_known_font_size} -> {current_font_size})")
+            self._last_known_font_size = current_font_size
+            self.update_ui_from_config(force=True)
+            return
 
         # Si l'utilisateur est allé dans les paramètres et a changé la période
         # On invalide pour forcer la prise en compte de la nouvelle période
