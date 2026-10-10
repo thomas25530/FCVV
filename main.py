@@ -1221,193 +1221,79 @@ class MyApp(App):
     
     def verifier_redirection_notification_ios(self):
         """
-        Diagnostic des notifications iOS.
-        Affiche les données reçues dans une popup avant la redirection.
+        Vérifie si l'application iOS a été ouverte depuis une notification,
+        récupère les données, décrémente le badge serveur et effectue
+        automatiquement la redirection.
         """
         if platform != "ios":
             return
-    
         try:
             from pyobjus import autoclass
             from kivy.clock import Clock
-            from kivy.uix.popup import Popup
-            from kivy.uix.boxlayout import BoxLayout
-            from kivy.uix.scrollview import ScrollView
-            from kivy.uix.label import Label
-            from kivy.uix.button import Button
-            from kivy.metrics import dp
-    
             NSUserDefaults = autoclass("NSUserDefaults")
             defaults = NSUserDefaults.standardUserDefaults()
-    
             # --------------------------------------------------
-            # 1. Conversion des objets natifs iOS
+            # 1. Vérifier si une notification est en attente
             # --------------------------------------------------
-            def _get_str(key):
-                try:
-                    val = defaults.objectForKey_(key)
-    
-                    if val is None:
-                        return ""
-    
-                    # NSString : essayer de récupérer le contenu UTF-8
-                    try:
-                        utf8 = val.UTF8String()
-                        if utf8 is not None:
-                            if isinstance(utf8, bytes):
-                                return utf8.decode("utf-8", errors="replace")
-                            return str(utf8)
-                    except Exception:
-                        pass
-    
-                    # Fallback : méthode de lecture NSString
-                    try:
-                        val_str = defaults.stringForKey_(key)
-                        if val_str is not None:
-                            result = str(val_str)
-    
-                            if " object at 0x" not in result:
-                                return result
-                    except Exception:
-                        pass
-    
-                    # Dernier recours : représentation disponible
-                    result = str(val)
-    
-                    if " object at 0x" in result:
-                        return (
-                            f"[CONVERSION IMPOSSIBLE : {key} ; "
-                            f"type={type(val).__name__}]"
-                        )
-    
-                    return result
-    
-                except Exception as e:
-                    return f"[ERREUR LECTURE {key} : {e!r}]"
-    
-            # --------------------------------------------------
-            # 2. Vérifier si une notification est en attente
-            # --------------------------------------------------
-            pending_obj = defaults.objectForKey_(
-                "FCVV_NOTIFICATION_PENDING"
-            )
-    
+            pending_obj = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
             if pending_obj is None:
                 print("[iOS FCM] Aucune notification en attente.")
                 return
-    
-            # La clé est normalement un booléen NSNumber/CFBoolean.
             try:
                 pending = bool(pending_obj.boolValue())
             except Exception:
                 try:
                     pending = bool(int(str(pending_obj)))
                 except Exception:
-                    # On ne confond pas un objet natif existant
-                    # avec une absence de notification.
                     pending = True
-    
             if not pending:
                 print("[iOS FCM] Notification non en attente.")
                 return
-    
+            print("[iOS FCM] Notification en attente detectee.")
             # --------------------------------------------------
-            # 3. Lire les informations enregistrées
+            # 2. Lire et convertir les données iOS
             # --------------------------------------------------
+            def _get_str(key):
+                try:
+                    val = defaults.objectForKey_(key)
+                    if val is None:
+                        return ""
+                    try:
+                        utf8 = val.UTF8String()
+                        if utf8 is not None:
+                            if isinstance(utf8, bytes):
+                                return utf8.decode("utf-8",errors="replace")
+                            return str(utf8)
+                    except Exception:
+                        pass
+                    try:
+                        val_str = defaults.stringForKey_(key)
+                        if val_str is not None:
+                            result = str(val_str)
+                            if " object at 0x" not in result:
+                                return result
+                    except Exception:
+                        pass
+                    result = str(val)
+                    if " object at 0x" in result:
+                        print(f"[iOS FCM] Conversion impossible pour {key}")
+                        return ""
+                    return result
+                except Exception as e:
+                    print(f"[iOS FCM] Erreur lecture {key} : {e!r}")
+                    return ""
             titre = _get_str("FCVV_NOTIFICATION_TITLE")
             message = _get_str("FCVV_NOTIFICATION_BODY")
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
-    
-            notif_type_brut = _get_str("FCVV_NOTIFICATION_TYPE")
-            notif_type_alt = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
-    
-            notif_type = notif_type_brut
-    
+            notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
             if not notif_type:
-                notif_type = notif_type_alt
-    
+                notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
             nt = notif_type.strip().lower()
-    
+            print(f"[iOS FCM] Type={nt!r}, categorie={categorie!r}, match_id={match_id!r}")
             # --------------------------------------------------
-            # 4. Déterminer la destination
+            # 3. Nettoyer les données après les avoir récupérées
             # --------------------------------------------------
-            if nt in ("manual", "home") or not categorie:
-                destination = "HOME"
-                sous_onglet = "Sans objet"
-    
-                def action_redirection():
-                    self.executer_redirection_home()
-    
-            else:
-                destination = "VESTIAIRE"
-    
-                if nt == "echange":
-                    sous_onglet = "CHAT"
-    
-                elif nt in (
-                    "chat",
-                    "message",
-                    "messages",
-                    "nouveau_message",
-                ):
-                    sous_onglet = "MESSAGES"
-    
-                elif nt in (
-                    "evenement",
-                    "événement",
-                    "event",
-                    "creation_evenement",
-                    "evenement_creation",
-                    "convocation",
-                ):
-                    sous_onglet = "CALENDRIER"
-    
-                else:
-                    sous_onglet = (
-                        "CALENDRIER (fallback : type inconnu)"
-                    )
-    
-                def action_redirection():
-                    self.executer_redirection_vestiaire(
-                        categorie,
-                        match_id if match_id else None,
-                        notif_type if notif_type else None,
-                    )
-    
-            # --------------------------------------------------
-            # 5. Construire le rapport de diagnostic
-            # --------------------------------------------------
-            rapport = (
-                "DIAGNOSTIC NOTIFICATION iOS\n"
-                "============================\n\n"
-                f"Pending : {pending}\n\n"
-                "--- CONTENU RECU ---\n"
-                f"Titre : {titre!r}\n"
-                f"Message : {message!r}\n"
-                f"Topic / categorie : {categorie!r}\n"
-                f"Match ID : {match_id!r}\n\n"
-                "--- TYPE DE NOTIFICATION ---\n"
-                f"TYPE brut : {notif_type_brut!r}\n"
-                f"TYPE ALT : {notif_type_alt!r}\n"
-                f"TYPE retenu : {notif_type!r}\n"
-                f"TYPE normalise : {nt!r}\n\n"
-                "--- DECISION DE REDIRECTION ---\n"
-                f"Destination : {destination}\n"
-                f"Sous-onglet : {sous_onglet}\n"
-                f"Categorie vide : {not bool(categorie)}\n"
-                f"Match ID present : {bool(match_id)}\n\n"
-                "Appuie sur Continuer pour executer "
-                "la redirection."
-            )
-    
-            print("[iOS FCM]\n" + rapport)
-    
-            # --------------------------------------------------
-            # 6. Nettoyer les données après lecture
-            # --------------------------------------------------
-            # Les valeurs restent disponibles dans les variables
-            # Python même après leur suppression de NSUserDefaults.
             keys_to_clean = [
                 "FCVV_NOTIFICATION_PENDING",
                 "FCVV_NOTIFICATION_TITLE",
@@ -1417,128 +1303,38 @@ class MyApp(App):
                 "FCVV_NOTIFICATION_TYPE",
                 "FCVV_NOTIFICATION_TYPE_ALT",
             ]
-    
             for key in keys_to_clean:
                 defaults.removeObjectForKey_(key)
-    
             defaults.synchronize()
-    
+            print("[iOS FCM] Donnees de notification nettoyees.")
             # --------------------------------------------------
-            # 7. Afficher la popup Kivy
+            # 4. Décrémenter le badge côté serveur
             # --------------------------------------------------
-            def afficher_popup(dt):
-                try:
-                    contenu = BoxLayout(
-                        orientation="vertical",
-                        spacing=dp(8),
-                        padding=dp(10),
-                    )
-    
-                    scroll = ScrollView(
-                        do_scroll_x=False,
-                        do_scroll_y=True,
-                    )
-    
-                    label = Label(
-                        text=rapport,
-                        size_hint_y=None,
-                        halign="left",
-                        valign="top",
-                        font_size="13sp",
-                    )
-    
-                    label.bind(
-                        width=lambda instance, width: setattr(
-                            instance,
-                            "text_size",
-                            (max(0, width - dp(12)), None),
-                        )
-                    )
-    
-                    label.bind(
-                        texture_size=lambda instance, size: setattr(
-                            instance,
-                            "height",
-                            size[1] + dp(12),
-                        )
-                    )
-    
-                    scroll.add_widget(label)
-                    contenu.add_widget(scroll)
-    
-                    bouton = Button(
-                        text="Continuer vers la redirection",
-                        size_hint_y=None,
-                        height=dp(48),
-                    )
-    
-                    contenu.add_widget(bouton)
-    
-                    popup = Popup(
-                        title="Diagnostic notification iOS",
-                        content=contenu,
-                        size_hint=(0.94, 0.82),
-                        auto_dismiss=False,
-                    )
-    
-                    # Eviter plusieurs clics sur le bouton
-                    deja_execute = {"value": False}
-    
-                    def afficher_erreur(erreur):
-                        erreur_popup = Popup(
-                            title="Erreur de redirection",
-                            content=Label(
-                                text=str(erreur),
-                                halign="left",
-                                valign="middle",
-                            ),
-                            size_hint=(0.85, 0.4),
-                        )
-                        erreur_popup.open()
-    
-                    def executer_action(dt):
-                        try:
-                            action_redirection()
-                        except Exception as e:
-                            print(
-                                f"[iOS FCM] Erreur redirection : {e!r}"
-                            )
-                            afficher_erreur(repr(e))
-    
-                    def continuer(instance):
-                        if deja_execute["value"]:
-                            return
-    
-                        deja_execute["value"] = True
-                        bouton.disabled = True
-                        popup.dismiss()
-    
-                        Clock.schedule_once(
-                            executer_action,
-                            0.2,
-                        )
-    
-                    bouton.bind(on_release=continuer)
-                    popup.open()
-    
-                except Exception as e:
-                    print(
-                        f"[iOS FCM] Erreur popup diagnostic : {e!r}"
-                    )
-    
-                    # En cas d'échec de la popup, on tente tout de
-                    # même la redirection pour ne pas bloquer l'app.
-                    Clock.schedule_once(
-                        lambda dt: action_redirection(),
-                        0.2,
-                    )
-    
-            Clock.schedule_once(afficher_popup, 0)
-    
+            try:
+                print("[iOS FCM] Decrementation du badge serveur...")
+                self.decrementer_badge_depuis_api()
+                print("[iOS FCM] Demande de decrementation executee.")
+            except Exception as e:
+                # Une erreur de badge ne doit pas bloquer la redirection.
+                print(f"[iOS FCM] Erreur decrementation badge : {e!r}")
+            # --------------------------------------------------
+            # 5. Effectuer automatiquement la redirection
+            # --------------------------------------------------
+            if nt in ("manual", "home") or not categorie:
+                print("[iOS FCM] Redirection -> HOME")
+                Clock.schedule_once(lambda dt: self.executer_redirection_home(),0.5)
+            else:
+                print(f"[iOS FCM] Redirection -> VESTIAIRE ({categorie})")
+                Clock.schedule_once(
+                    lambda dt: self.executer_redirection_vestiaire(
+                        categorie,
+                        match_id if match_id else None,
+                        notif_type if notif_type else None
+                    ),
+                    0.5
+                )
         except Exception as e:
-            print(
-                f"[iOS FCM ERROR] Echec lecture notification : {e!r}"
-            )
+            print(f"[iOS FCM ERROR] echec traitement notification : {e!r}")
     
     def verifier_redirection_notification_android(self):
         if platform != "android":
