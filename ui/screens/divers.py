@@ -32,11 +32,12 @@ class StageCard(BoxLayout):
         self.bind(pos=self._update_rect, size=self._update_rect)
         
         # 1. TITRE DU STAGE
-        self.add_widget(Label(
-            text=f"[b]{stage_data.get('nom', 'Stage')}[/b]", markup=True, color=(30/255, 58/255, 138/255, 1),
-            font_size=f"{user_font_size + 2}sp", size_hint_y=None, height=dp(35), halign='left'
-        ))
-        self.children[-1].bind(width=lambda s, w: setattr(s, 'text_size', (w, None)))
+        title_label = Label(text=f"[b]{stage_data.get('nom', 'Stage')}[/b]",markup=True,color=(30/255, 58/255, 138/255, 1),font_size=f"{user_font_size + 2}sp",size_hint_y=None,halign="left",valign="top",)
+        # Le texte utilise toute la largeur disponible
+        title_label.bind(width=lambda instance, width: setattr(instance, "text_size", (width, None)))
+        # La hauteur s'adapte automatiquement au nombre de lignes
+        title_label.bind(texture_size=lambda instance, texture_size: setattr(instance, "height", texture_size[1] + dp(4)))
+        self.add_widget(title_label)
 
         # 2. DATES PAR CATÉGORIE (Gestion dynamique)
         dates_box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2))
@@ -44,14 +45,13 @@ class StageCard(BoxLayout):
         for key, label_text in [('dates_u7_u9', 'U7 / U9'), ('dates_u11_u13', 'U11 / U13')]:
             val = stage_data.get(key)
             if val:
-                lbl = Label(text=f"• [b]{label_text} :[/b] {val}", 
-                            markup=True, color=(0.3, 0.3, 0.3, 1), font_size=f"{user_font_size - 2}sp", 
-                            size_hint_y=None, height=dp(22), halign='left')
-                lbl.bind(width=lambda s, w: setattr(s, 'text_size', (w, None)))
+                lbl = Label(text=f"• [b]{label_text} :[/b] {val}",markup=True,color=(0.3, 0.3, 0.3, 1),font_size=f"{user_font_size - 2}sp",size_hint_y=None,halign="left",valign="top")
+                lbl.bind(width=lambda instance, width: setattr(instance, "text_size", (width, None)))
+                lbl.bind(texture_size=lambda instance, texture_size: setattr(instance, "height", texture_size[1] + dp(2)))  
                 dates_box.add_widget(lbl)
         
         if len(dates_box.children) > 0:
-            dates_box.height = len(dates_box.children) * dp(22)
+            dates_box.bind(minimum_height=dates_box.setter("height"))
             self.add_widget(dates_box)
 
         # 3. INFOS LOGISTIQUES (Gestion dynamique)
