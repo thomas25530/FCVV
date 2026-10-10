@@ -461,7 +461,9 @@ class HomeScreen(Screen):
         self.is_generating = False
         self.is_updating = False
         self.is_fetching_remote = False
-        self._is_refreshing = False 
+        self._generation_token = 0
+        # SUPPRESSON MECANISME PULL TO REFRESH
+        #self._is_refreshing = False 
         self.KIVY_BLUE = (30/255, 58/255, 138/255, 1)
         self.current_max_days = self._get_step_days()
         self.filtered_news_cache = []   
@@ -486,7 +488,8 @@ class HomeScreen(Screen):
         self.scroll.scroll_distance = dp(20)
         self.scroll_content = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(20), padding=[0, dp(20), 0, dp(100)])
         self.scroll_content.bind(minimum_height=self.scroll_content.setter('height'))
-        self.scroll.effect_y.bind(overscroll=self._check_refresh)
+        # SUPPRESSON MECANISME PULL TO REFRESH
+        #self.scroll.effect_y.bind(overscroll=self._check_refresh)
         self.banner = Image(source="assets/banniere.png", size_hint=(1, None), height=dp(200), fit_mode="contain")
         self.banner.bind(width=lambda inst, val: setattr(inst, 'height', val *  0.39375))
         self.scroll_content.add_widget(self.banner)
@@ -536,29 +539,37 @@ class HomeScreen(Screen):
         self.main_layout.add_widget(self.container)
         self.main_layout.add_widget(self.main_loader)
         self.add_widget(self.main_layout)
-    
-    def _check_refresh(self, *args):
-        if self._is_refreshing:
-            return
-        overscroll = self.scroll.effect_y.overscroll
-        if overscroll < -dp(70):
-            self._is_refreshing = True
-            self.manual_refresh()
-
-    def manual_refresh(self):
-        self.show_main_loader(True)
-        def run_refresh():
-            app = App.get_running_app()
-            if hasattr(app, 'load_remote_config'):
-                app.load_remote_config()
-            Clock.schedule_once(lambda dt: self.finish_refresh(), 0.5)
-        threading.Thread(target=run_refresh, daemon=True).start()
-    
-    def finish_refresh(self):
-        updated = self.update_ui_from_config(force=False)
-        if not updated:
-            self.show_main_loader(False)
-        self._is_refreshing = False
+    # SUPPRESSON MECANISME PULL TO REFRESH
+#===============================================================================
+#     def _check_refresh(self, *args):
+#         if self._is_refreshing:
+#             return
+#         overscroll = self.scroll.effect_y.overscroll
+#         if overscroll < -dp(70):
+#             self._is_refreshing = True
+#             self.manual_refresh()
+# 
+#     def manual_refresh(self):
+#         self.show_main_loader(True)
+#         def run_refresh():
+#             app = App.get_running_app()
+#             if hasattr(app, 'load_remote_config'):
+#                 app.load_remote_config()
+#             Clock.schedule_once(lambda dt: self.finish_refresh(), 0.5)
+#         threading.Thread(target=run_refresh, daemon=True).start()
+#     
+#     def finish_refresh(self):
+#         print(
+#             f"[REFRESH FINISH] "
+#             f"children={len(self.news_layout.children)} | "
+#             f"is_updating={self.is_updating} | "
+#             f"is_generating={self.is_generating}"
+#         )
+#         updated = self.update_ui_from_config(force=False)
+#         if not updated:
+#             self.show_main_loader(False)
+#         self._is_refreshing = False
+#===============================================================================
         
     def show_main_loader(self, show):
         self.main_loader.opacity = 1 if show else 0
@@ -577,29 +588,9 @@ class HomeScreen(Screen):
             try: return app.config.getint('User', 'news_period')
             except: pass
         return 15 
-    
-    def _build_news_signature(self, news_list):
-        if not news_list:
-            return "empty"
-    
-        stable_data = []
-        for item in news_list:
-            if isinstance(item, dict):
-                # On ne conserve que les champs stables/textuels de chaque news
-                stable_data.append({
-                    "id": str(item.get("id") or item.get("title") or ""),
-                    "date": str(item.get("date") or ""),
-                    "title": str(item.get("title") or ""),
-                    "summary": str(item.get("summary") or item.get("content") or ""),
-                    "type": str(item.get("type") or "")
-                })
-    
-        return hashlib.md5(
-            json.dumps(stable_data, sort_keys=True).encode("utf-8")
-        ).hexdigest()
 
     def load_next_period(self, instance):
-        if self.is_generating or self.has_reached_end: 
+        if (self.is_generating or self.is_updating or self.has_reached_end):
             return
         old_signature = self._build_news_signature(self.filtered_news_cache)
         self.current_max_days += self._get_step_days()
@@ -643,34 +634,27 @@ class HomeScreen(Screen):
         
         if self.is_updating:
             return False
-            
         app = App.get_running_app()
         has_config = hasattr(app, "app_config") and bool(app.app_config)
-        
         if not has_config:
             Clock.schedule_once(lambda dt: self.update_ui_from_config(force=force), 0.5)
             return False
-
         # --- MISE À JOUR DYNAMIQUE DES POLICES DU FOOTER ---
         current_font_size = get_user_font_size()
         self.no_news_label.font_size = f"{current_font_size - 2}sp"
         self.period_status_label.font_size = f"{current_font_size}sp"
         self.more_btn.font_size = f"{current_font_size}sp"
-        
         # --- CORRECTION 1 : Récupérer le réglage utilisateur actuel ---
         configured_step = self._get_step_days()
-        
         period_changed = False
         if self.current_max_days == 0 or (force and self.current_max_days != configured_step):
             self.current_max_days = configured_step
             period_changed = True
-
         fcvv_data = app.app_config.get("fcvv", {})
         news_list = fcvv_data.get("appli", {}).get("news", [])
         self._filter_news_by_date(news_list)
         current_hash = self._build_news_signature(self.filtered_news_cache)
         num_children = len(self.news_layout.children)
-
         # --- CORRECTION 2 : ANTI-FLASH INTELLIGENT ---
         # Si la police a changé, on force le rechargement même si le hash des actus est identique
         font_size_changed = getattr(self, '_last_known_font_size', 18) != current_font_size
@@ -681,135 +665,249 @@ class HomeScreen(Screen):
             self.is_updating = False
             self.show_main_loader(False)
             return False
-            
         self.is_updating = True
-        self.last_config_hash = current_hash
+        # Un seul token créé pour cette génération
+        self._generation_token += 1
+        generation_token = self._generation_token
         self.show_main_loader(True)
-        Clock.schedule_once(lambda dt: self._generate_news_ui(clear_all=True), 0.1)
+        def start_generation(dt):
+            # La demande a peut-être été remplacée entre-temps
+            if generation_token != self._generation_token:
+                return
+            try:
+                self._generate_news_ui(clear_all=True,generation_token=generation_token)
+            except Exception as e:
+                print(f"[UI GENERATION ERROR] {e}")
+                self._finish_news_generation(generation_token)
+        Clock.schedule_once(start_generation, 0.1)
         return True
-
-    def on_enter(self, dt=None):
+    
+    def _check_data_changes(self, dt=None):
+        """Compare les données actuelles avec celles affichées.
+        Ajoute des logs détaillés et réessaie si une opération est en cours.
+        """
+        try:
+            # ---------------------------------------------------------
+            # 1. Vérifier l'application
+            # ---------------------------------------------------------
+            app = App.get_running_app()
+            if not app:
+                print("[HOME CHECK][ERREUR] App.get_running_app() retourne None")
+                return
+            if getattr(app, "is_fetching_remote", False):
+                Clock.schedule_once(self._check_data_changes, 0.5)
+                return
+            app_config = getattr(app, "app_config", None)
+            if not app_config:
+                Clock.schedule_once(self._check_data_changes, 0.5)
+                return
+            if self.is_updating or self.is_generating:
+                Clock.schedule_once(self._check_data_changes, 0.5)
+                return
+            configured_step = self._get_step_days()
+            current_font_size = get_user_font_size()
+            period_changed = self.current_max_days != configured_step
+            font_changed = (
+                getattr(self, "_last_known_font_size", None)
+                != current_font_size
+            )
+            if period_changed:
+                self.current_max_days = configured_step
+            if font_changed:
+                self._last_known_font_size = current_font_size
+            news_list = (app_config.get("fcvv", {}).get("appli", {}).get("news", []))
+            if not isinstance(news_list, (list, tuple)):
+                return
+            previous_cache_count = len(getattr(self, "filtered_news_cache", []))
+            self._filter_news_by_date(news_list)
+            filtered_count = len(self.filtered_news_cache)
+            current_hash = self._build_news_signature(self.filtered_news_cache)
+            hash_changed = current_hash != self.last_config_hash
+            force_update = (period_changed or font_changed or hash_changed)
+            if len(self.news_layout.children) == 0:
+                force_update = True
+            if force_update:
+                self.show_main_loader(True)
+                result = self.update_ui_from_config(force=True)
+            else:
+                self.show_main_loader(False)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+        finally:
+            print("[HOME CHECK] <<< FIN DE LA VERIFICATION")
+    
+    def _build_news_signature(self, news_list):
+        if not news_list:
+            return "empty"
+    
+        stable_data = []
+        for item in news_list:
+            if isinstance(item, dict):
+                # On ne conserve que les champs stables/textuels de chaque news
+                stable_data.append({
+                    "id": str(item.get("id") or item.get("title") or ""),
+                    "date": str(item.get("date") or ""),
+                    "title": str(item.get("title") or ""),
+                    "summary": str(item.get("summary") or item.get("content") or ""),
+                    "description": str(item.get("description") or ""),
+                    "images": item.get("images") or item.get("image") or [],
+                    "type": str(item.get("type") or "")
+                })
+    
+        return hashlib.md5(json.dumps(stable_data, sort_keys=True).encode("utf-8")).hexdigest()
+    
+    def on_enter(self, *args):
+        """Vérifie les mises à jour à l'entrée sur Home."""
+        print("[HOME LIFECYCLE] on_enter")
         app = App.get_running_app()
-
-        # Récupération de la période et de la police configurées actuellement
-        configured_step = self._get_step_days()
-        current_font_size = get_user_font_size()
-
-        # Vérifie si l'utilisateur a changé la taille de la police dans les paramètres
-        font_size_changed = getattr(self, '_last_known_font_size', 18) != current_font_size
-        if font_size_changed:
-            print(f"[UI] Changement de taille de police detecte ({self._last_known_font_size} -> {current_font_size})")
-            self._last_known_font_size = current_font_size
-            self.update_ui_from_config(force=True)
+        if app is None:
+            print("[HOME LIFECYCLE] Application indisponible")
             return
-
-        # Si l'utilisateur est allé dans les paramètres et a changé la période
-        # On invalide pour forcer la prise en compte de la nouvelle période
-        if getattr(self, 'current_max_days', 0) != configured_step and configured_step > 0:
-            print(f"[UI] Retour sur Home avec nouvelle periode configuree ({configured_step} jours)")
-            self.current_max_days = configured_step
-            self.update_ui_from_config(force=True)
-            return
-
-        # 0. SÉCURITÉ RE-ENTRÉE : Si l'interface contient déjà des cartes et que la période n'a pas changé
-        if len(self.news_layout.children) > 0:
-            self.show_main_loader(False)
-            self.is_updating = False
-            self.is_generating = False
-            self.update_ui_from_config(force=False)
-            return
-
-        # 1. ANTI-CONFLIT : Si le réseau est déjà en train de télécharger dans main.py
-        if self.is_updating or getattr(app, 'is_fetching_remote', False):
+        if len(self.news_layout.children) == 0:
             self.show_main_loader(True)
+        # Si un téléchargement réseau est déjà en cours, on ne fait rien pour éviter les doublons
+        if getattr(app, "is_fetching_remote", False):
+            print("[HOME LIFECYCLE] Telechargement reseau deja en cours.")
             return
-
-        # 2. CAS OÙ LA CONFIG N'EST PAS ENCORE DISPONIBLE (Premier lancement à froid)
-        if not hasattr(app, "app_config") or not app.app_config:
-            self.show_main_loader(True)
-            if hasattr(app, 'start_network_tasks'): 
-                app.start_network_tasks()
-            Clock.schedule_once(lambda dt: self.on_enter(), 0.5)
+        Clock.schedule_once(self._check_data_changes, 0.2)
+        # Et on lance la vérification réseau en arrière-plan au cas où le serveur a changé entre-temps
+        app.start_network_tasks()
+    
+    def on_resume(self, *args):
+        """Vérifie les actualités au retour au premier plan."""
+        print("[HOME] Retour au premier plan")
+        # On délègue à _check_data_changes qui gère déjà les états d'attente (is_fetching_remote, etc.)
+        Clock.schedule_once(self._check_data_changes, 0.5)
+    
+    def _finish_news_generation(self, generation_token=None, dt=None):
+        """Termine uniquement la génération active."""
+        if generation_token is None:
+            print("[GEN FINISH] Token absent : finalisation ignoree")
             return
-
-        # 3. INITIALISATION STANDARD
+        if generation_token != self._generation_token:
+            print(f"[GEN FINISH IGNORED] token={generation_token} | active={self._generation_token}")
+            return
+        generation_hash = getattr(self, "_active_generation_hash", None)
+        self.is_generating = False
+        self.is_updating = False
+        self.show_main_loader(False)
+        self.period_status_label.text = (f"Période affichée : {self.current_max_days} derniers jours")
         self.more_btn.disabled = self.has_reached_end
-        self.more_btn.text = "Fin des actualités" if self.has_reached_end else "Plus d'actualités"
-
-        # 4. Affichage initial des données
-        self.update_ui_from_config(force=False)
-
+        self.more_btn.text = (
+            "Fin des actualités"
+            if self.has_reached_end
+            else "Plus d'actualités"
+        )
+        self.no_news_label.opacity = (1 if len(self.news_layout.children) == 0 else 0)
+        if generation_hash is not None:
+            self.last_config_hash = generation_hash
+    
     # ================= FUSION UNIQUE ET NETTOYAGE =================
-    def _generate_news_ui(self, clear_all=True):
+    def _generate_news_ui(self, clear_all=True, generation_token=None):
+        # Pour les appels qui ne viennent pas de update_ui_from_config,
+        # notamment load_next_period, créer un nouveau token.
+        if generation_token is None:
+            self._generation_token += 1
+            generation_token = self._generation_token
+        # Refuser toute génération devenue obsolète
+        elif generation_token != self._generation_token:
+            return
         Clock.unschedule(self.force_stop_loader)
+        # ============================================================
+        # DEBUG : IDENTIFIANT UNIQUE DE GENERATION
+        # ============================================================
+        self._debug_generation_id = getattr(self, '_debug_generation_id', 0) + 1
+        generation_id = self._debug_generation_id
+        # Figer les actualités utilisées pour cette génération
+        generation_news = list(self.filtered_news_cache)
+        # Calculer leur signature une seule fois
+        generation_hash = self._build_news_signature(generation_news)
+        self._active_generation_hash = generation_hash
+        # ============================================================
         self.is_generating = True
         if clear_all:
             self.news_layout.clear_widgets()
             self.displayed_titles_set = set()
-            self._last_section_period = None  # Réinitialisation du suivi du mois (ex: "Mai 2026")
+            self._last_section_period = None
         seen = set()
         queue = []
-        for item in self.filtered_news_cache:
-            key = hashlib.md5(f"{item.get('title','')}{item.get('date','')}".encode()).hexdigest()
-            if key not in seen and key not in self.displayed_titles_set:
-                seen.add(key)
-                queue.append((key, item))  
+        # ============================================================
+        # PREPARATION DE LA QUEUE
+        # ============================================================
+        for item in generation_news:
+            if not isinstance(item, dict):
+                print(f"[UI WARNING] Actualite invalide ignoree : {item!r}")
+                continue
+            try:
+                key = hashlib.md5(f"{item.get('title','')}{item.get('date','')}".encode()).hexdigest()
+                if (key not in seen and key not in self.displayed_titles_set):
+                    seen.add(key)
+                    queue.append((key, item))
+            except Exception as e:
+                print(f"[UI ERROR] Preparation d'une actualite impossible : {e}")
+        # ============================================================
         if not queue:
-            self.no_news_label.opacity = 1 if len(self.news_layout.children) == 0 else 0
-            self.more_btn.disabled = self.has_reached_end
-            self.more_btn.text = "Fin des actualités" if self.has_reached_end else "Plus d'actualités"
-            self.is_generating = False
-            self.is_updating = False 
-            
-            self.show_main_loader(False)
-            
-            self.period_status_label.text = f"Période affichée : {self.current_max_days} derniers jours"
-            self.last_config_hash = self._build_news_signature(self.filtered_news_cache)
+            self._finish_news_generation(generation_token)
             return
         self.no_news_label.opacity = 0
-        # --- RECUPERATION DYNAMIQUE DE LA LANGUE ET DES MOIS ---
+        # ============================================================
+        # RECUPERATION DYNAMIQUE DE LA LANGUE ET DES MOIS
+        # ============================================================
         app = App.get_running_app()
-        current_lang = getattr(app, 'current_language', 'Francais')
-        # On cible les mois de la langue active, avec une sécurité absolue sur le Français en cas de clé manquante
-        month_names = LANGUAGES.get(current_lang, {}).get('months', LANGUAGES.get('Francais', {}).get('months', {}))
-        # -------------------------------------------------------
-    
+        current_lang = getattr(app,'current_language','Francais')
+        month_names = LANGUAGES.get(current_lang,{}).get('months',LANGUAGES.get('Francais',{}).get('months',{}))
+        # ============================================================
+        # GENERATION DES CARTES
+        # ============================================================
         def process_next_card(dt):
+            if generation_token != self._generation_token: 
+                return False
+            # ========================================================
             if not queue or not self.is_generating:
-                self.more_btn.disabled = self.has_reached_end
-                self.more_btn.text = "Fin des actualités" if self.has_reached_end else "Plus d'actualités"
-                self.is_generating = False
-                self.is_updating = False 
-                self.show_main_loader(False)
-                self.period_status_label.text = f"Période affichée : {self.current_max_days} derniers jours"
-                self.last_config_hash = self._build_news_signature(self.filtered_news_cache)
-                return False  
+                self._finish_news_generation(generation_token)
+                return False
+            # =======================================================
+            # GENERATION D'UNE CARTE
+            # ========================================================
             key, item = queue.pop(0)
             self.displayed_titles_set.add(key)
             try:
-                # --- LOGIQUE D'INJECTION DU TITRE DE MOIS ---
+                # ----------------------------------------------------
+                # LOGIQUE D'INJECTION DU TITRE DE MOIS
+                # ----------------------------------------------------
                 item_date = self._parse_date(item.get("date", ""))
                 if item_date != datetime.min:
-                    month_str = month_names.get(item_date.month, "")
-                    period_title = f"{month_str} {item_date.year}"
-                    # Si c'est la première carte ou si le mois/année a changé
-                    if getattr(self, '_last_section_period', None) != period_title:
+                    month_str = month_names.get(item_date.month,"")
+                    period_title = (f"{month_str} {item_date.year}")
+                    if (getattr(self,'_last_section_period',None) != period_title):
                         self._last_section_period = period_title
-                        # Ajout du séparateur visuel avant la carte
-                        separator = MonthSeparator(month_text=period_title, padding=[dp(5), dp(10)])
+                        separator = MonthSeparator(month_text=period_title,padding=[dp(5), dp(10)])
                         self.news_layout.add_widget(separator)
-                # --------------------------------------------
-                card = NewsCard(
-                    title=item.get("title", ""),
-                    date=item.get("date", ""),
-                    description=item.get("description", ""),
-                    images=item.get("images") or item.get("image", [])
-                )
+                # ----------------------------------------------------
+                # CREATION DE LA CARTE
+                # ----------------------------------------------------
+                card = NewsCard(title=item.get("title", ""),date=item.get("date", ""),description=item.get("description", ""),images=item.get("images") or item.get("image", []))
                 self.news_layout.add_widget(card)
             except Exception as e:
-                print(f"[UI ERROR] : {e}")
-            return True 
-        Clock.schedule_interval(process_next_card, 1 / 50)
+                print(f"[UI ERROR] Generation carte #{generation_id} : {e}")
+            return True
+        # ============================================================
+        # LANCEMENT DU CALLBACK
+        # ============================================================
+        def safe_process_next_card(dt):
+            if generation_token != self._generation_token:
+                return False
+            try:
+                result = process_next_card(dt)
+                # La génération est terminée.
+                if result is False:
+                    return False
+                return True
+            except Exception as e:
+                self._finish_news_generation(generation_token)
+                return False
+        Clock.schedule_interval(safe_process_next_card, 1 / 50)
 
     def _filter_news_by_date(self, raw_news_list):
         self.has_reached_end = False
