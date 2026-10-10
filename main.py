@@ -1063,123 +1063,6 @@ class MyApp(App):
                 print(f"[BADGE ERROR] {e}")
     
         threading.Thread(target=worker,daemon=True).start()
-    
-    def on_start(self):
-        threading.Thread(target=self.warmup_server,daemon=True).start()
-        auth_str = self.config.get("User","authorized_list",fallback="")
-        self.authorized_vestiaires = [
-            c.strip()
-            for c in auth_str.split(",")
-            if c.strip()
-        ]
-        if platform in ("android", "ios"):
-            from core.NotificationManager import get_notification_manager
-            self.notifier = get_notification_manager()
-            if self.notifier:
-                try:
-                    self.notifier.request_permissions()
-                    self.notifier.init_service()
-                    # Tout le monde reçoit les notifications générales
-                    Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"),5.0)
-                    # Synchronisation du token FCM
-                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),6.0)
-                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),12.0)
-                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),20.0)
-                    Clock.schedule_once(lambda dt: self.synchroniser_badge_ios(),8)
-                    # Synchronisation des topics de catégories
-                    # Synchronisation des topics de catégories (uniquement celles dont le switch est actif)
-                    if self.authorized_vestiaires:
-                        # On filtre pour ne garder que les catégories avec une notification active (True par défaut)
-                        abonnements_actifs = [
-                            cat for cat in self.authorized_vestiaires
-                            if self.config.getboolean('Notifications', cat, fallback=True)
-                        ]
-                        Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(abonnements_actifs), 8.0)
-                except Exception as e:
-                    print(f"[FCM ERROR] Initialisation : {e}")
-        else:
-            print("[FCM TRACE] Desktop : FCM ignore")
-        # ============================================================
-        # WINDOWS : surveillance de la validation du compte
-        # ============================================================
-        if platform == "win":
-            print("[WINDOWS] FCM desactive : activation de la surveillance du role.")
-            Clock.schedule_once(lambda dt: self.verifier_validation_windows(),5.0)
-            Clock.schedule_interval(lambda dt: self.verifier_validation_windows(),5.0)
-
-        if platform == "android" and "customize_android_bars" in globals():
-            Clock.schedule_once(lambda dt: customize_android_bars(), 1)
-        
-        try:
-            os.makedirs(self.cache_images_dir, exist_ok=True)
-        except Exception:
-            pass
-        from kivy.core.window import Window
-        
-        if platform == "ios":
-            #Window.softinput_mode = "below_target"
-            Window.softinput_mode = ""
-            # ============================================================
-            # Tentative de forcer l'affichage de la Status Bar iOS
-            # ============================================================
-            try:
-                from pyobjus import autoclass
-                UIApplication = autoclass("UIApplication")
-                app = UIApplication.sharedApplication()
-                try:
-                    print(f"[IOS] statusBarHidden avant = {app.isStatusBarHidden()}")
-                except Exception as e:
-                    print(f"[IOS] Lecture statusBarHidden impossible : {e}")
-                try:
-                    app.setStatusBarHidden_(False)
-                    print("[IOS] Demande affichage Status Bar")
-                except Exception as e:
-                    print(f"[IOS] Impossible de modifier Status Bar : {e}")
-            except Exception as e:
-                print(f"[IOS] Erreur UIApplication : {e}")
-            def update_ios_safe_area(dt):
-                try:
-                    safe_top = self.get_ios_safe_area_top()
-                    if safe_top <= 0:
-                        print("[IOS] Safe Area indisponible -> fallback 44dp")
-                        safe_top = dp(60)
-                    print(f"[iOS SAFE AREA] Mise a jour : top = {safe_top}")
-                    if hasattr(self, "root") and self.root:
-                        if hasattr(self.root, "update_ios_safe_area"):
-                            self.root.update_ios_safe_area(safe_top)
-                except Exception as e:
-                    print(f"[iOS SAFE AREA] Mise a jour impossible : {e}")
-            def check_status_bar(dt):
-                try:
-                    from pyobjus import autoclass
-                    UIApplication = autoclass("UIApplication")
-                    app = UIApplication.sharedApplication()
-                    try:
-                        print(
-                            f"[IOS] statusBarHidden apres demarrage = "
-                            f"{app.isStatusBarHidden()}"
-                        )
-                    except Exception as e:
-                        print(
-                            f"[IOS] Lecture statusBarHidden apres demarrage impossible : {e}"
-                        )
-                except Exception as e:
-                    print(f"[IOS] check status bar erreur : {e}")
-        
-            # Première récupération
-            Clock.schedule_once(update_ios_safe_area, 0.5)
-            Clock.schedule_once(update_ios_safe_area, 1.0)
-            Clock.schedule_once(update_ios_safe_area, 2.0)
-        
-            # Vérification après démarrage complet
-            Clock.schedule_once(check_status_bar, 3.0)
-        else:
-            Window.softinput_mode = "below_target"
-
-        Window.bind(on_keyboard=self.on_back_button)
-        Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
-        if platform in ("android", "ios"):
-            Clock.schedule_once(lambda dt: self.verifier_redirection_notification(),2.0)
             
     def verifier_validation_windows(self):
         """
@@ -1326,14 +1209,6 @@ class MyApp(App):
             except Exception as e:
                 print(f"[FCM TOKEN ERROR] Erreur synchronisation : {e}")
         threading.Thread(target=_thread_sync,daemon=True).start()
-    
-    def on_resume(self):
-        # Utilisation de in ("android", "ios") pour couvrir les deux plateformes
-        if platform == "ios":
-            self.synchroniser_badge_ios()
-        if platform in ("android", "ios"):
-            Clock.schedule_once(lambda dt: self.verifier_redirection_notification(), 0.3)
-        return True
     
     def verifier_redirection_notification(self):
         """
@@ -1648,6 +1523,157 @@ class MyApp(App):
         self.is_fetching_remote = True
         threading.Thread(target=self.load_remote_config, daemon=True).start()
 
+    def on_start(self):
+        threading.Thread(target=self.warmup_server,daemon=True).start()
+        auth_str = self.config.get("User","authorized_list",fallback="")
+        self.authorized_vestiaires = [
+            c.strip()
+            for c in auth_str.split(",")
+            if c.strip()
+        ]
+        if platform in ("android", "ios"):
+            from core.NotificationManager import get_notification_manager
+            self.notifier = get_notification_manager()
+            if self.notifier:
+                try:
+                    self.notifier.request_permissions()
+                    self.notifier.init_service()
+                    # Tout le monde reçoit les notifications générales
+                    Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"),5.0)
+                    # Synchronisation du token FCM
+                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),6.0)
+                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),12.0)
+                    Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),20.0)
+                    Clock.schedule_once(lambda dt: self.synchroniser_badge_ios(),8)
+                    # Synchronisation des topics de catégories
+                    # Synchronisation des topics de catégories (uniquement celles dont le switch est actif)
+                    if self.authorized_vestiaires:
+                        # On filtre pour ne garder que les catégories avec une notification active (True par défaut)
+                        abonnements_actifs = [
+                            cat for cat in self.authorized_vestiaires
+                            if self.config.getboolean('Notifications', cat, fallback=True)
+                        ]
+                        Clock.schedule_once(lambda dt: self.gerer_abonnements_fcm(abonnements_actifs), 8.0)
+                except Exception as e:
+                    print(f"[FCM ERROR] Initialisation : {e}")
+        else:
+            print("[FCM TRACE] Desktop : FCM ignore")
+        # ============================================================
+        # WINDOWS : surveillance de la validation du compte
+        # ============================================================
+        if platform == "win":
+            print("[WINDOWS] FCM desactive : activation de la surveillance du role.")
+            Clock.schedule_once(lambda dt: self.verifier_validation_windows(),5.0)
+            Clock.schedule_interval(lambda dt: self.verifier_validation_windows(),5.0)
+
+        if platform == "android" and "customize_android_bars" in globals():
+            Clock.schedule_once(lambda dt: customize_android_bars(), 1)
+        
+        try:
+            os.makedirs(self.cache_images_dir, exist_ok=True)
+        except Exception:
+            pass
+        from kivy.core.window import Window
+        
+        if platform == "ios":
+            #Window.softinput_mode = "below_target"
+            Window.softinput_mode = ""
+            # ============================================================
+            # Tentative de forcer l'affichage de la Status Bar iOS
+            # ============================================================
+            try:
+                from pyobjus import autoclass
+                UIApplication = autoclass("UIApplication")
+                app = UIApplication.sharedApplication()
+                try:
+                    print(f"[IOS] statusBarHidden avant = {app.isStatusBarHidden()}")
+                except Exception as e:
+                    print(f"[IOS] Lecture statusBarHidden impossible : {e}")
+                try:
+                    app.setStatusBarHidden_(False)
+                    print("[IOS] Demande affichage Status Bar")
+                except Exception as e:
+                    print(f"[IOS] Impossible de modifier Status Bar : {e}")
+            except Exception as e:
+                print(f"[IOS] Erreur UIApplication : {e}")
+            def update_ios_safe_area(dt):
+                try:
+                    safe_top = self.get_ios_safe_area_top()
+                    if safe_top <= 0:
+                        print("[IOS] Safe Area indisponible -> fallback 44dp")
+                        safe_top = dp(60)
+                    print(f"[iOS SAFE AREA] Mise a jour : top = {safe_top}")
+                    if hasattr(self, "root") and self.root:
+                        if hasattr(self.root, "update_ios_safe_area"):
+                            self.root.update_ios_safe_area(safe_top)
+                except Exception as e:
+                    print(f"[iOS SAFE AREA] Mise a jour impossible : {e}")
+            def check_status_bar(dt):
+                try:
+                    from pyobjus import autoclass
+                    UIApplication = autoclass("UIApplication")
+                    app = UIApplication.sharedApplication()
+                    try:
+                        print(
+                            f"[IOS] statusBarHidden apres demarrage = "
+                            f"{app.isStatusBarHidden()}"
+                        )
+                    except Exception as e:
+                        print(
+                            f"[IOS] Lecture statusBarHidden apres demarrage impossible : {e}"
+                        )
+                except Exception as e:
+                    print(f"[IOS] check status bar erreur : {e}")
+        
+            # Première récupération
+            Clock.schedule_once(update_ios_safe_area, 0.5)
+            Clock.schedule_once(update_ios_safe_area, 1.0)
+            Clock.schedule_once(update_ios_safe_area, 2.0)
+        
+            # Vérification après démarrage complet
+            Clock.schedule_once(check_status_bar, 3.0)
+        else:
+            Window.softinput_mode = "below_target"
+
+        Window.bind(on_keyboard=self.on_back_button)
+        Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
+        if platform in ("android", "ios"):
+            Clock.schedule_once(lambda dt: self.verifier_redirection_notification(),2.0)
+    
+    def on_resume(self):
+        """Retour de l'application au premier plan."""
+        print("[APP RESUME] Retour au premier plan")
+        if platform == "ios":
+            Clock.schedule_once(lambda dt: self.synchroniser_badge_ios(), 0.5)
+        if platform in ("android", "ios"):
+            Clock.schedule_once(lambda dt: self.verifier_redirection_notification(),0.5)
+        # Laisser Kivy restaurer l'affichage avant de relancer le réseau.
+        Clock.schedule_once(self._refresh_home_on_resume, 0.8)
+        return True
+    
+    def _refresh_home_on_resume(self, dt=None):
+        """Relance la vérification réseau sans bloquer l'interface."""
+        print("[APP RESUME] Verification de la configuration")
+        if getattr(self, "is_fetching_remote", False):
+            print("[APP RESUME] Telechargement deja en cours")
+            return
+        # IMPORTANT : start_network_tasks lance load_remote_config
+        # dans un thread secondaire.
+        self.start_network_tasks()
+        
+    def _update_home_screen(self, dt=None):
+        """Notifie Home après application de la configuration distante."""
+        if not self.root or not hasattr(self.root, "sm"):
+            return
+        sm = self.root.sm
+        if not sm.has_screen("home"):
+            return
+        home = sm.get_screen("home")
+        print("[UI] Synchronisation terminee : verification de la signature")
+        # Comparaison normale : pas de reconstruction si les données
+        # affichées correspondent déjà à la configuration.
+        home.update_ui_from_config(force=False)
+    
     def load_remote_config(self):
         """Optimise : Telecharge intelligemment sans bloquer l'interface et ne chaine les preloads que si necessaire."""
         import yaml
@@ -1678,13 +1704,15 @@ class MyApp(App):
             if cached_data:
                 self.app_config.update(cached_data)
             
-            if getattr(self, "last_config_hash", None) is None:
-                news_data = (self.app_config.get("fcvv", {}).get("appli", {}).get("news", []))
-                self.last_config_hash = hashlib.md5(str(news_data).encode()).hexdigest()
-                print(
-                    f"[UI] Hash initial initialise: "
-                    f"{self.last_config_hash[:8]}"
-                )
+            #===================================================================
+            # if getattr(self, "last_config_hash", None) is None:
+            #     news_data = (self.app_config.get("fcvv", {}).get("appli", {}).get("news", []))
+            #     self.last_config_hash = hashlib.md5(str(news_data).encode()).hexdigest()
+            #     print(
+            #         f"[UI] Hash initial initialise: "
+            #         f"{self.last_config_hash[:8]}"
+            #     )
+            #===================================================================
             # Gestion sécurisée du certificat SSL
 
             is_windows = (platform == 'win')
@@ -1740,20 +1768,25 @@ class MyApp(App):
                 session.close()  # Libère les sockets Windows immédiatement
 
             # 3. Application ciblée des changements sur le thread UI
+            # 3. Application ciblée des changements sur le thread UI
             def finalize(dt):
                 try:
                     if fcvv_changed or tournoi_changed:
                         self.app_config.update(updated_data)
-                    if self.app_config:
-                        self.verify_and_clean_auths()
-                    if fcvv_changed:
-                        threading.Thread(target=self.download_news_images, daemon=True).start()
-                        if not is_first_run: 
-                            threading.Thread(target=self.cleanup_unused_images, daemon=True).start()    
-                    if tournoi_changed and hasattr(self, "preload_latest_tournament"):
-                        threading.Thread(target=self.preload_latest_tournament, daemon=True).start()
-                    if hasattr(self, "_update_home_screen"):
-                        Clock.schedule_once(self._update_home_screen, 0.1)
+                        if self.app_config:
+                            self.verify_and_clean_auths()
+                        if fcvv_changed:
+                            threading.Thread(target=self.download_news_images, daemon=True).start()
+                            if not is_first_run: 
+                                threading.Thread(target=self.cleanup_unused_images, daemon=True).start()    
+                        if tournoi_changed and hasattr(self, "preload_latest_tournament"):
+                            threading.Thread(target=self.preload_latest_tournament, daemon=True).start()
+                        
+                        # UNIQUEMENT si un fichier a changé, on met à jour l'UI
+                        if hasattr(self, "_update_home_screen"):
+                            Clock.schedule_once(self._update_home_screen, 0.1)
+                    else:
+                        print("[CONFIG] Aucun changement distant detecte. UI inchangee.")
                 finally:
                     self.is_fetching_remote = False
             Clock.schedule_once(finalize, 0)
@@ -1806,26 +1839,6 @@ class MyApp(App):
                 print(f"[PRELOAD] Echec telechargement, code: {r.status_code}")
         except Exception as e:
             print(f"[PRELOAD ERROR] : {e}")
-
-    def _update_home_screen(self, dt):
-        if not self.root or not hasattr(self.root, 'sm') or not self.root.sm.has_screen('home'):
-            return
-        home = self.root.sm.get_screen('home')
-        news_data = self.app_config.get("fcvv", {}).get("appli", {}).get("news", [])
-        current_hash = hashlib.md5(str(news_data).encode()).hexdigest()
-        if not self.home_initialized:
-            self.home_initialized = True
-            self.last_config_hash = current_hash
-            print("[UI] Initialisation ecran accueil")
-            Clock.schedule_once(lambda dt: home.update_ui_from_config(force=True),0.1)
-            return
-    
-        if current_hash != self.last_config_hash:
-            print(f"[UI] Changement detecte ! Nouveau hash: {current_hash[:8]}")
-            self.last_config_hash = current_hash
-            Clock.schedule_once(lambda dt: home.update_ui_from_config(force=True),0.1)
-        else:
-            print("[UI] Aucun changement dans les donnees, rafraichissement ignore.")
     
     def refresh_ui_theme(self):
         if self.root:
