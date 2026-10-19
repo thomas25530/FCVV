@@ -23,6 +23,8 @@ from kivy.uix.scatter import Scatter
 from kivy.uix.button import Button
 from kivy.uix.widget import Widget
 from constants import LANGUAGES
+import webbrowser
+from kivy.utils import platform
 # Désactivation des warnings de sécurité pour les images
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -292,6 +294,25 @@ class NewsCard(BoxLayout):
         desc_label.bind(width=lambda s, w: s.setter('text_size')(s, (w, None)))
         desc_label.bind(texture_size=lambda s, z: s.setter('height')(s, z[1]))
         self.add_widget(desc_label)
+        def ouvrir_lien(instance, value):
+            try:
+                if not value.startswith(("http://", "https://")):
+                    return
+                if platform == "ios":
+                    from pyobjus import autoclass
+                    UIApplication = autoclass("UIApplication")
+                    NSURL = autoclass("NSURL")
+                    nsurl = NSURL.URLWithString_(value)
+                    if nsurl is None:
+                        print(f"URL invalide : {value}")
+                        return
+                    app_instance = UIApplication.sharedApplication()
+                    app_instance.openURL_options_completionHandler_( nsurl, None, None)
+                else:
+                    webbrowser.open(value)
+            except Exception as e:
+                print(f"Erreur ouverture URL : {e}")
+        desc_label.bind(on_ref_press=ouvrir_lien)
         # La media_zone se base maintenant sur la liste nettoyée
         if self.image_list:
             media_zone = self._build_media_zone()
