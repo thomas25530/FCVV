@@ -678,6 +678,11 @@ jobs:
 
               NSString *notifType =
                   [userInfo objectForKey:@"notif_type"];
+              
+              NSString *sourceId =
+                  [userInfo objectForKey:@"source_id"];
+
+              
 
 
               // ==========================================================
@@ -718,6 +723,12 @@ jobs:
                   notifType = @"";
               }
 
+              if (sourceId == nil ||
+                  ![sourceId isKindOfClass:[NSString class]]) {
+
+                  sourceId = @"";
+              }
+
 
               NSLog(
                   @"[FCVV] Notification : title=%@ body=%@ categorie=%@ match_id=%@ notif_type=%@",
@@ -725,7 +736,8 @@ jobs:
                   body,
                   categorie,
                   matchID,
-                  notifType
+                  notifType,
+                  sourceId
               );
 
 
@@ -759,6 +771,9 @@ jobs:
               [defaults setObject:matchID
                            forKey:@"FCVV_NOTIFICATION_MATCH_ID"];
 
+
+              [defaults setObject:notifType
+                           forKey:@"FCVV_NOTIFICATION_TYPE"];
 
               [defaults setObject:notifType
                            forKey:@"FCVV_NOTIFICATION_TYPE"];
