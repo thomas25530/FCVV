@@ -607,6 +607,15 @@ jobs:
               NSDictionary *userInfo =
                   response.notification.request.content.userInfo;
 
+              NSString *notificationIdentifier =
+                  response.notification.request.identifier;
+
+              NSLog(
+                  @"[FCVV] request.identifier = %@",
+                  response.notification.request.identifier
+              );
+
+
               NSLog(
                   @"[FCVV] userInfo notification : %@",
                   userInfo
@@ -682,9 +691,6 @@ jobs:
               NSString *sourceId =
                   [userInfo objectForKey:@"source_id"];
 
-              
-
-
               // ==========================================================
               // 4. SÉCURISATION DES VALEURS
               // ==========================================================
@@ -729,15 +735,22 @@ jobs:
                   sourceId = @"";
               }
 
+              if (notificationIdentifier == nil ||
+                  ![notificationIdentifier isKindOfClass:[NSString class]]) {
+
+                  notificationIdentifier = @"";
+              }
+
 
               NSLog(
-                  @"[FCVV] Notification : title=%@ body=%@ categorie=%@ match_id=%@ notif_type=%@",
+                  @"[FCVV] Notification : title=%@ body=%@ categorie=%@ match_id=%@ notif_type=%@ source_id=%@ identifier=%@",
                   title,
                   body,
                   categorie,
                   matchID,
                   notifType,
-                  sourceId
+                  sourceId,
+                  notificationIdentifier
               );
 
 
@@ -775,8 +788,11 @@ jobs:
               [defaults setObject:notifType
                            forKey:@"FCVV_NOTIFICATION_TYPE"];
 
-              [defaults setObject:notifType
-                           forKey:@"FCVV_NOTIFICATION_TYPE"];
+              [defaults setObject:sourceId
+                           forKey:@"FCVV_NOTIFICATION_SOURCE_ID"];
+
+              [defaults setObject:notificationIdentifier
+                           forKey:@"FCVV_NOTIFICATION_IDENTIFIER"];
 
 
               [defaults synchronize];
