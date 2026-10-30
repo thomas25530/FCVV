@@ -92,7 +92,7 @@ class RestaurationScreen(Screen):
             Clock.unschedule(self._rotate_loader)
 
     def _check_scroll_limit(self, instance, value):
-        if value > 1.05 and not self._is_refreshing:
+        if value > 1.25 and not self._is_refreshing:
             self._is_refreshing = True
             self.manual_refresh()
 
