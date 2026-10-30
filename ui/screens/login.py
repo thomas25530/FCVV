@@ -98,14 +98,20 @@ class LoginScreen(Screen):
         )
         self.layout.add_widget(self.cat_spinner)
         # TextInput Nom du Parent
-        self.layout.add_widget(Label(text="Votre nom :", font_size='18sp', size_hint_y=None, height=dp(30)))
-        self.name_input = TextInput(hint_text="Prénom NOM", font_size='18sp', multiline=False, size_hint_y=None, height=dp(60))
-        self.layout.add_widget(self.name_input)
+        # Nom de famille et prénom sur une même ligne
+        self.name_input = None  # Ancien champ remplacé
+        self.layout.add_widget(Label(text="Votre identité :",font_size='18sp',size_hint_y=None,height=dp(30),halign='left'))
+        identity_layout = BoxLayout(orientation='horizontal',spacing=dp(10),size_hint_y=None,height=dp(60))
+        self.nom_famille_input = TextInput(hint_text="Nom de famille",font_size='18sp',multiline=False,size_hint_x=1)
+        self.prenom_input = TextInput(hint_text="Prénom",font_size='18sp', multiline=False, size_hint_x=1)
+        identity_layout.add_widget(self.nom_famille_input)
+        identity_layout.add_widget(self.prenom_input)
+        self.layout.add_widget(identity_layout)
         app = App.get_running_app()
         if app and hasattr(app, 'config') and app.config.has_section('User'):
             nom_sauvegarde = app.config.get('User', 'nom_parent', fallback='')
             if nom_sauvegarde:
-                self.name_input.text = nom_sauvegarde
+                self.charger_identite(nom_sauvegarde)
         # TextInput Mot de passe
         self.layout.add_widget(Label(text="Mot de passe :", font_size='18sp', size_hint_y=None, height=dp(30)))
         self.pwd_input = TextInput(hint_text="Entrez le mot de passe", font_size='18sp', password=True, multiline=False, size_hint_y=None, height=dp(60))
@@ -178,6 +184,22 @@ class LoginScreen(Screen):
         self.layout.add_widget(BoxLayout()) 
         self.add_widget(self.layout)
 
+    def charger_identite(self, nom_complet):
+        nom_complet = (nom_complet or "").strip()
+        if not nom_complet:
+            self.nom_famille_input.text = ""
+            self.prenom_input.text = ""
+            return
+        # Format historique : Prénom NOM
+        morceaux = nom_complet.split()
+        if len(morceaux) >= 2:
+            self.prenom_input.text = morceaux[0]
+            self.nom_famille_input.text = " ".join(morceaux[1:])
+        else:
+            # Cas ambigu : ne pas inventer la séparation
+            self.nom_famille_input.text = nom_complet
+            self.prenom_input.text = ""
+    
     def enable_vestiaire_button(self, checkbox, value):
         self.btn_go_vestiaire.disabled = not value
         
@@ -224,30 +246,37 @@ class LoginScreen(Screen):
 
     def reset_name_input(self):
         try:
-            self.name_input.focus = False
-            self.name_input.disabled = False
-            self.name_input.readonly = False
-            self.name_input.text = ""
-            self.name_input.cursor = (0, 0)
+            for champ in (self.nom_famille_input, self.prenom_input):
+                champ.focus = False
+                champ.disabled = False
+                champ.readonly = False
+                champ.text = ""
+                champ.cursor = (0, 0)
         except Exception as e:
             print(f"[RESET ERROR] reset_name_input : {e}")
     
     def on_pre_enter(self):
         if platform == "ios":
             from kivy.core.window import Window
-            Window.softinput_mode = ""  # ou "pan" selon votre préférence
+            Window.softinput_mode = ""
         app = App.get_running_app()
-        self.name_input.focus = False
-        self.name_input.disabled = False
-        self.name_input.readonly = False
-        self.name_input.text = ""
+        for champ in (self.nom_famille_input, self.prenom_input):
+            champ.focus = False
+            champ.disabled = False
+            champ.readonly = False
+            champ.text = ""
         if hasattr(app, "config"):
             app.config.read(app.config.filename)
-        nom_existant = app.config.get("User", "nom_parent", fallback="").strip() if app.config.has_section("User") else ""
+        nom_existant = (
+            app.config.get("User", "nom_parent", fallback="").strip()
+            if app.config.has_section("User")
+            else ""
+        )
         if nom_existant:
-            self.name_input.text = nom_existant
-            self.name_input.readonly = True
-            self.name_input.disabled = True
+            self.charger_identite(nom_existant)
+            for champ in (self.nom_famille_input, self.prenom_input):
+                champ.readonly = True
+                champ.disabled = True
 
     def on_leave(self):
         """Quand on quitte l'écran de Login, on remet le mode global de l'app"""
@@ -722,8 +751,28 @@ class LoginScreen(Screen):
         app = App.get_running_app()
         cat = self.cat_spinner.text.replace("•", "").strip()
         pwd = self.pwd_input.text.strip()
-        nom_enregistre = app.config.get('User', 'nom_parent', fallback='').strip() if app.config.has_section('User') else ''
-        nom = nom_enregistre if nom_enregistre else self.name_input.text.strip()
+        nom_enregistre = (
+            app.config.get('User', 'nom_parent', fallback='').strip()
+            if app.config.has_section('User')
+            else ''
+        )
+        
+        if nom_enregistre:
+            nom = nom_enregistre
+        else:
+            nom_famille = self.nom_famille_input.text.strip()
+            prenom = self.prenom_input.text.strip()
+        
+            if not nom_famille or not prenom:
+                self.show_popup(
+                    "Erreur",
+                    "Veuillez renseigner votre nom de famille "
+                    "et votre prénom."
+                )
+                return
+        
+            # Conserver le format historique de l'application
+            nom = f"{prenom} {nom_famille}"
         if not nom or not pwd:
             self.show_popup("Erreur", "Veuillez remplir votre nom et le mot de passe.")
             return
