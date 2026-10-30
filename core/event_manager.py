@@ -687,7 +687,7 @@ class EventManager:
         content.add_widget(btn_save)
 
         # 3. La barre des onglets (MATCH, ENTRAINEMENT, EVENEMENT)        
-        tab_layout = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(5))
+        tab_layout = BoxLayout(size_hint_y=None, height=dp(45),spacing=dp(5))
         tabs = ["MATCH", "ENTRAINEMENT", "EVENEMENT"]
         current_type = match_info.get("type", "MATCH").upper()
         if current_type not in tabs:
@@ -695,7 +695,7 @@ class EventManager:
         tab_buttons = {}
         
         for t in tabs:
-            btn_tab = Button(text=t, background_normal="", bold=True)
+            btn_tab = Button(text=t,background_normal="",bold=True)
             btn_tab.bind(on_release=lambda btn, mode=t: rafraichir_formulaire(mode))
             tab_buttons[t] = btn_tab
             tab_layout.add_widget(btn_tab)
@@ -772,7 +772,7 @@ class EventManager:
                 Clock.schedule_once(fermer_et_sauver, 0.3)
             btn_valider_commit.bind(on_release=valider)
             popup_commit.open()
-        
+
         def rafraichir_formulaire(t):
             nonlocal current_type
             current_type = t
@@ -997,9 +997,9 @@ class EventManager:
                             )
                         )
     
-                        add_manual_box = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(5))
-                        cat_input = TextInput(hint_text="Cat", multiline=False, size_hint_x=0.25, background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
-                        nom_input = TextInput(hint_text="Nom Prénom", multiline=False, background_color=(1, 1, 1, 1), foreground_color=(0.1, 0.1, 0.1, 1), cursor_color=(0.1, 0.1, 0.1, 1))
+                        add_manual_box = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(5),)
+                        cat_input = TextInput(hint_text="Cat",multiline=False,size_hint_x=0.25,background_color=(1, 1, 1, 1),foreground_color=(0.1, 0.1, 0.1, 1),cursor_color=(0.1, 0.1, 0.1, 1),)
+                        nom_input = TextInput(hint_text="Nom Prénom",multiline=False,background_color=(1, 1, 1, 1),foreground_color=(0.1, 0.1, 0.1, 1),cursor_color=(0.1, 0.1, 0.1, 1),)
     
                         def ajouter_joueur_manuel(instance):
                             nom_complet_saisi = nom_input.text.strip()
@@ -1010,7 +1010,7 @@ class EventManager:
                                 nom = parts[0].upper()
                                 prenom = parts[1].capitalize() if len(parts) > 1 else ""
     
-                                nom_affiche = f"{nom} {prenom}".strip()
+                                nom_affiche = (f"{nom} {prenom}").strip()
                                 label_text_brut = f"{nom_affiche} ({cat})" if cat else nom_affiche
     
                                 row = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(10))
@@ -1058,10 +1058,10 @@ class EventManager:
     
                         for joueur in joueurs_deja_convoques:
                             if isinstance(joueur, dict) and joueur.get("est_manuel", False):
-                                nom = joueur.get('nom', '').upper()
-                                prenom = joueur.get('prenom', '')
-                                cat = joueur.get('categorie', '').upper()
-                                nom_affiche = f"{nom} {prenom}".strip()
+                                nom = joueur.get("nom", "").upper()
+                                prenom = joueur.get("prenom", "")
+                                cat = joueur.get("categorie", "").upper()
+                                nom_affiche = (f"{nom} {prenom}").strip()
                                 label_text = f"{nom_affiche} ({cat})" if cat else nom_affiche
     
                                 row = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(10))
@@ -1086,10 +1086,10 @@ class EventManager:
                         )
     
                         for joueur in joueurs_tries:
-                            nom = joueur.get('nom', '').strip().upper()
-                            prenom = joueur.get('prenom', '').strip()
-                            cat_joueur = joueur.get('categorie', '').strip()
-                            nom_complet = f"{nom} {prenom}".strip()
+                            nom = (joueur.get("nom", "").strip().upper())
+                            prenom = (joueur.get("prenom", "").strip())
+                            cat_joueur = (joueur.get("categorie", "").strip())
+                            nom_complet = (f"{nom} {prenom}").strip()
                             
                             if any(cb.nom_joueur == nom and cb.prenom_joueur == prenom for cb in checkboxes_joueurs if getattr(cb, 'est_manuel', False)):
                                 continue
@@ -1147,12 +1147,7 @@ class EventManager:
                         p_err.open()
                         return
                 
-                    calendrier_actuel = (
-                        screen_instance._cache_data
-                        .get(screen_instance.current_cat, {})
-                        .get("calendrier", {})
-                    )
-                
+                    calendrier_actuel = (screen_instance._cache_data.get(screen_instance.current_cat, {}).get("calendrier", {}))
                     est_une_modification = bool(match_id) and match_id in calendrier_actuel
                     def executer_sauvegarde(commit_message=""):
                         joueurs_convoques = []
@@ -1270,13 +1265,7 @@ class EventManager:
                                 # -------------------------------------------------
                                 # PUT
                                 # -------------------------------------------------
-                                response = requests.put(
-                                    url,
-                                    json=match_info_match,
-                                    headers=headers,
-                                    timeout=10,
-                                    verify=not is_windows
-                                )
+                                response = requests.put(url,json=match_info_match,headers=headers,timeout=10,verify=not is_windows)
                                 response.raise_for_status()
                                 # -------------------------------------------------
                                 # POST HISTORIQUE
@@ -1287,12 +1276,7 @@ class EventManager:
                                     f"{screen_instance.current_cat}/"
                                     f"{key}"
                                 )
-                                response_stats = requests.post(
-                                    stats_url,
-                                    headers=headers,
-                                    timeout=10,
-                                    verify=not is_windows
-                                )                
+                                response_stats = requests.post(stats_url,headers=headers,timeout=10,verify=not is_windows)
                                 response_stats.raise_for_status()
                                 # -------------------------------------------------
                                 # REFRESH UI
@@ -1310,7 +1294,7 @@ class EventManager:
                                 )
                             except Exception as e:
                                 Clock.schedule_once(lambda dt: (print("[CLOCK] update_ui() après erreur API"),screen_instance.update_ui()))
-                        # ---------------------------------------------------------
+                        # --------------------------------------------------------
                         # DÉMARRAGE THREAD
                         # ---------------------------------------------------------
                         thread = threading.Thread(target=do_api_save,daemon=True)
@@ -1331,7 +1315,7 @@ class EventManager:
                         else:
                             print("[POPUP MAIN] popup_ref est VIDE !")
                         print("[EXEC] <<< SORTIE executer_sauvegarde()")
-                    # ============================================================
+                    # =============================================================
                     # MODIFICATION
                     # =============================================================
                     if est_une_modification:
@@ -1672,7 +1656,7 @@ class EventManager:
                         lbl_titre_multiple.bind(width=lambda instance, width:
                             setattr(instance, "text_size", (width, None)))
                         lbl_titre_multiple.bind(texture_size=lambda instance, texture_size:
-                           setattr(instance,"height", max(dp(25), texture_size[1] + dp(4))))
+                            setattr(instance,"height", max(dp(25), texture_size[1] + dp(4))))
                         container_options_multiple.add_widget(lbl_titre_multiple)
                         defaut_titre = match_info_evenement.get("titre_sondage_multiple","Votre Choix")
                         ti_titre_multiple = TextInput(text=str(defaut_titre),multiline=False,size_hint_y=None,height=dp(36),font_size=dp(12),background_color=(1, 1, 1, 1),foreground_color=(0.1, 0.1, 0.1, 1),cursor_color=(0.1, 0.1, 0.1, 1))
@@ -1800,14 +1784,7 @@ class EventManager:
                 btn_save.bind(on_release=save_evenement)
 
         # --- PARAMÉTRAGE DE LA POPUP ---
-        popup = Popup(
-            title="", 
-            title_size=0, 
-            content=content, 
-            size_hint=(0.92, 0.88), 
-            separator_height=0,
-            background=""
-        )
+        popup = Popup(title="", title_size=0, content=content, size_hint=(0.92, 0.88), separator_height=0,background="")
         popup.background_color = (0, 0, 0, 0.6)  # Fond assombri derrière la popup
         
         popup_ref.append(popup)
