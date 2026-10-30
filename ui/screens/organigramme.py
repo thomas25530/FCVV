@@ -26,10 +26,10 @@ INNER_SPACING = dp(10)
 
 class TitleBox(BoxLayout):
     def __init__(self, text, **kwargs):
-        if 'size' not in kwargs:
-            kwargs['size'] = (dp(120), dp(45)) 
         if 'size_hint' not in kwargs:
-            kwargs['size_hint'] = (None, None)
+            kwargs['size_hint'] = (1, None)
+        if 'height' not in kwargs:
+            kwargs['height'] = dp(45)
             
         super().__init__(**kwargs)
         with self.canvas.before:
@@ -37,31 +37,30 @@ class TitleBox(BoxLayout):
             self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(5)])
         self.bind(pos=lambda i, p: setattr(self.rect, "pos", p),size=lambda i, s: setattr(self.rect, "size", s))
 
-        lbl = Label(
+        self.lbl = Label(
             text=f"[color=ffffff][b]{text}[/b][/color]",
-            text_size=(self.width - dp(10), None),
             markup=True,
             font_size="13sp", 
             halign="center",
-            valign="middle"
+            valign="middle",
         )
-        lbl.bind(size=lambda instance, value: setattr(instance, "text_size", (self.width - dp(10), None)))
-        self.add_widget(lbl)
+        # On laisse de la marge pour éviter les dépassements
+        self.lbl.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0] - dp(15), None)))
+        self.add_widget(self.lbl)
 
 class MemberBox(ButtonBehavior, BoxLayout):
     def __init__(self, member_data, **kwargs):
         self.member_data = member_data
         
-        # Vérifie si le membre possède des informations supplémentaires
         self.has_extra_info = any(
             str(member_data.get(key, '')).strip() != '' 
             for key in ['tel', 'email', 'taches', 'photo_id']
         )
         
-        if 'size' not in kwargs:
-            kwargs['size'] = (FIXED_WIDTH, dp(85))
         if 'size_hint' not in kwargs:
-            kwargs['size_hint'] = (None, None)
+            kwargs['size_hint'] = (1, None)
+        if 'height' not in kwargs:
+            kwargs['height'] = dp(90)  # Hauteur légèrement augmentée pour éviter la coupe verticale
             
         super().__init__(orientation="vertical", **kwargs)
         
@@ -72,14 +71,14 @@ class MemberBox(ButtonBehavior, BoxLayout):
                   size=lambda i, s: setattr(self.rect, "size", s))
 
         txt = f"[color=1E3A8A][b]{member_data.get('titre', '')}[/b][/color]\n[color=333333]{member_data.get('nom', '')}[/color]"
-        lbl = Label(
+        self.lbl = Label(
             text=txt, markup=True, font_size="12sp", halign="center", 
-            valign="middle", text_size=(self.width, None)
+            valign="middle"
         )
-        self.bind(size=lambda instance, value: setattr(lbl, "text_size", (value[0], None)))
-        self.add_widget(lbl)
+        # On retire dp(35) de largeur pour laisser la place à la loupe et forcer le retour à la ligne propre
+        self.lbl.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0] - dp(35), None)))
+        self.add_widget(self.lbl)
         
-        # Afficher la loupe et lier l'action uniquement s'il y a des infos supplémentaires
         if self.has_extra_info:
             self.add_widget(Image(
                 source="assets/icons/loupe.png",
@@ -99,7 +98,6 @@ class MemberBox(ButtonBehavior, BoxLayout):
             self.canvas.before.children[0].rgba = (1, 1, 1, 1)
 
     def show_contact_card(self, *args):
-        # Sécurité supplémentaire : on ne fait rien s'il n'y a pas d'infos
         if not self.has_extra_info:
             return
             
@@ -113,7 +111,6 @@ class MemberBox(ButtonBehavior, BoxLayout):
             local_path = os.path.join(cache_dir, f"memb_{url_hash}.png")
         
             if os.path.exists(local_path):
-                # Hauteur augmentée à dp(200) au lieu de dp(130)
                 img_widget = Image(source=local_path, size_hint=(1, None), height=dp(200), fit_mode="contain")
             else:
                 img_widget = Image(opacity=0, size_hint=(1, None), height=dp(200), fit_mode="contain")
@@ -137,7 +134,6 @@ class MemberBox(ButtonBehavior, BoxLayout):
         content.add_widget(Widget()) 
         btn_close = Button(text="Fermer", size_hint=(1, None), height=dp(50))
         
-        # Popup légèrement agrandie (0.85 au lieu de 0.8) pour bien loger la grande photo
         popup = Popup(title="Fiche Contact", content=content, size_hint=(0.85, 0.85))
         btn_close.bind(on_release=popup.dismiss)
         content.add_widget(btn_close)
@@ -178,10 +174,10 @@ class ComiteBox(ButtonBehavior, BoxLayout):
     def __init__(self, comite_membres, **kwargs):
         self.comite_membres = comite_membres or []
         
-        if 'size' not in kwargs:
-            kwargs['size'] = (FIXED_WIDTH, dp(85))
         if 'size_hint' not in kwargs:
-            kwargs['size_hint'] = (None, None)
+            kwargs['size_hint'] = (1, None)
+        if 'height' not in kwargs:
+            kwargs['height'] = dp(90)  # Hauteur augmentée pour éviter la coupe verticale
             
         super().__init__(orientation="vertical", **kwargs)
         
@@ -192,16 +188,13 @@ class ComiteBox(ButtonBehavior, BoxLayout):
                   size=lambda i, s: setattr(self.rect, "size", s))
 
         txt = "[color=1E3A8A][b]Comité[/b][/color]\n[color=333333]Liste des membres[/color]"
-        lbl = Label(
-            text=txt, markup=True, font_size="12sp", halign="center", 
-            valign="middle", text_size=(self.width, None)
-        )
-        self.bind(size=lambda instance, value: setattr(lbl, "text_size", (value[0], None)))
-        self.add_widget(lbl)
+        self.lbl = Label(text=txt, markup=True, font_size=dp(11.5), halign="center", valign="middle")
+        # Retrait de dp(35) pour forcer le retour à la ligne avant la loupe
+        self.lbl.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0] - dp(35), None)))
         
-        # --- MODIFICATION : Remplacement du Label par une Image ---
+        self.add_widget(self.lbl)
         self.add_widget(Image(
-            source="assets/icons/loupe.png",          # Chemin vers votre image de loupe
+            source="assets/icons/loupe.png",
             size_hint=(None, None), 
             size=(dp(20), dp(20)),
             pos_hint={'right': 0.95, 'top': 0.95},
@@ -219,62 +212,151 @@ class ComiteBox(ButtonBehavior, BoxLayout):
     def show_comite_popup(self, *args):
         content = BoxLayout(orientation="vertical", padding=dp(15), spacing=dp(10))
         
-        # Titre de la popup mis en bleu foncé (1E3A8A) comme les autres popups
         content.add_widget(Label(
             text="[color=FFD700][b]Membres du Comité[/b][/color]", 
             markup=True, font_size="18sp", size_hint_y=None, height=dp(40),
             halign="center", valign="middle"
         ))
         
-        # ScrollView 
-        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False)
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, bar_width=0)
         list_layout = BoxLayout(orientation="vertical", spacing=dp(12), size_hint_x=1, size_hint_y=None, padding=(dp(10), dp(10)))
         list_layout.bind(minimum_height=list_layout.setter("height"))
         
         if self.comite_membres:
-            for index, m in enumerate(self.comite_membres):
+            for m in self.comite_membres:
                 if isinstance(m, dict):
-                    prenom = m.get('prenom', '')
-                    nom = m.get('nom', '')
-                    display_text = f"{prenom} {nom}".strip()
-                    if not display_text:
-                        display_text = m.get('titre', 'Membre')
+                    display_text = f"{m.get('prenom', '')} {m.get('nom', '')}".strip() or m.get('titre', 'Membre')
                 else:
                     display_text = str(m)
 
-                # TEXTE EN BLANC [color=FFFFFF] pour qu'il reste bien visible sur fond sombre
                 lbl_m = Label(
                     text=f"[color=FFFFFF][b]{display_text}[/b][/color]",
                     markup=True, 
-                    font_size="16sp",
+                    font_size=dp(15),
                     size_hint_x=1,
                     size_hint_y=None, 
-                    height=dp(40),
                     halign="center", 
                     valign="middle"
                 )
                 
-                scroll.bind(width=lambda sc, w, l=lbl_m: setattr(l, 'text_size', (w - dp(40), None)))
-                lbl_m.text_size = (scroll.width - dp(40) if scroll.width > 0 else dp(250), None)
+                def update_member_label(instance, width):
+                    instance.text_size = (max(0, width - dp(20)), None)
+                
+                lbl_m.bind(
+                    width=update_member_label,
+                    texture_size=lambda instance, size:
+                        setattr(instance, "height", size[1] + dp(8))
+                )
+                
                 list_layout.add_widget(lbl_m)
         else:
-            lbl_empty = Label(
+            list_layout.add_widget(Label(
                 text="[color=AAAAAA]Aucun membre enregistré.[/color]", 
-                markup=True,
-                font_size="14sp",
-                size_hint_x=1,
-                size_hint_y=None, 
-                height=dp(40),
-                halign="center", 
-                valign="middle"
-            )
-            list_layout.add_widget(lbl_empty)
+                markup=True, font_size="14sp", size_hint_x=1, size_hint_y=None, height=dp(40),
+                halign="center", valign="middle"
+            ))
             
         scroll.add_widget(list_layout)
         content.add_widget(scroll)
-        # Bouton fermer
+        
         btn_close = Button(text="Fermer", size_hint=(1, None), height=dp(50))
         popup = Popup(title="Comité du Club", content=content, size_hint=(0.8, 0.8))
+        btn_close.bind(on_release=popup.dismiss)
+        content.add_widget(btn_close)
+        popup.open()
+
+class ArbitrageBox(ButtonBehavior, BoxLayout):
+    """Carte spéciale pour afficher la liste des arbitres du club."""
+    def __init__(self, arbitres_membres, **kwargs):
+        self.arbitres_membres = arbitres_membres or []
+        
+        if 'size_hint' not in kwargs:
+            kwargs['size_hint'] = (1, None)
+        if 'height' not in kwargs:
+            kwargs['height'] = dp(90)  # Hauteur augmentée pour éviter la coupe verticale
+            
+        super().__init__(orientation="vertical", **kwargs)
+        
+        with self.canvas.before:
+            Color(1, 1, 1, 1)  # Fond blanc
+            self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(8)])
+        self.bind(pos=lambda i, p: setattr(self.rect, "pos", p),
+                  size=lambda i, s: setattr(self.rect, "size", s))
+
+        txt = "[color=1E3A8A][b]Arbitrage[/b][/color]\n[color=333333]Liste des arbitres[/color]"
+        self.lbl = Label(text=txt, markup=True, font_size=dp(11.5), halign="center", valign="middle")
+        # Retrait de dp(35) pour forcer le retour à la ligne avant la loupe
+        self.lbl.bind(size=lambda instance, value: setattr(instance, "text_size", (value[0] - dp(35), None)))
+        
+        self.add_widget(self.lbl)
+        self.add_widget(Image(
+            source="assets/icons/loupe.png",
+            size_hint=(None, None), 
+            size=(dp(20), dp(20)),
+            pos_hint={'right': 0.95, 'top': 0.95},
+            color=(0.6, 0.6, 0.6, 1)
+        ))
+        
+        self.bind(on_release=self.show_arbitrage_popup)
+
+    def on_press(self):
+        self.canvas.before.children[0].rgba = (0.9, 0.9, 0.9, 1)
+
+    def on_release(self):
+        self.canvas.before.children[0].rgba = (1, 1, 1, 1)
+
+    def show_arbitrage_popup(self, *args):
+        content = BoxLayout(orientation="vertical", padding=dp(15), spacing=dp(10))
+        
+        content.add_widget(Label(
+            text="[color=FFD700][b]Arbitres du Club[/b][/color]", 
+            markup=True, font_size="18sp", size_hint_y=None, height=dp(40),
+            halign="center", valign="middle"
+        ))
+        
+        scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, bar_width=0)
+        list_layout = BoxLayout(orientation="vertical", spacing=dp(12), size_hint_x=1, size_hint_y=None, padding=(dp(10), dp(10)))
+        list_layout.bind(minimum_height=list_layout.setter("height"))
+        
+        if self.arbitres_membres:
+            for m in self.arbitres_membres:
+                if isinstance(m, dict):
+                    display_text = f"{m.get('prenom', '')} {m.get('nom', '')}".strip() or m.get('titre', 'Arbitre')
+                else:
+                    display_text = str(m)
+
+                lbl_m = Label(
+                    text=f"[color=FFFFFF][b]{display_text}[/b][/color]",
+                    markup=True, 
+                    font_size=dp(15),
+                    size_hint_x=1,
+                    size_hint_y=None, 
+                    halign="center", 
+                    valign="middle"
+                )
+                
+                def update_member_label(instance, width):
+                    instance.text_size = (max(0, width - dp(20)), None)
+                
+                lbl_m.bind(
+                    width=update_member_label,
+                    texture_size=lambda instance, size:
+                        setattr(instance, "height", size[1] + dp(8))
+                )
+                
+                list_layout.add_widget(lbl_m)
+        else:
+            list_layout.add_widget(Label(
+                text="[color=AAAAAA]Aucun arbitre enregistré.[/color]", 
+                markup=True, font_size="14sp", size_hint_x=1, size_hint_y=None, height=dp(40),
+                halign="center", valign="middle"
+            ))
+            
+        scroll.add_widget(list_layout)
+        content.add_widget(scroll)
+        
+        btn_close = Button(text="Fermer", size_hint=(1, None), height=dp(50))
+        popup = Popup(title="Arbitrage du Club", content=content, size_hint=(0.8, 0.8))
         btn_close.bind(on_release=popup.dismiss)
         content.add_widget(btn_close)
         popup.open()
@@ -291,26 +373,24 @@ class OrganigrammeScreen(Screen):
         self.clear_widgets()
         self.nodes = {}
         self.scroll = ScrollView(size_hint=(1, 1), do_scroll_x=False, do_scroll_y=True, bar_width=0)
-        # --- MODIFICATION POUR LE DEBUG : On active l'espace de sécurité aussi sur PC (Windows) ---
-        # Vous pourrez repasser à "platform == 'android'" une fois vos tests terminés.
-        is_desktop_debug = True # Mettez False pour désactiver sur PC plus tard
+        is_desktop_debug = True 
         bottom_padding = dp(80) if (platform == 'android' or is_desktop_debug) else dp(40)
-        self.main_col = BoxLayout(orientation="vertical",spacing=dp(60),padding=(dp(10), dp(40), dp(10), bottom_padding),size_hint_y=None)
+        self.main_col = BoxLayout(orientation="vertical", spacing=dp(60), padding=(dp(10), dp(40), dp(10), bottom_padding), size_hint=(1, None))
         self.main_col.bind(minimum_height=self.main_col.setter("height"))
         self.scroll.add_widget(self.main_col)
         self.add_widget(self.scroll)
+        
         data = (App.get_running_app().app_config.get("fcvv", {}).get("appli", {}).get("organigramme", []))
+        
         # 1. BLOC DIRECTION
         dir_data = next((i for i in data if i["groupe"] == "Direction"), None)
         if dir_data:
             node = self.build_group_node(dir_data)
             self.nodes["Direction"] = node
-            wrapper = AnchorLayout(anchor_x="center", anchor_y="top", size_hint=(1, None), height=node.height)
-            wrapper.add_widget(node)
-            self.main_col.add_widget(wrapper)
+            self.main_col.add_widget(node)
             
-        spacer = Widget(size_hint=(1, None), height=dp(40)) 
-        self.main_col.add_widget(spacer)
+        self.main_col.add_widget(Widget(size_hint_y=None, height=dp(20)))
+        
         # 2. BLOC DES 3 COLONNES
         groupes = ["Bureau", "Dirigeants", "Équipe Technique"]
         max_membres = 0
@@ -319,13 +399,17 @@ class OrganigrammeScreen(Screen):
             if g_data:
                 count = len(g_data.get("membres", []))
                 if g == "Bureau":
-                    count += 1  # On compte la carte Comité supplémentaire
+                    count += 1  # Carte Comité
+                if g == "Équipe Technique":  # Ajuster si vous placez l'arbitrage ici
+                    count += 1  # Carte Arbitrage
                 max_membres = max(max_membres, count) 
-        computed_row_height = dp(35) + (max_membres * dp(75)) + (max_membres * dp(15)) + dp(20)
+                
+        computed_row_height = dp(45) + (max_membres * dp(90)) + (max_membres * dp(10)) + dp(20)
         self.row_level = BoxLayout(orientation="horizontal", spacing=SPACING, size_hint=(1, None), height=computed_row_height)
+        
         for g in groupes:
             group_data = next((i for i in data if i["groupe"] == g), None)
-            col = BoxLayout(orientation="vertical", spacing=dp(15), size_hint=(None, None), width=FIXED_WIDTH)
+            col = BoxLayout(orientation="vertical", spacing=dp(10), size_hint=(1, None))
             col.bind(minimum_height=col.setter("height"))
             if group_data:
                 node = self.build_group_node(group_data)
@@ -334,10 +418,12 @@ class OrganigrammeScreen(Screen):
             col_anchor = AnchorLayout(anchor_x="center", anchor_y="top", size_hint=(1/3, 1))
             col_anchor.add_widget(col)
             self.row_level.add_widget(col_anchor)
+            
         self.main_col.add_widget(self.row_level)
-        # Widget invisible de sécurité également activé pour le debug sur PC
+        
         if platform == 'android' or is_desktop_debug:
             self.main_col.add_widget(Widget(size_hint_y=None, height=dp(30)))
+            
         self.main_col.bind(size=self.trigger_draw, pos=self.trigger_draw)
         self.row_level.bind(size=self.trigger_draw, pos=self.trigger_draw)
 
@@ -360,13 +446,14 @@ class OrganigrammeScreen(Screen):
         with self.main_col.canvas.after:
             Color(1, 1, 1, 1) 
             y_top_direction = self.main_col.height - dp(40)
-            y_dir_bottom = y_top_direction - dp(125)
+            y_dir_bottom = y_top_direction - dir_node.height
             y_top_colonnes = self.row_level.y + self.row_level.height
             y_mid = y_top_colonnes + ((y_dir_bottom - y_top_colonnes) / 2)
             w_total = self.main_col.width
             center_x = w_total / 2
             cx_bureau = w_total / 6
-            cx_tech = 5 * w_total / 6
+            cx_tech = (5 * w_total) / 6  # Correction de la syntaxe de la ligne précédente
+            
             Line(points=[center_x, y_dir_bottom, center_x, y_mid], width=1.5)
             Line(points=[cx_bureau, y_mid, cx_tech, y_mid], width=1.5)
             Line(points=[cx_bureau, y_mid, cx_bureau, y_top_colonnes], width=1.5)
@@ -377,36 +464,36 @@ class OrganigrammeScreen(Screen):
         group_name = group_item.get("groupe", "")
         membres = group_item.get("membres", [])
         if group_name == "Direction":
-            node = BoxLayout(orientation="vertical", spacing=dp(15), size_hint=(None, None))
-            node.bind(minimum_size=node.setter("size"))
-            title_w = (3 * FIXED_WIDTH) + (2 * INNER_SPACING)
-            node.add_widget(TitleBox(group_name, size=(title_w, dp(45))))
+            node = BoxLayout(orientation="vertical", spacing=dp(15), size_hint=(1, None))
+            node.bind(minimum_height=node.setter("height"))
+            node.add_widget(TitleBox(group_name, size_hint=(1, None), height=dp(45)))
             president = next((m for m in membres if "président" in m.get("titre", "").lower()), None)
             autres = [m for m in membres if m != president]
-            container = BoxLayout(orientation="horizontal", spacing=INNER_SPACING, size_hint=(None, None))
-            container.bind(minimum_size=container.setter("size"))
-            if len(autres) > 0:
-                container.add_widget(MemberBox(autres[0]))
-            else:
-                container.add_widget(Label(size_hint=(None, None), size=(FIXED_WIDTH, dp(85))))
-            if president:
-                container.add_widget(MemberBox(president))
-            else:
-                container.add_widget(Label(size_hint=(None, None), size=(FIXED_WIDTH, dp(85))))
-            if len(autres) > 1:
-                container.add_widget(MemberBox(autres[1]))
-            else:
-                container.add_widget(Label(size_hint=(None, None), size=(FIXED_WIDTH, dp(85))))
+            container = BoxLayout(orientation="horizontal", spacing=INNER_SPACING, size_hint=(1, None), height=dp(90))
+            m1 = autres[0] if len(autres) > 0 else None
+            m2 = president
+            m3 = autres[1] if len(autres) > 1 else None
+            for m in [m1, m2, m3]:
+                if m:
+                    container.add_widget(MemberBox(m, size_hint=(1/3, None), height=dp(90)))
+                else:
+                    container.add_widget(Widget(size_hint=(1/3, None), height=dp(90)))      
             node.add_widget(container)
             return node
         else:
-            node = BoxLayout(orientation="vertical", spacing=dp(10), size_hint=(None, None), width=FIXED_WIDTH)
+            node = BoxLayout(orientation="vertical", spacing=dp(10), size_hint=(1, None))
             node.bind(minimum_height=node.setter("height"))
-            node.add_widget(TitleBox(group_name, size=(FIXED_WIDTH, dp(45))))
+            node.add_widget(TitleBox(group_name, size_hint=(1, None), height=dp(45)))
             for m in membres:
-                node.add_widget(MemberBox(m))  
-            # Si c'est le groupe Bureau, on ajoute la carte Comité tout en bas
+                node.add_widget(MemberBox(m, size_hint=(1, None), height=dp(90)))  
+                
             if group_name == "Bureau":
                 comite_membres = group_item.get("comite_membres", [])
-                node.add_widget(ComiteBox(comite_membres))
+                node.add_widget(ComiteBox(comite_membres, size_hint=(1, None), height=dp(90)))
+                
+            # Exemple : Ajout de la box Arbitrage dans l'Équipe Technique (ou un autre groupe si vous préférez)
+            if group_name == "Équipe Technique":
+                arbitres_membres = group_item.get("arbitres_membres", [])
+                node.add_widget(ArbitrageBox(arbitres_membres, size_hint=(1, None), height=dp(90)))
+                
             return node
