@@ -794,21 +794,39 @@ class SoireesScreen(Screen):
             print(f"[ERREUR-UI] refresh_years : {e}")
 
     def _scores_signature(self, t_logic):
-        """ Calcule une empreinte unique représentant uniquement l'état des scores """
+        """
+        Calcule une empreinte unique représentant l'état des scores
+        et des départages influençant l'affichage.
+        """
         if not t_logic:
             return ""
         scores_data = []
-        for m in getattr(t_logic, 'matchs', []):
-            scores_data.append((m.get("SA"), m.get("SB"), m.get("TAB_A"), m.get("TAB_B")))
-        
-        t_data = t_logic.tournoi_data if isinstance(t_logic.tournoi_data, dict) else {}
-        phases_list = getattr(t_logic, "phases_finales", []) or t_data.get("phases_finales", [])
+    
+        # Matchs de poule
+        for m in getattr(t_logic, "matchs", []):
+            scores_data.append((m.get("SA"),m.get("SB"),m.get("TAB_A"),m.get("TAB_B")))
+        t_data = (
+            t_logic.tournoi_data
+            if isinstance(getattr(t_logic, "tournoi_data", None), dict)
+            else {}
+        )
+        # Départages TAB entre équipes à égalité
+        departages_tab = t_data.get("departages_tab", {})
+        scores_data.append(json.dumps(departages_tab, sort_keys=True, default=str) )
+        # Phases finales
+        phases_list = (getattr(t_logic, "phases_finales", None) or t_data.get("phases_finales", []))
         for phase in phases_list:
-            if isinstance(phase, dict):
-                for m in phase.get("matchs", []):
-                    scores_data.append((m.get("SA"), m.get("SB"), m.get("TAB_A"), m.get("TAB_B"), m.get("A"), m.get("B")))
-                    
-        return hashlib.md5(str(scores_data).encode()).hexdigest()
+            if not isinstance(phase, dict):
+                continue
+            # Cas où les matchs sont directement dans la liste
+            if "SA" in phase or "SB" in phase:
+                scores_data.append((phase.get("SA"), phase.get("SB"), phase.get("TAB_A"), phase.get("TAB_B"), phase.get("A"), phase.get("B")))
+                continue
+            # Cas où la phase contient une clé "matchs"
+            for m in phase.get("matchs", []):
+                scores_data.append(( m.get("SA"), m.get("SB"), m.get("TAB_A"), m.get("TAB_B"), m.get("A"),  m.get("B") ))
+        return hashlib.md5(
+            json.dumps(scores_data, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
     def load_selected_tournament(self, spinner, nom_pur, force=False):
         """ Déclenche le chargement avec un léger délai pour laisser l'UI s'actualiser """
@@ -1054,6 +1072,8 @@ class SoireesScreen(Screen):
             "matchs": structure_matchs,
             "phases": getattr(tournoi, "phases_finales", []),
             "groupes": getattr(tournoi, "groupes", {}),
+            "departages_tab": getattr(tournoi, "departages_tab", {}),
+            "ordres_forces": getattr(tournoi, "ordres_forces", {}),
             "debug": is_debug
         }
         return hashlib.md5(str(data).encode()).hexdigest()
@@ -1454,6 +1474,8 @@ class SoireesScreen(Screen):
         # On ne se base que sur le dictionnaire des groupes pour le classement
         data = {
             "groupes": getattr(tournoi, "groupes", {}),
+            "departages_tab": getattr(tournoi, "departages_tab", {}),
+            "ordres_forces": getattr(tournoi, "ordres_forces", {}),
             "debug": is_debug
         }
         return hashlib.md5(str(data).encode()).hexdigest()
