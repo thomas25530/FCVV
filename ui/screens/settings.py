@@ -15,6 +15,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.metrics import dp, sp
 from kivy.graphics.context_instructions import PushMatrix, PopMatrix, Scale
+from kivy.utils import platform
 
 API_BASE_URL = "https://fcvv-api.onrender.com"
 
@@ -188,22 +189,33 @@ class SettingsScreen(Screen):
         self.main_layout.add_widget(self.create_setting_row(tr("Affichage actus"), news_period_cont, h_row_tall, f_text))
         # --- SECTION 3 : STOCKAGE ET RESET ---
         self.add_section_title(tr("sync").upper(), f_title, res_d(60))
-        btn_cache = Button(text=tr("cache"), background_color=(0.8, 0.3, 0.3, 1), 
-                           size_hint_y=None, height=h_btn, font_size=f_text, bold=True)
+        btn_cache = Button(text=tr("cache"), background_color=(0.8, 0.3, 0.3, 1), size_hint_y=None, height=h_btn, font_size=f_text, bold=True)
         btn_cache.bind(on_release=self.clear_local_cache)
         self.main_layout.add_widget(btn_cache)
-        self.cache_label = Label(text=f"{tr('cache_size_label')} : [b]{self.get_cache_size()}[/b]",
-                                markup=True, font_size=f_small, color=(0.8, 0.8, 0.8, 1),
-                                size_hint_y=None, height=res_d(40))
+        self.cache_label = Label(text=f"{tr('cache_size_label')} : [b]{self.get_cache_size()}[/b]",markup=True, font_size=f_small, color=(0.8, 0.8, 0.8, 1),size_hint_y=None, height=res_d(40))
         self.main_layout.add_widget(self.cache_label)
-        self.conn_label = Label(text=f"{tr('conn_state')} : [color=FFFF00]...[/color]", 
-                                markup=True, size_hint_y=None, height=res_d(40), font_size=f_small)
+        self.conn_label = Label(text=f"{tr('conn_state')} : [color=FFFF00]...[/color]", markup=True, size_hint_y=None, height=res_d(40), font_size=f_small)
         self.main_layout.add_widget(self.conn_label)
-        btn_reset = Button(text=tr("reset_btn"),size_hint_y=None,height=h_btn,font_size=f_text,background_color=(0.7, 0.7, 0.7, 1),bold=True)
+        btn_reset = Button(text=tr("reset_btn"), size_hint_y=None, height=h_btn, font_size=f_text, background_color=(0.7, 0.7, 0.7, 1), bold=True)
         btn_reset.bind(on_release=self.confirm_reset)
         self.main_layout.add_widget(btn_reset)
         self.scroll.add_widget(self.main_layout)
-        
+
+    def create_setting_row(self, label_text, widget, row_height, font_sz):
+        row = BoxLayout(orientation='horizontal', size_hint_y=None, height=row_height, spacing=dp(15),padding=[0, dp(5)])
+        lbl = Label(text=label_text, halign='left', valign='middle', font_size=font_sz, size_hint_x=0.45)
+        lbl.bind(size=self._update_setting_row_label)
+        row.add_widget(lbl)
+        container = BoxLayout(size_hint_x=0.55, size_hint_y=None, height=row_height)
+        container.add_widget(widget)
+        row.add_widget(container)
+        return row
+
+    def add_section_title(self, title, font_sz, h):
+        lbl = Label(text=title, font_size=font_sz, color=self.ACCENT_YELLOW, bold=True, size_hint_y=None, height=h, halign='left', valign='bottom')
+        lbl.bind(size=self._update_label_size_limit)
+        self.main_layout.add_widget(lbl)
+
     def go_to_login(self, *args):
         app = App.get_running_app()
         if app.root:
@@ -323,22 +335,6 @@ class SettingsScreen(Screen):
                 self.conn_label.text = f"{tr} : [color=FFFF00]...[/color]"
                 Clock.schedule_once(self.update_network_status, 0.2)
 
-    def create_setting_row(self, label_text, widget, row_height, font_sz):
-        row = BoxLayout(orientation='horizontal',size_hint_y=None,height=row_height,spacing=dp(15),padding=[0, dp(5)])
-        lbl = Label(text=label_text,halign='left',valign='middle',font_size=font_sz,size_hint_x=0.45)
-        lbl.bind(size=self._update_setting_row_label)
-        row.add_widget(lbl)
-        container = BoxLayout(size_hint_x=0.55)
-        container.add_widget(widget)
-        row.add_widget(container)
-        return row
-
-    def add_section_title(self, title, font_sz, h):
-        lbl = Label(text=title, font_size=font_sz, color=self.ACCENT_YELLOW, bold=True, 
-                    size_hint_y=None, height=h, halign='left', valign='bottom')
-        lbl.bind(size=self._update_label_size_limit)
-        self.main_layout.add_widget(lbl)
-
     def app_tr(self, key):
         app = App.get_running_app()
         return app._(key) if hasattr(app, '_') else key
@@ -371,7 +367,7 @@ class SettingsScreen(Screen):
             (fl.startswith('chat_') and fl.endswith('.json')) or
             (fl.startswith('echange_') and fl.endswith('.json')) or
             (fl.startswith('joueur_') and fl.endswith(('.json', '.yaml', '.png', '.jpg', '.jpeg'))) or
-            fl in ['config_cache.yaml', 'config_tournoi.yaml', 'config_fcvv.yaml'] or
+            fl in ['config_cache.yaml', 'config_tournoi.yaml', 'config_fcvv.yaml' , 'notifications.json'] or
             (fl.startswith('sponsor_') and fl.endswith(('.png', '.jpg', '.jpeg'))) or
             (fl.startswith('img_') and fl.endswith(('.png', '.jpg', '.jpeg'))) or
             (fl.startswith('part_') and fl.endswith(('.png', '.jpg', '.jpeg'))) or
@@ -394,6 +390,7 @@ class SettingsScreen(Screen):
 
     def clear_local_cache(self, instance):
         app = App.get_running_app()
+        self.vider_notifications_et_badge(app)
         target_dir = app.user_data_dir
         files_deleted = 0
         instance.disabled = True
@@ -438,10 +435,57 @@ class SettingsScreen(Screen):
         except Exception as e:
             print(f"[RESET ERROR] Recreation LoginScreen : {e}")
     
+    def vider_notifications_et_badge(self, app):
+        """Vide les notifications sur le serveur et localement,
+        puis remet à zéro le badge de l'icône.
+        """
+        api_url = str(getattr(app, "api_url", None) or globals().get("API_BASE_URL", "") or "").rstrip("/")
+        nom_parent = ""
+        if hasattr(app, "config"):
+            nom_parent = (app.config.get("User", "nom_parent", fallback="") or app.config.get("User", "nom", fallback="") )
+        nom_parent = str(nom_parent).strip()
+        if not api_url or not nom_parent:
+            print("[NOTIFICATIONS] URL API ou nom utilisateur manquant. Aucune suppression locale effectuee.")
+            return
+    
+        def appeler_api():
+            try:
+                response = requests.delete( f"{api_url}/notifications/vider",headers={"nom_parent": nom_parent},timeout=20 )
+                response.raise_for_status()
+                resultat = response.json()
+                if not resultat.get("success"):
+                    raise RuntimeError("Le serveur n'a pas confirmé le vidage." )
+                # Les modifications de l'interface doivent se faire
+                # sur le thread principal Kivy.
+                def terminer(_dt):
+                    try:
+                        manager = getattr( app, "notification_manager", None )
+                        if manager:
+                            manager.vider_notifications()
+                            print( "[NOTIFICATIONS] Centre local vide." )
+                        if ( app.root and hasattr(app.root, "rebuild_menu")):
+                            app.root.rebuild_menu()
+                        if platform == "ios":
+                            if hasattr(app, "remettre_zero_badge_depuis_api"):
+                                app.remettre_zero_badge_depuis_api()
+                        elif platform == "android":
+                            notifier = getattr(app, "notifier", None)
+                            if (notifier and hasattr(notifier,"remettre_zero_badge_android")):
+                                notifier.remettre_zero_badge_android()
+                        print("[NOTIFICATIONS] Vidage serveur et local termine.")
+                    except Exception as e:
+                        print(f"[NOTIFICATIONS] Erreur actualisation : {e}")
+                Clock.schedule_once(terminer, 0)
+            except Exception as e:
+                print(f"[NOTIFICATIONS] echec du vidage serveur : {e}")
+                # En cas d'échec serveur, on conserve les notifications
+                # locales et le badge.
+        threading.Thread(target=appeler_api,daemon=True).start()
     
     def confirm_reset(self, instance):
         print("Clic detecte sur le bouton Reset")
         app = App.get_running_app()
+        self.vider_notifications_et_badge(app)
         instance.disabled = True
         instance.text = "PATIENTEZ..."
 
@@ -507,11 +551,12 @@ class SettingsScreen(Screen):
                                 os.remove(os.path.join(dirpath, f))
                             except Exception as e:
                                 print(f"Erreur suppression {f}: {e}")
-                                
+                                pass
             # 4. Retour au thread principal pour notifier la fin du nettoyage
             Clock.schedule_once(lambda dt: self.finalize_reset(instance), 0.1)
         except Exception as e:
             print(f"ERREUR RESET THREAD : {e}")
+            pass
 
     def finalize_reset(self, instance):
         app = App.get_running_app()
@@ -528,6 +573,7 @@ class SettingsScreen(Screen):
             app.load_remote_config()
         except Exception as e:
             print(f"Erreur reload config: {e}")
+            pass
         # Retour thread principal
         Clock.schedule_once(self._finish_reset_reload, 0)
         
@@ -561,6 +607,7 @@ class SettingsScreen(Screen):
                     soirees_screen.setup_auto_refresh()
         except Exception as e:
             print(f"Erreur notification timer : {e}")
+            pass
 
     def update_font_label_and_config(self, instance, value):
         if self.font_value_label:
@@ -585,6 +632,7 @@ class SettingsScreen(Screen):
                     home.update_ui_from_config(force=True) 
         except Exception as e:
             print(f"[Font Sync Error] : {e}")
+            pass
 
     def on_dark_mode_toggle(self, switch, value):
         app = App.get_running_app()
