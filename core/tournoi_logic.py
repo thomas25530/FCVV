@@ -14,6 +14,11 @@ import threading
 from kivy.app import App
 from kivy.utils import platform
 
+# ==========================================
+# CONFIGURATION MANUELLE
+# ==========================================
+MODE_CLASSEMENT = "officiel"  # simple : point, diff et bp ou "officiel": point, goal average particulier, diff et bp
+
 # Supprime la variable globale BASE_USER_FOLDER = get_base_path()
 
 def get_save_path(annee, nom_tournoi):
@@ -161,6 +166,8 @@ class TournoiLogic:
             self.matchs = saved_data.get("matchs", self.matchs)
             self.phases = saved_data.get("phases_finales", self.phases)
             
+            self.ordres_forces = saved_data.get("ordres_forces", {})
+            
             self._init_classement()
             self.recalculer_classement(preserve_tab=True)
             self.total_goals = self.get_total_goals()
@@ -185,6 +192,11 @@ class TournoiLogic:
         instance.date = parametres.get("date", data.get("date", "Non définie"))
         instance.annee = parametres.get("annee", "default")
         instance.smartphone = parametres.get("storage", "") == "gdrive"
+        
+        raw_departages = data.get("departages_tab", {})
+        instance.departages_tab = {tuple(k.split("|")): v for k, v in raw_departages.items()}
+        
+        instance.ordres_forces = data.get("ordres_forces", {})
         
         # Groupes (MÊME NOM QUE DANS INIT)
         raw_groupes = data.get("groupes", {})
@@ -397,31 +409,30 @@ class TournoiLogic:
         qualifies_par_groupe = total_qualifies_attendus // nb_groupes
         qualifies = {}
         for groupe, classement in classement_groupes.items():
-            # 🔹 Tri par points, puis diff, puis ordre alphabétique
-            classement_ordonnee = sorted(
-                classement,
-                key=lambda x: (-x[1]["pts"], -x[1]["diff"], x[0])
-            )
-            qualifies[groupe] = [equipe[0] for equipe in classement_ordonnee[:qualifies_par_groupe]]
+            qualifies[groupe] = [
+                equipe
+                for equipe, _ in classement[:qualifies_par_groupe]
+            ]
         reste_a_qualifier = total_qualifies_attendus - (qualifies_par_groupe * nb_groupes)
         if reste_a_qualifier > 0:
             position = qualifies_par_groupe  # ⚠️ À corriger (voir plus bas)
             while reste_a_qualifier > 0:
                 candidats = []
                 for groupe, classement in classement_groupes.items():
-                    classement_ordonnee = sorted(
-                        classement,
-                        key=lambda x: (-x[1]["pts"], -x[1]["diff"], x[0])
-                    )
-                    if len(classement_ordonnee) > position:
-                        equipe, stats = classement_ordonnee[position]
+                    if len(classement) > position:
+                        equipe, stats = classement[position]
                         candidats.append((equipe, groupe, stats))
                 if not candidats:
                     break
                 # ✅ TRI GLOBAL (LE PLUS IMPORTANT)
                 candidats = sorted(
                     candidats,
-                    key=lambda x: (-x[2]["pts"], -x[2]["diff"], x[0])
+                    key=lambda x: (
+                        -x[2]["pts"],
+                        -x[2]["diff"],
+                        -x[2]["bp"],
+                        x[0].lower()
+                    )
                 )
                 # ✅ On prend les meilleurs seulement
                 for equipe, groupe, _ in candidats:
@@ -780,62 +791,367 @@ class TournoiLogic:
             print(f"TOTAL BUTS = {total}\n")
         return total
    
+    #####################################################################
+    ####################################################################
+    ### CALCUL CLASSEMENT GROUPE + /!\ BESOIN MODIF calculer_qualifies
+    #####################################################################
+    ####################################################################
+    def _extraire_blocs_egalite(self, equipes, classement, particulier=None):
+        """
+        Retourne les sous-blocs d'équipes réellement à égalité
+        après application de tous les critères de classement.
+        """
+        signatures = {}
+        for e in equipes:
+            if MODE_CLASSEMENT == "simple":
+                signature = (
+                    classement[e]["pts"],
+                    classement[e]["diff"],
+                    classement[e]["bp"]
+                )
+            else:
+                signature = (
+                    classement[e]["pts"],
+                    particulier[e]["diff"],
+                    classement[e]["diff"],
+                    classement[e]["bp"]
+                )
+            signatures.setdefault(signature, []).append(e)
+        return [eqs for eqs in signatures.values() if len(eqs) >= 2]
+    
+    def _stats_particulieres(self, equipes):
+        """
+        Calcule les stats uniquement sur les confrontations
+        entre les équipes fournies.
+        """
+        equipes = set(equipes)
+        stats = {
+            e: {
+                "pts": 0,
+                "victoires": 0,
+                "nuls": 0,
+                "defaites": 0,
+                "bp": 0,
+                "bc": 0,
+                "diff": 0
+            }
+            for e in equipes
+        }
+        for m in self.matchs:
+            a = m.get("A")
+            b = m.get("B")
+            sa = m.get("SA")
+            sb = m.get("SB")
+            if sa is None or sb is None:
+                continue
+            if a not in equipes or b not in equipes:
+                continue
+            self._appliquer_resultat(stats[a],stats[b],sa,sb)
+        for s in stats.values():
+            s["diff"] = s["bp"] - s["bc"]
+        return stats
+    
+    def _appliquer_resultat(self, stats_a, stats_b, sa, sb):
+        """Met à jour les statistiques de deux équipes."""
+        # Buts pour / contre
+        stats_a["bp"] += sa
+        stats_a["bc"] += sb
+        stats_b["bp"] += sb
+        stats_b["bc"] += sa
+        # Points et résultats
+        if sa > sb:
+            stats_a["victoires"] += 1
+            stats_a["pts"] += 3
+            stats_b["defaites"] += 1
+        elif sb > sa:
+            stats_b["victoires"] += 1
+            stats_b["pts"] += 3
+            stats_a["defaites"] += 1
+        else:
+            stats_a["nuls"] += 1
+            stats_b["nuls"] += 1
+            stats_a["pts"] += 1
+            stats_b["pts"] += 1
+        
+    def _trier_equipes_reglement(self, equipes, classement):
+        """
+        Tri selon :
+        1. Points
+        2. Goal-average particulier
+        3. Goal-average général
+        4. Meilleure attaque
+        """
+        # Vérification si un ordre manuel/forcé a été défini pour ce groupe
+        groupe = classement[equipes[0]]["groupe"] if equipes else None
+        if hasattr(self, "ordres_forces") and groupe in self.ordres_forces:
+            ordre_force = self.ordres_forces[groupe]
+            # On trie les équipes selon l'ordre manuel enregistré
+            return sorted(equipes, key=lambda x: ordre_force.index(x) if x in ordre_force else 999)
+
+        groupes_points = {}
+        for e in equipes:
+            pts = classement[e]["pts"]
+            groupes_points.setdefault(pts, []).append(e)
+            
+        resultat = []
+        # Tous les matchs du groupe sont-ils terminés ?
+        groupe_termine = (
+            self._groupe_termine(groupe)
+            if groupe else False
+        )
+        
+        for pts in sorted(groupes_points.keys(), reverse=True):
+            egalite = groupes_points[pts]
+            if len(egalite) == 1:
+                resultat.extend(egalite)
+                continue
+                
+            particulier = self._stats_particulieres(egalite)
+            # Marque les égalités parfaites uniquement lorsque le groupe est terminé
+            if groupe_termine:
+                self._marquer_egalites_parfaites(egalite, classement, particulier)
+                
+            blocs_tab = self._extraire_blocs_egalite(egalite, classement, particulier)
+            for bloc in blocs_tab:
+                if len(bloc) != 2:
+                    continue
+                cle = (groupe, *sorted(bloc))
+                tab = self.departages_tab.get(cle)
+                if not tab:
+                    continue
+                vainqueur = tab["vainqueur"]
+                perdant = (
+                    bloc[0]
+                    if bloc[1] == vainqueur
+                    else bloc[1]
+                )
+                i1 = egalite.index(bloc[0])
+                i2 = egalite.index(bloc[1])
+                egalite[i1] = vainqueur
+                egalite[i2] = perdant
+                
+            # Tri selon les critères officiels sans l'ordre alphabétique final destructeur
+            egalite.sort(
+                key=lambda e: (
+                    -particulier[e]["diff"],      # goal-average particulier
+                    -classement[e]["diff"],       # goal-average général
+                    -classement[e]["bp"]          # meilleure attaque (retrait de e.lower())
+                )
+            )
+            resultat.extend(egalite)
+            
+        return resultat
+    
+    def _cle_tri_points_diff_bp(self, equipe, stats):
+        """Ordre de tri standard du classement."""
+        return (-stats["pts"],-stats["diff"],-stats["bp"],equipe.lower())
+    
+    def _groupe_termine(self, groupe):
+        for m in self.matchs:
+            if m.get("groupe") != groupe:
+                continue
+            if m.get("SA") is None or m.get("SB") is None:
+                return False
+        return True
+    
+    def classement_par_groupe(self):
+        """
+        Retourne le classement recalculé par groupe.
+        Ne prend en compte que les matchs de poule.
+        """
+        # 1️⃣ Réinitialisation des stats
+        classement_temp = {}
+        for g, equipes in self.groupes.items():
+            for e in equipes:
+                classement_temp[e] = {
+                    "pts": 0,
+                    "victoires": 0,
+                    "nuls": 0,
+                    "defaites": 0,
+                    "bp": 0,
+                    "bc": 0,
+                    "diff": 0,
+                    "groupe": g,
+                    "tir_au_but": False
+                }
+        # 2️⃣ Traitement des matchs
+        for m in self.matchs:
+            groupe = m.get("groupe")
+            if not groupe:
+                continue
+            a = m.get("A")
+            b = m.get("B")
+            sa = m.get("SA")
+            sb = m.get("SB")
+            if a not in classement_temp or b not in classement_temp:
+                continue
+            if sa is None or sb is None:
+                continue
+            self._appliquer_resultat(classement_temp[a], classement_temp[b],sa,sb)
+        # 3️⃣ Calcul des différences de buts
+        for stats in classement_temp.values():
+            stats["diff"] = stats["bp"] - stats["bc"]
+        # 4️⃣ Construction du classement par groupe
+        groupes_dict = {}
+        for g, equipes in self.groupes.items():
+            eqs = [(e, classement_temp[e]) for e in equipes]
+            if hasattr(self, "ordres_forces") and g in self.ordres_forces:
+                ordre_force = self.ordres_forces[g]
+                # Filtrer et trier selon l'ordre forcé
+                ordre_final = [e for e in ordre_force if e in equipes] + [e for e in equipes if e not in ordre_force]
+                eqs = [(e, classement_temp[e]) for e in ordre_final]
+                groupes_dict[g] = eqs
+                continue
+            if MODE_CLASSEMENT == "simple":
+                groupes_points = {}
+                for e in equipes:
+                    pts = classement_temp[e]["pts"]
+                    groupes_points.setdefault(pts, []).append(e)
+                if self._groupe_termine(g):
+                    for egalite in groupes_points.values():
+                        self._marquer_egalites_parfaites(egalite,classement_temp)
+                ordre_final = []
+                for pts in sorted(groupes_points.keys(), reverse=True):
+                    egalite = groupes_points[pts]
+                    egalite.sort(key=lambda e: self._cle_tri_points_diff_bp(e,classement_temp[e]))
+                    blocs_tab = self._extraire_blocs_egalite(egalite,classement_temp)
+                    for bloc in blocs_tab:
+                        if len(bloc) != 2:
+                            continue
+                        cle = (g, *sorted(bloc))
+                        tab = self.departages_tab.get(cle)
+                        if not tab:
+                            continue
+                        vainqueur = tab["vainqueur"]
+                        perdant = (
+                            bloc[0]
+                            if bloc[1] == vainqueur
+                            else bloc[1]
+                        )
+                        i1 = egalite.index(bloc[0])
+                        i2 = egalite.index(bloc[1])
+                        egalite[i1] = vainqueur
+                        egalite[i2] = perdant
+                    ordre_final.extend(egalite)
+                eqs = [
+                    (e, classement_temp[e])
+                    for e in ordre_final
+                ]
+            else:
+                ordre = self._trier_equipes_reglement( equipes,classement_temp)
+                eqs = [(e, classement_temp[e]) for e in ordre]
+            groupes_dict[g] = eqs
+        return groupes_dict
+    
     def recalculer_classement(self, preserve_tab=False):
-        """Recalcule le classement pour tous les matchs (poules + phases finales)"""
+        """Recalcule le classement pour tous les matchs et met à jour les groupes dynamiques."""
         self._init_classement()
-        # 🔹 Matchs de poule
+        # 1. Traitement des matchs
         for m in self.matchs:
             if m.get("groupe") not in self.groupes:
                 continue
             self._traiter_match(m, preserve_tab=preserve_tab)
-        # 🔹 Différence de buts
+        # 2. Calcul des différences de buts (post-traitement)
         for e, d in self.classement.items():
             d["diff"] = d["bp"] - d["bc"]
-        # 🔹 Mise à jour des groupes dynamiques selon le classement actuel
+        # 3. Mise à jour des groupes dynamiques AVEC LE TRI ALIGNÉ
         self.groupes_dynamiques = {}
         for g, equipes in self.groupes_initiaux.items():
-            sorted_eqs = sorted(
-                equipes,
-                key=lambda e: (
-                    -self.classement.get(e, {}).get("pts", 0),  # points
-                    -(self.classement.get(e, {}).get("bp", 0) - self.classement.get(e, {}).get("bc", 0)),  # diff
-                    -self.classement.get(e, {}).get("bp", 0),
-                    e.lower()  # stabilité du tri
-                )
-            )
+            if hasattr(self, "ordres_forces") and g in self.ordres_forces:
+                ordre_force = self.ordres_forces[g]
+                sorted_eqs = [e for e in ordre_force if e in equipes] + [e for e in equipes if e not in ordre_force]
+            
+            elif MODE_CLASSEMENT == "simple":
+                ###  classement standard simple
+                groupes_points = {}
+                for e in equipes:
+                    pts = self.classement[e]["pts"]
+                    groupes_points.setdefault(pts, []).append(e)
+                sorted_eqs = []
+                for pts in sorted(groupes_points.keys(), reverse=True):
+                    egalite = groupes_points[pts]
+                    # Retrait de e.lower() si besoin ou tri standard
+                    egalite.sort(key=lambda e: self._cle_tri_points_diff_bp(e, self.classement[e]))
+                    if len(egalite) == 2:
+                        cle = (g,*sorted(egalite))
+                        tab = self.departages_tab.get(cle)
+                        if tab:
+                            vainqueur = tab["vainqueur"]
+                            perdant = (
+                                egalite[0]
+                                if egalite[1] == vainqueur
+                                else egalite[1]
+                            )
+                            egalite = [vainqueur, perdant]
+                    sorted_eqs.extend(egalite)
+            else:
+                ###  classement officiel
+                sorted_eqs = self._trier_equipes_reglement(equipes,self.classement)
             self.groupes_dynamiques[g] = sorted_eqs
-    
-    # ---------------------------------------
+            
     def _traiter_match(self, match, preserve_tab=False):
         SA = match.get("SA")
         SB = match.get("SB")
         A = match.get("A")
         B = match.get("B")
-        # 🔴 Match non joué → on ignore
+        # 🔴 Match non joué
         if SA is None or SB is None:
             return
-        # --- Traitement équipe A ---
-        if A in self.classement:
-            self.classement[A]["bp"] += SA
-            self.classement[A]["bc"] += SB
-            self.classement[A]["victoires"] += 1 if SA > SB else 0
-            self.classement[A]["nuls"] += 1 if SA == SB else 0
-            self.classement[A]["defaites"] += 1 if SA < SB else 0
-            self.classement[A]["pts"] += 3 if SA > SB else 1 if SA == SB else 0
-        # --- Traitement équipe B ---
-        if B in self.classement:
-            self.classement[B]["bp"] += SB
-            self.classement[B]["bc"] += SA
-            self.classement[B]["victoires"] += 1 if SB > SA else 0
-            self.classement[B]["nuls"] += 1 if SB == SA else 0
-            self.classement[B]["defaites"] += 1 if SB < SA else 0
-            self.classement[B]["pts"] += 3 if SB > SA else 1 if SB == SA else 0
+        if A in self.classement and B in self.classement:
+            self._appliquer_resultat(self.classement[A],self.classement[B],SA,SB)
         # 🔹 Gestion TAB seulement si match nul
         if SA == SB:
             if not preserve_tab:
                 match.setdefault("TAB_A", 0)
                 match.setdefault("TAB_B", 0)
-       
+    
+    def _marquer_egalites_parfaites(self, equipes, classement, particulier=None):
+        """
+        Marque les équipes qui restent à égalité après application
+        de tous les critères de départage.
+        """
+        if len(equipes) < 2:
+            return
+        signatures = {}
+        for e in equipes:
+            if MODE_CLASSEMENT == "simple":
+                signature = (
+                    classement[e]["pts"],
+                    classement[e]["diff"],
+                    classement[e]["bp"]
+                )
+            else:
+                signature = (
+                    classement[e]["pts"],
+                    particulier[e]["diff"],
+                    classement[e]["diff"],
+                    classement[e]["bp"]
+                )
+            signatures.setdefault(signature, []).append(e)
+            
+        for eqs in signatures.values():
+            if len(eqs) >= 2:
+                # 1️⃣ Gestion des paires (conserve votre logique existante)
+                if len(eqs) == 2:
+                    groupe = classement[eqs[0]]["groupe"]
+                    cle = (
+                        groupe,
+                        *sorted(eqs)
+                    )
+                    if cle in self.departages_tab:
+                        continue
+                    for e in eqs:
+                        classement[e]["tir_au_but"] = True
+                        classement[e]["equipes_egalite"] = eqs.copy()
+                        
+                # 2️⃣ Gestion des blocs de 3 équipes ou plus (ex: cas à 3)
+                elif len(eqs) > 2:
+                    for e in eqs:
+                        classement[e]["tir_au_but"] = True
+                        classement[e]["equipes_egalite"] = eqs.copy()
+    #####################################################################
+    ####################################################################
+
     def _init_classement(self):
         self.classement = {}
         for g, equipes in self.groupes.items():
@@ -850,77 +1166,7 @@ class TournoiLogic:
                     "bc": 0,
                     "diff": 0
                 }
-
-    def classement_par_groupe(self):
-        """
-        Retourne le classement recalculé par groupe.
-        ⚡ Ne prend en compte que les matchs de poule (ceux avec 'groupe' défini)
-        """
-        # 1️⃣ Réinitialisation des stats
-        classement_temp = {}
-        for g, equipes in self.groupes.items():
-            for e in equipes:
-                classement_temp[e] = {
-                    "pts": 0,
-                    "victoires": 0,
-                    "nuls": 0,
-                    "defaites": 0,
-                    "bp": 0,
-                    "bc": 0,
-                    "diff": 0,
-                    "groupe": g
-                }
-        # 2️⃣ Parcours de tous les matchs    
-        for m in self.matchs:
-            groupe = m.get("groupe")
-            if not groupe:
-                continue
-            a, b = m.get("A"), m.get("B")
-            sa, sb = m.get("SA"), m.get("SB")
-            if a not in classement_temp or b not in classement_temp:
-                continue
-            if sa is None or sb is None:
-                continue
-            # ⚡ Mise à jour des buts
-            classement_temp[a]["bp"] += sa
-            classement_temp[a]["bc"] += sb
-            classement_temp[b]["bp"] += sb
-            classement_temp[b]["bc"] += sa
-            # ⚡ Victoire / nul / défaite et pts
-            if sa > sb:
-                classement_temp[a]["victoires"] += 1
-                classement_temp[a]["pts"] += 3
-                classement_temp[b]["defaites"] += 1
-            elif sb > sa:
-                classement_temp[b]["victoires"] += 1
-                classement_temp[b]["pts"] += 3
-                classement_temp[a]["defaites"] += 1
-            else:
-                classement_temp[a]["nuls"] += 1
-                classement_temp[b]["nuls"] += 1
-                classement_temp[a]["pts"] += 1
-                classement_temp[b]["pts"] += 1
-        # 3️⃣ Calcul de la différence de buts
-        for eq, stats in classement_temp.items():
-            stats["diff"] = stats["bp"] - stats["bc"]
-        # 4️⃣ Construction du classement par groupe
-        groupes_dict = {}
-        for g, equipes in self.groupes.items():
-            eqs = []
-            for e in equipes:
-                eqs.append((e, classement_temp[e]))
-            # Tri par points, différence, bp
-            eqs.sort(
-                key=lambda x: (
-                    -x[1]["pts"],
-                    -x[1]["diff"],
-                    -x[1]["bp"],
-                    x[0].lower()
-                )
-            )
-            groupes_dict[g] = eqs
-        return groupes_dict
-
+    
     def creer_phases_finales(self):
         cfg = self.config.get("phases_finales", {})
         debut = cfg.get("debut", "quart")
