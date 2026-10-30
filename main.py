@@ -142,9 +142,9 @@ class MenuRow(ButtonBehavior, BoxLayout):
             **kwargs
         )
         # 2. L'ICÔNE (Plus grande)
-        icon_size = dp(45) if is_mobile else 40 # On passe de 36 à 45dp
+        icon_size = dp(45) if is_mobile else dp(40) # On passe de 36 à 45dp
         icon_container = FloatLayout( size_hint=(None, None),size=(icon_size + dp(4), icon_size + dp(8)))
-        icon = Image( source=icon_source,size_hint=(None, None),size=icon_size,pos_hint={"center_x": 0.5, "center_y": 0.45})
+        icon = Image( source=icon_source,size_hint=(None, None),size=(icon_size, icon_size),pos_hint={"center_x": 0.5, "center_y": 0.45})
         icon_container.add_widget(icon)
         self.add_widget(icon_container)
         
