@@ -32,6 +32,8 @@ from constants import LANGUAGES
 
 from kivy.utils import platform
 
+from core.NotificationManager import NotificationManager
+
 # Bloc conditionnel pour éviter l'erreur "Unable to find JAVA_HOME" sur Windows
 if platform == 'android':
     from jnius import autoclass, PythonJavaClass, java_method
@@ -127,7 +129,7 @@ class IconButton(ButtonBehavior, Image):
         self.rot.origin = self.center
 
 class MenuRow(ButtonBehavior, BoxLayout):
-    def __init__(self, icon_source, text, **kwargs):  
+    def __init__(self, icon_source, text,  badge_text=None, **kwargs):  
         # 1. AJUSTEMENT DES DIMENSIONS DE LA LIGNE
         h_val = dp(85) if is_mobile else 70  # On passe de 72 à 85dp
         p_val = dp(15) if is_mobile else 10
@@ -172,6 +174,20 @@ class MenuRow(ButtonBehavior, BoxLayout):
         )
         self.label.bind(size=self._update_text_size)
         self.add_widget(self.label)
+        self.label.size_hint_x = 1
+        self.badge_text = badge_text
+        if badge_text:
+            from kivy.graphics import Color, RoundedRectangle
+            badge_value = str(badge_text)
+            badge_size = dp(24)
+            badge_width = badge_size
+            self.badge = Label( text=badge_value, color=(1, 1, 1, 1),bold=True, font_size="12sp", size_hint=(None, None), size=(badge_width, badge_size), halign="center", valign="middle", )
+            with self.badge.canvas.before:
+                Color(0.9, 0.1, 0.1, 0.8)
+                self.badge_bg = RoundedRectangle(pos=self.badge.pos,size=self.badge.size,radius=[badge_size / 2],)
+            self.badge.bind(pos=lambda inst, pos: setattr(self.badge_bg, "pos", pos),size=lambda inst, size: setattr(self.badge_bg, "size", size), )
+            self.badge.pos_hint = { "right": 1.0,"top": 1.0}
+            icon_container.add_widget(self.badge)
 
     def _update_text_size(self, instance, value):
         instance.text_size = (instance.width, None)
@@ -394,6 +410,7 @@ class RootLayout(FloatLayout):
             "info": ("ui.screens.info", "InfoScreen"),
             "settings": ("ui.screens.settings", "SettingsScreen"),
             "about": ("ui.screens.about", "AboutScreen"),
+            "notifications": ("ui.screens.notifications", "NotificationsScreen"),
             "login_vestiaire": ("ui.screens.login", "LoginScreen"),
             "vestiaire": ("ui.screens.vestiaire", "VestiaireScreen"),
         }
@@ -512,8 +529,6 @@ class RootLayout(FloatLayout):
                 vestiaire_screen._pending_navigation = (target_cat,"CALENDRIER")
             if target_cat and getattr(vestiaire_screen, "_vestiaire_ready", False):
                 vestiaire_screen.set_category(target_cat)
-            elif not target_cat:
-                pass
         # Gestion visuelle spécifique (soirees...)
         if screen_name == "soirees":
             self.btn_reload.opacity = 1
@@ -598,6 +613,19 @@ class RootLayout(FloatLayout):
             self.menu_panel.add_widget(row)
         # --- Séparateur ---
         self.menu_panel.add_widget(MenuSeparator())
+        # --- Notifications
+        unread_count = 0
+        try:
+            unread_count = ( app.notification_manager.get_unread_count() )
+        except Exception:
+            pass
+        texte_notifications = "Notifications"
+        if unread_count > 0:
+            texte_notifications += f" ({unread_count})"
+        unread_count = (app.notification_manager.get_unread_count())
+        row_notifications = MenuRow( icon_source="assets/icons/notification.png",text="Notifications",badge_text=(str(unread_count) if unread_count > 0 else None))
+        row_notifications.bind( on_release=lambda x:self.switch_screen("notifications"))
+        self.menu_panel.add_widget(row_notifications)
         # --- GESTION DU VESTIAIRE DYNAMIQUE ---
         categories_autorisees = getattr(app, "authorized_vestiaires", [])
         if len(categories_autorisees) > 1:
@@ -698,6 +726,8 @@ class MyApp(App):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._notifications_lock = threading.RLock()
+        self._notifications_sync_generation = 0
         self._ = _
         self.use_kivy_settings = False
         self.config = self.load_config() 
@@ -709,6 +739,7 @@ class MyApp(App):
         self.authorized_vestiaires = []
         self.cache_images_dir = os.path.join(self.user_data_dir, "cache_images")
         self.notifier = None
+        self.notification_manager = NotificationManager(self)
 
     def get_application_config(self):
         return os.path.join(self.user_data_dir, 'fcvv.ini')
@@ -1023,6 +1054,27 @@ class MyApp(App):
                 print(f"[BADGE SYNC ERROR] {e}")
         threading.Thread(target=worker,daemon=True).start()    
     
+    def synchroniser_badge_ios_depuis_centre(self):
+        """Synchronise le badge iOS avec les notifications locales non lues."""
+        if platform != "ios":
+            return
+        manager = getattr(self, "notification_manager", None)
+        if manager is None:
+            print("[BADGE IOS] Gestionnaire de notifications indisponible")
+            return
+        try:
+            nombre_non_lues = sum(
+                1 for notif in manager.notifications
+                if not notif.get("lue", False)
+            )
+            self.set_ios_badge(nombre_non_lues)
+            print(
+                f"[BADGE IOS] Badge synchronise depuis le centre : "
+                f"{nombre_non_lues}"
+            )
+        except Exception as e:
+            print(f"[BADGE IOS ERROR] Synchronisation locale : {e}")
+    
     def set_ios_badge(self, count):
         if platform != "ios":
             return
@@ -1064,6 +1116,35 @@ class MyApp(App):
     
         threading.Thread(target=worker,daemon=True).start()
             
+    def remettre_zero_badge_depuis_api(self):
+        import threading
+        import requests
+        nom_parent = self.get_current_user_name()
+        if not nom_parent:
+            return
+        def worker():
+            try:
+                response = requests.post(
+                    "https://fcvv-api.onrender.com/notifications/badge/reset",
+                    headers={
+                        "nom_parent": nom_parent
+                    },
+                    timeout=10
+                )
+                if response.status_code != 200:
+                    print(
+                        f"[BADGE ZERO] echec remise a zero : "
+                        f"{response.status_code} - {response.text}"
+                    )
+                    return
+                # Le compteur serveur a été remis à zéro.
+                Clock.schedule_once(lambda dt: self.set_ios_badge(0), 0 )
+                print("[BADGE ZERO] Compteur et badge iOS remis a zero")
+            except Exception as e:
+                print(f"[BADGE ZERO ERROR] {e}")
+    
+        threading.Thread(target=worker, daemon=True).start()
+    
     def verifier_validation_windows(self):
         """
         Windows ne possède pas de token FCM.
@@ -1210,6 +1291,166 @@ class MyApp(App):
                 print(f"[FCM TOKEN ERROR] Erreur synchronisation : {e}")
         threading.Thread(target=_thread_sync,daemon=True).start()
     
+    def _synchroniser_notifications_thread(self):
+        import requests
+        from kivy.utils import platform
+
+        try:
+            # Capturer la génération avant la requête réseau.
+            with self._notifications_lock:
+                generation = self._notifications_sync_generation
+
+            nom_parent = self.get_current_user_name()
+            if not nom_parent:
+                print("[NOTIFICATIONS] Aucun utilisateur identifie.")
+                return
+
+            response = requests.get(
+                "https://fcvv-api.onrender.com/notifications/synchroniser",
+                headers={"nom_parent": nom_parent},
+                timeout=15,
+                verify=(platform != "win"),
+            )
+
+            if response.status_code != 200:
+                print(
+                    f"[NOTIFICATIONS] Erreur API : "
+                    f"{response.status_code} - {response.text}"
+                )
+                return
+
+            notifications = response.json().get("notifications", [])
+            manager = getattr(self, "notification_manager", None)
+
+            if manager is None:
+                print("[NOTIFICATIONS] Gestionnaire introuvable.")
+                return
+
+            # Lire les associations enregistrées par Java.
+            preferences = None
+
+            if platform == "android":
+                try:
+                    from jnius import autoclass
+
+                    PythonActivity = autoclass(
+                        "org.kivy.android.PythonActivity"
+                    )
+                    activity = PythonActivity.mActivity
+
+                    preferences = activity.getSharedPreferences(
+                        "fcvv_notification_ids",
+                        0,  # Context.MODE_PRIVATE
+                    )
+
+                except Exception as e:
+                    print(
+                        "[NOTIFICATIONS] Lecture des android_id "
+                        f"indisponible : {e}"
+                    )
+
+            nouvelles = 0
+            associations_ajoutees = 0
+
+            with self._notifications_lock:
+                if generation != self._notifications_sync_generation:
+                    print(
+                        "[NOTIFICATIONS] Synchronisation ignoree : "
+                        "un vidage a eu lieu pendant la requete."
+                    )
+                    return
+
+                for item in notifications:
+                    source_id = item.get("source_id")
+                    if not source_id:
+                        continue
+
+                    # Vérifier si la notification existe déjà localement.
+                    existante = next(
+                        (
+                            n for n in manager.notifications
+                            if n.get("source_id") == source_id
+                        ),
+                        None,
+                    )
+
+                    # Retrouver l'identifiant Android associé par Java.
+                    android_id = None
+
+                    if preferences is not None:
+                        try:
+                            valeur = preferences.getInt(
+                                "source:" + str(source_id),
+                                0,
+                            )
+
+                            if valeur > 0:
+                                android_id = valeur
+
+                        except Exception as e:
+                            print(
+                                "[NOTIFICATIONS] Erreur lecture android_id "
+                                f"pour {source_id} : {e}"
+                            )
+
+                    categorie = item.get("categorie") or None
+                    match_id = item.get("match_id")
+
+                    # Appeler aussi ajouter_notification pour les éléments
+                    # existants : cette méthode complète leur android_id
+                    # lorsqu'il est disponible, sans créer de doublon.
+                    notif_locale = manager.ajouter_notification(
+                        titre=item.get("titre", ""),
+                        message=item.get("corps", ""),
+                        categorie=categorie,
+                        match_id=match_id,
+                        notif_type=item.get("notif_type", "home"),
+                        payload={
+                            "categorie": categorie,
+                            "match_id": match_id,
+                            "source": item.get("source"),
+                        },
+                        source_id=source_id,
+                        android_id=android_id,
+                    )
+
+                    if existante is None:
+                        nouvelles += 1
+
+                    if (
+                        notif_locale
+                        and android_id is not None
+                        and str(notif_locale.get("android_id")) == str(android_id)
+                    ):
+                        associations_ajoutees += 1
+
+                    if android_id is not None:
+                        print(
+                            "[NOTIFICATIONS] Association retrouvee : "
+                            f"source_id={source_id}, android_id={android_id}"
+                        )
+
+            print(
+                f"[NOTIFICATIONS] Synchronisation terminee : "
+                f"{nouvelles} nouvelle(s), "
+                f"{associations_ajoutees} association(s) Android."
+            )
+
+            if nouvelles:
+                def actualiser_menu(dt):
+                    if self.root and hasattr(self.root, "rebuild_menu"):
+                        self.root.rebuild_menu()
+
+                Clock.schedule_once(actualiser_menu, 0)
+
+        except Exception as e:
+            print(f"[NOTIFICATIONS] Erreur de synchronisation : {e}")
+
+            
+    def lancer_synchronisation_notifications(self, dt=0):
+        import threading
+        threading.Thread(target=self._synchroniser_notifications_thread, daemon=True,).start()
+
     def verifier_redirection_notification(self):
         """
         Vérifie si l'application a été ouverte depuis une notification.
@@ -1221,79 +1462,77 @@ class MyApp(App):
     
     def verifier_redirection_notification_ios(self):
         """
-        Vérifie si l'application iOS a été ouverte depuis une notification,
-        récupère les données, décrémente le badge serveur et effectue
-        automatiquement la redirection.
+        Vérifie si l'application iOS a été ouverte depuis une notification.
+        Ajoute la notification au centre avec les états lue et traitee,
+        puis effectue la redirection habituelle.
         """
         if platform != "ios":
             return
         try:
             from pyobjus import autoclass
-            from kivy.clock import Clock
             NSUserDefaults = autoclass("NSUserDefaults")
             defaults = NSUserDefaults.standardUserDefaults()
-            # --------------------------------------------------
-            # 1. Vérifier si une notification est en attente
-            # --------------------------------------------------
-            pending_obj = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
-            if pending_obj is None:
+            # 1. Vérifier la présence d'une notification en attente
+            pending = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
+            if not pending:
                 print("[iOS FCM] Aucune notification en attente.")
                 return
-            try:
-                pending = bool(pending_obj.boolValue())
-            except Exception:
-                try:
-                    pending = bool(int(str(pending_obj)))
-                except Exception:
-                    pending = True
-            if not pending:
-                print("[iOS FCM] Notification non en attente.")
-                return
             print("[iOS FCM] Notification en attente detectee.")
-            # --------------------------------------------------
-            # 2. Lire et convertir les données iOS
-            # --------------------------------------------------
+            # 2. Lire les informations de la notification
             def _get_str(key):
-                try:
-                    val = defaults.objectForKey_(key)
-                    if val is None:
-                        return ""
-                    try:
-                        utf8 = val.UTF8String()
-                        if utf8 is not None:
-                            if isinstance(utf8, bytes):
-                                return utf8.decode("utf-8",errors="replace")
-                            return str(utf8)
-                    except Exception:
-                        pass
-                    try:
-                        val_str = defaults.stringForKey_(key)
-                        if val_str is not None:
-                            result = str(val_str)
-                            if " object at 0x" not in result:
-                                return result
-                    except Exception:
-                        pass
-                    result = str(val)
-                    if " object at 0x" in result:
-                        print(f"[iOS FCM] Conversion impossible pour {key}")
-                        return ""
-                    return result
-                except Exception as e:
-                    print(f"[iOS FCM] Erreur lecture {key} : {e!r}")
-                    return ""
+                val = defaults.stringForKey_(key)
+                return str(val) if val is not None else ""
             titre = _get_str("FCVV_NOTIFICATION_TITLE")
             message = _get_str("FCVV_NOTIFICATION_BODY")
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
+            source_id = _get_str("FCVV_NOTIFICATION_SOURCE_ID")
+            ios_identifier = _get_str( "FCVV_NOTIFICATION_IDENTIFIER")
             notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
             if not notif_type:
                 notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
             nt = notif_type.strip().lower()
-            print(f"[iOS FCM] Type={nt!r}, categorie={categorie!r}, match_id={match_id!r}")
-            # --------------------------------------------------
-            # 3. Nettoyer les données après les avoir récupérées
-            # --------------------------------------------------
+            # 3. Ajouter la notification au centre
+            # et mémoriser l'entrée locale créée.
+            notif_locale = None
+            if titre and message and self.notification_manager:
+                notif_locale = self.notification_manager.ajouter_notification(
+                    titre=titre,
+                    message=message,
+                    categorie=categorie or None,
+                    match_id=match_id or None,
+                    notif_type=notif_type or None,
+                    payload={
+                        "categorie": categorie,
+                        "match_id": match_id,
+                        "source_id": source_id,
+                        "ios_identifier": ios_identifier,
+                    },
+                    source_id=source_id,
+                )
+                # Le clic sur la notification iOS vaut consultation
+                # et traitement de cette notification.
+                if notif_locale:
+                    self.notification_manager.marquer_comme_traitee(notif_locale["id"] )
+                    print(
+                        "[iOS FCM] Notification ajoutee, "
+                        "lue et traitee : "
+                        f"{notif_locale['id']}"
+                    )
+            # 4. Décrémenter le badge serveur
+            if categorie != "TournoiVercel":
+                self.decrementer_badge_depuis_api()
+            # 5. Effectuer la redirection habituelle
+            if nt in ("manual", "home") or not categorie:
+                print("[iOS FCM] Redirection -> HOME")
+                Clock.schedule_once(lambda dt: self.executer_redirection_home(),0.5)
+            else:
+                print(f"[iOS FCM] Redirection -> VESTIAIRE ({categorie})")
+                Clock.schedule_once( lambda dt: self.executer_redirection_vestiaire( categorie, match_id if match_id else None, notif_type if notif_type else None ), 0.5 )
+            # 6. Actualiser le menu si nécessaire
+            if (notif_locale and self.root and hasattr(self.root, "rebuild_menu")):
+                Clock.schedule_once(lambda dt: self.root.rebuild_menu(), 0 )
+            # 7. Nettoyer les données de notification traitées
             keys_to_clean = [
                 "FCVV_NOTIFICATION_PENDING",
                 "FCVV_NOTIFICATION_TITLE",
@@ -1301,40 +1540,16 @@ class MyApp(App):
                 "FCVV_NOTIFICATION_TOPIC",
                 "FCVV_NOTIFICATION_MATCH_ID",
                 "FCVV_NOTIFICATION_TYPE",
-                "FCVV_NOTIFICATION_TYPE_ALT",
+                "FCVV_NOTIFICATION_SOURCE_ID",
+                "FCVV_NOTIFICATION_IDENTIFIER",
+                "FCVV_NOTIFICATION_TYPE_ALT"
             ]
             for key in keys_to_clean:
                 defaults.removeObjectForKey_(key)
             defaults.synchronize()
-            print("[iOS FCM] Donnees de notification nettoyees.")
-            # --------------------------------------------------
-            # 4. Décrémenter le badge côté serveur
-            # --------------------------------------------------
-            try:
-                print("[iOS FCM] Decrementation du badge serveur...")
-                self.decrementer_badge_depuis_api()
-                print("[iOS FCM] Demande de decrementation executee.")
-            except Exception as e:
-                # Une erreur de badge ne doit pas bloquer la redirection.
-                print(f"[iOS FCM] Erreur decrementation badge : {e!r}")
-            # --------------------------------------------------
-            # 5. Effectuer automatiquement la redirection
-            # --------------------------------------------------
-            if nt in ("manual", "home") or not categorie:
-                print("[iOS FCM] Redirection -> HOME")
-                Clock.schedule_once(lambda dt: self.executer_redirection_home(),0.5)
-            else:
-                print(f"[iOS FCM] Redirection -> VESTIAIRE ({categorie})")
-                Clock.schedule_once(
-                    lambda dt: self.executer_redirection_vestiaire(
-                        categorie,
-                        match_id if match_id else None,
-                        notif_type if notif_type else None
-                    ),
-                    0.5
-                )
+            print("[iOS FCM] Cles NSUserDefaults purgees avec succes.")
         except Exception as e:
-            print(f"[iOS FCM ERROR] echec traitement notification : {e!r}")
+            print( f"[iOS FCM ERROR] Echec lors de la verification : {e!r}" )
     
     def verifier_redirection_notification_android(self):
         if platform != "android":
@@ -1346,19 +1561,65 @@ class MyApp(App):
             open_page = intent.getStringExtra("open_page")
             categorie = intent.getStringExtra("categorie")
             match_id = intent.getStringExtra("match_id")
-            notif_type = (
-                intent.getStringExtra("notif_type")
-                or intent.getStringExtra("type")
-            )
+            notif_type = ( intent.getStringExtra("notif_type") or intent.getStringExtra("type") )
+            # Informations de la notification Android
+            android_notif_id = intent.getIntExtra( "notification_id", 0 )
+            if android_notif_id == 0:
+                android_notif_id = intent.getIntExtra("android_id", 0)
+            title = intent.getStringExtra("title")
+            body = intent.getStringExtra("body")
+            source_id = intent.getStringExtra("source_id")
+            # Ajouter la notification à l'historique local
+            # et conserver sa référence pour mettre à jour son état.
+            notif_locale = None
+            if title and body and self.notification_manager:
+                notif_locale = self.notification_manager.ajouter_notification(
+                    titre=title,
+                    message=body,
+                    categorie=categorie,
+                    match_id=match_id,
+                    notif_type=notif_type,
+                    payload={
+                        "categorie": categorie,
+                        "match_id": match_id
+                    },
+                    source_id=source_id,
+                    android_id=android_notif_id if android_notif_id != 0 else None
+                )
+                if notif_locale:
+                    self.notification_manager.marquer_comme_traitee( notif_locale["id"])
+                    print(
+                        "[FCM ANDROID] Notification ajoutee, lue et traitee : "
+                        f"{notif_locale['id']}"
+                    )
+            # Retirer la notification de la barre d'état Android
+            if android_notif_id != 0 and self.notification_manager:
+                self.notification_manager.annuler_notification_barre({"android_id": android_notif_id})
+            # Redirection habituelle, conservée à l'identique
             if open_page == "home" or notif_type in ("manual", "home"):
-                Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
+                Clock.schedule_once( lambda dt: self.executer_redirection_home(), 0.5 )
             elif open_page == "vestiaire" and categorie:
-                Clock.schedule_once(lambda dt: self.executer_redirection_vestiaire(categorie, match_id, notif_type),0.5,)
-            if open_page or categorie or notif_type:
-                for key in ("open_page", "categorie", "match_id", "notif_type", "type"):
-                    if intent.hasExtra(key):
-                        intent.removeExtra(key)
-                activity.setIntent(intent)
+                Clock.schedule_once( lambda dt: self.executer_redirection_vestiaire( categorie, match_id, notif_type ), 0.5)
+            # Actualiser le menu si celui-ci affiche les compteurs
+            if ( notif_locale  and self.root and hasattr(self.root, "rebuild_menu")):
+                Clock.schedule_once( lambda dt: self.root.rebuild_menu(), 0)
+            # Nettoyer les extras pour éviter un retraitement
+            keys_to_clean = (
+                "open_page",
+                "categorie",
+                "match_id",
+                "notif_type",
+                "type",
+                "notification_id",
+                "android_id",
+                "title",
+                "body",
+                "source_id"
+            )
+            for key in keys_to_clean:
+                if intent.hasExtra(key):
+                    intent.removeExtra(key)
+            activity.setIntent(intent)
         except Exception as e:
             print(f"[FCM ERROR] Lecture Intent : {e}")
     
@@ -1404,42 +1665,23 @@ class MyApp(App):
                 print(f"[FCM REDIRECT] Erreur abonnement : {e}")
                 
             nt = (notif_type or "").strip().lower()
-
-            print("[FCM REDIRECT] ================================")
-            print(f"[FCM REDIRECT] categorie   = {categorie!r}")
-            print(f"[FCM REDIRECT] match_id    = {match_id!r}")
-            print(f"[FCM REDIRECT] notif_type  = {notif_type!r}")
-            print(f"[FCM REDIRECT] nt          = {nt!r}")
-            
-            if nt == "echange":
-                sous_onglet = "CHAT"
-            
-            elif nt in (
-                "chat",
-                "message",
-                "messages",
-                "nouveau_message"
-            ):
-                sous_onglet = "MESSAGES"
-            
-            elif nt in (
-                "evenement",
-                "événement",
-                "event",
-                "creation_evenement",
-                "evenement_creation",
-                "convocation"
-            ):
-                sous_onglet = "CALENDRIER"
-            
-            else:
-                print(
-                    f"[FCM REDIRECT] ⚠️ TYPE INCONNU : {notif_type!r}"
+            sous_onglet = (
+                "CHAT" if nt == "echange"
+                else "MESSAGES" if nt in (
+                    "chat",
+                    "message",
+                    "messages",
+                    "nouveau_message"
                 )
-                sous_onglet = "CALENDRIER"
-            
-            print(f"[FCM REDIRECT] >>> SOUS-ONGLET = {sous_onglet}")
-            print("[FCM REDIRECT] ================================")
+                else "CALENDRIER" if nt in (
+                    "evenement",
+                    "événement",
+                    "event",
+                    "creation_evenement",
+                    "evenement_creation"
+                )
+                else "CALENDRIER"
+            )
     
             if hasattr(self.root, "switch_screen"):
                 self.root.switch_screen("vestiaire")
@@ -1581,13 +1823,22 @@ class MyApp(App):
             for c in auth_str.split(",")
             if c.strip()
         ]
+        from core.NotificationManager import get_notification_manager
+        self.notifier = get_notification_manager()
+        if self.notifier:
+            # Initialiser le stockage local des notifications
+            self.notifier.app = self
+            self.notifier.file_path = os.path.join(self.user_data_dir,"notifications.json")
+            self.notifier.notifications = []
+            self.notifier.charger_notifications()
+            # Le même gestionnaire sert aux notifications locales et FCM
+            self.notification_manager = self.notifier
         if platform in ("android", "ios"):
-            from core.NotificationManager import get_notification_manager
-            self.notifier = get_notification_manager()
             if self.notifier:
                 try:
                     self.notifier.request_permissions()
                     self.notifier.init_service()
+                    Clock.schedule_once(self.lancer_synchronisation_notifications,3)
                     # Tout le monde reçoit les notifications générales
                     Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"),5.0)
                     # Synchronisation du token FCM
@@ -1615,6 +1866,9 @@ class MyApp(App):
             print("[WINDOWS] FCM desactive : activation de la surveillance du role.")
             Clock.schedule_once(lambda dt: self.verifier_validation_windows(),5.0)
             Clock.schedule_interval(lambda dt: self.verifier_validation_windows(),5.0)
+            # Synchronisation notifications
+            Clock.schedule_once(self.lancer_synchronisation_notifications, 3)
+            Clock.schedule_once(self.lancer_synchronisation_notifications, 60)
 
         if platform == "android" and "customize_android_bars" in globals():
             Clock.schedule_once(lambda dt: customize_android_bars(), 1)
@@ -1695,8 +1949,9 @@ class MyApp(App):
         print("[APP RESUME] Retour au premier plan")
         if platform == "ios":
             Clock.schedule_once(lambda dt: self.synchroniser_badge_ios(), 0.5)
-        if platform in ("android", "ios"):
+        if platform in ("android", "ios", "win"):
             Clock.schedule_once(lambda dt: self.verifier_redirection_notification(),0.5)
+            Clock.schedule_once( self.lancer_synchronisation_notifications,1)
         # Laisser Kivy restaurer l'affichage avant de relancer le réseau.
         Clock.schedule_once(self._refresh_home_on_resume, 0.8)
         return True
