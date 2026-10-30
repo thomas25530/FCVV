@@ -19,8 +19,8 @@ from kivy.uix.behaviors import ButtonBehavior
 from kivy.animation import Animation
 from kivy.uix.button import Button
 
-CURRENT_VERSION_ANDROID = "2026.1.1.1"
-CURRENT_VERSION_IOS = "2026.1.1.0"
+CURRENT_VERSION_ANDROID = "2026.1.1.4"
+CURRENT_VERSION_IOS = "2026.1.1.1"
 
 URL_CGU = "https://sites.google.com/view/fcvv-application/conditions-utilisation"
 URL_CONFIDENTIALITE = "https://sites.google.com/view/fcvv-application/confidentialite"
