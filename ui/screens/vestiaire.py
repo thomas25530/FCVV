@@ -1435,8 +1435,8 @@ class VestiaireScreen(Screen):
         btn_add.bind(on_release=lambda _: [self.convoc_admin_popup.dismiss(), self.ouvrir_gestion_convocations("Nouvel événement", {})])
         self.convoc_admin_popup.open()
     
-    def charger_categorie(self, categorie, sous_onglet="NOTIFICATIONS"):
-        sous_onglet = (sous_onglet or "NOTIFICATIONS").upper()
+    def charger_categorie(self, categorie, sous_onglet="CALENDRIER"):
+        sous_onglet = (sous_onglet or "CALENDRIER").upper()
         if not self._vestiaire_ready:
             self._pending_navigation = (categorie, sous_onglet)
             return
@@ -1449,9 +1449,9 @@ class VestiaireScreen(Screen):
         else:
             print("[VESTIAIRE TRACE] Aucune categorie autorisee")
             return
-        valides = {"CALENDRIER", "MESSAGES", "CHAT", "NOTIFICATIONS", "SAISON", "EQUIPE","STATS", "DOCS", "MEMBRES", "PROFIL"}
+        valides = {"CALENDRIER", "MESSAGES", "CHAT", "SAISON", "EQUIPE","STATS", "DOCS", "MEMBRES", "PROFIL"}
         if sous_onglet not in valides:
-            sous_onglet = "NOTIFICATIONS"
+            sous_onglet = "CALENDRIER"
         role = app.get_role_for_cat(self.current_cat) if hasattr(app, "get_role_for_cat") else "USER"
         if sous_onglet in ("EQUIPE", "STATS") and role != "ADMIN":
             sous_onglet = "CALENDRIER"
@@ -1532,23 +1532,28 @@ class VestiaireScreen(Screen):
                 convs = {}
             Clock.schedule_once(lambda dt: apply_result(convs),0)
         threading.Thread(target=do_request,daemon=True).start()
+
+
     
     def _start_new_vestiaire_session(self):
         self._vestiaire_session_id += 1
         print(f"[VESTIAIRE SESSION] Nouvelle session : {self._vestiaire_session_id}")
+    
         if getattr(self, "_populate_event", None):
             try:
                 self._populate_event.cancel()
             except Exception:
                 pass
             self._populate_event = None
+    
         self._fetching_in_progress = False
-        
+    
         self.joueurs_par_categorie = None
         self.cache_membres_list = None
-        # ON NE NEUTRALISE PLUS LE CACHE MÉMOIRE POUR ÉVITER LES RECHARGEMENTS LENTS :
-        # self._cache_data.clear()  <-- Supprimé ou commenté
-        self.current_sub_tab = "CALENDRIER"
+    
+        # Ne pas réinitialiser current_sub_tab ici :
+        # une notification peut demander CHAT ou MESSAGES.
+
     
     def synchroniser_role_depuis_api(self):
         app = App.get_running_app()
@@ -1736,7 +1741,8 @@ class VestiaireScreen(Screen):
             Clock.schedule_once(lambda dt: self.verifier_toutes_les_categories(),0.1)
             return
         self.current_cat = app.authorized_vestiaires[0]
-        self.current_sub_tab = "CALENDRIER"
+        if not self.current_sub_tab:
+            self.current_sub_tab = "CALENDRIER"
         Clock.schedule_once(lambda dt: self.update_ui(), 0)
         # Reset APRES reconstruction des boutons
         Clock.schedule_once(lambda dt: self.reset_sub_scroll(), 0.15)
@@ -1766,7 +1772,6 @@ class VestiaireScreen(Screen):
                     print(f"[VESTIAIRE DEBUG] Fichier YAML inchange pour {target_cat}")
         except Exception as e:
             print(f"[VESTIAIRE DEBUG] Erreur telechargement pour {target_cat}: {e}")
-
         data = cat_info.copy()
         if os.path.exists(path):
             try:
@@ -1879,9 +1884,7 @@ class VestiaireScreen(Screen):
             if hasattr(app, "get_role_for_cat")
             else "PARENT"
         )
-        sous_onglets = ("CALENDRIER","MESSAGES","STATS","EQUIPE","CHAT","SAISON","MEMBRES","NOTIFICATIONS","DOCS","PROFIL")
-        #if role_actuel == "ADMIN":
-        #    sous_onglets += ("STATS",)
+        sous_onglets = ("CALENDRIER","MESSAGES","STATS","EQUIPE","CHAT","SAISON","MEMBRES","DOCS","PROFIL")
             
         for sub in sous_onglets:
             if sub in ("EQUIPE", "STATS") and role_actuel != "ADMIN":
@@ -2029,6 +2032,10 @@ class VestiaireScreen(Screen):
         anim.start(self.scroll_content)
 
     def set_sub_tab(self, sub):
+        sub = str(sub or "").upper()
+    
+        if sub == "NOTIFICATIONS":
+            sub = "CALENDRIER"
         if self.current_sub_tab == sub:
             return
         ancien_sub_tab = self.current_sub_tab
@@ -2205,7 +2212,6 @@ class VestiaireScreen(Screen):
     
         threading.Thread(target=task,daemon=True).start()
     
-    
     def open_url(self, url):
         Clock.schedule_once(lambda dt: self._open_url(url))
 
@@ -2231,6 +2237,7 @@ class VestiaireScreen(Screen):
     def on_leave(self):
         if platform == "ios":
             Window.softinput_mode = ""
+    
     
     def render_content(self, data):
         if platform == "ios":
@@ -2342,63 +2349,6 @@ class VestiaireScreen(Screen):
                     self._populate_event = (Clock.schedule_once(lambda dt: add_batch(0),0))
                 stream_calendrier(contenu_a_afficher,batch_size=4)
 
-        elif self.current_sub_tab == "NOTIFICATIONS":
-            layout.add_widget(SectionTitle("CENTRE DE NOTIFICATIONS"))
-            if not (calendrier := data.get("calendrier", {})):
-                layout.add_widget(InfoCard(text="Aucune notification récente."))
-            else:
-                historique = []
-                for match_id, match_info in calendrier.items():
-                    type_evt = match_info.get("type", "ÉVÉNEMENT").upper()
-                    titre, adversaire, date_evt, lieu_evt = map(
-                        lambda k: str(match_info.get(k, "") or "").strip(),
-                        ("titre", "adversaire", "date", "lieu")
-                    )
-                    commit_msg = str(match_info.get("dernier_commit", "") or "").strip()
-                    timestamp_action = str(match_info.get("timestamp_action", "") or "").strip()
-                    titre_carte = titre or ("Entraînement" if type_evt == "ENTRAINEMENT" else f"Match ({match_id})" if type_evt == "MATCH" else "Événement")
-                    est_mod = bool(commit_msg) and "création" not in commit_msg.lower()
-                    ligne_statut = f"[b]{'Modifié le' if est_mod else 'Créé le'}[/b]" + (f" {timestamp_action}" if timestamp_action else "")
-                    ligne_details = f"Date : {date_evt}" + (f" • Lieu : {lieu_evt}" if lieu_evt else "")
-                    ligne_commit = f"\n[color=555555]« {commit_msg} »[/color]" if est_mod and commit_msg else ""
-                    texte_notif = f"[size={fs + 2}sp][b]{titre_carte}[/b][/size]\n[size={fs - 1}sp]{ligne_statut}\n{ligne_details}{ligne_commit}[/size]"
-            
-                    parsed_dt = datetime.min
-                    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
-                        try:
-                            parsed_dt = datetime.strptime(date_evt, fmt)
-                            break
-                        except ValueError:
-                            pass
-                    historique.append((parsed_dt, texte_notif))
-            
-                for _, texte in sorted(historique, key=lambda x: x[0], reverse=True):
-                    card = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(5), size_hint_y=None)
-                    with card.canvas.before:
-                        Color(0.95, 0.95, 0.95, 1)
-                        card.bg_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[dp(8)])
-                    card.bind(pos=lambda c, p: setattr(c.bg_rect, "pos", p),size=lambda c, s: setattr(c.bg_rect, "size", s))
-                    lbl_notif = Label(
-                        text=texte, markup=True, color=(0.1, 0.1, 0.1, 1),
-                        font_size=f"{fs - 1}sp", halign="center", valign="middle",
-                        size_hint_y=None
-                    )
-                    card.add_widget(lbl_notif)
-                    def update_card_height(card_widget, width, label=lbl_notif):
-                        if width <= 0:
-                            return
-                        label.text_size = (max(1, width - dp(24)), None)
-                        label.texture_update()
-                        label.height = label.texture_size[1]
-                        card_widget.height = label.height + dp(24)
-                    card.bind(width=lambda c, w, lbl=lbl_notif: update_card_height(c, w, lbl))
-                    Clock.schedule_once(lambda dt, c=card, lbl=lbl_notif: update_card_height(c, c.width, lbl), 0)
-                    Clock.schedule_once(lambda dt, c=card, lbl=lbl_notif: update_card_height(c, c.width, lbl), 0.1)
-                    layout.add_widget(card)
-
-            # 🔥 AJOUT DE L'ESPACE DE SÉCURITÉ EN FIN DE LISTE NOTIFICATIONS
-            layout.add_widget(Widget(size_hint_y=None, height=dp(80)))
-
         elif self.current_sub_tab == "SAISON":
             layout.add_widget(SectionTitle("CALENDRIER & CLASSEMENT"))
             if not (calendrier_saison := data.get("calendrier_saison", {})):
@@ -2473,8 +2423,18 @@ class VestiaireScreen(Screen):
                 for j in stats.get("joueurs", [])
             }
 
+            
             joueurs_stats = []
             for j_eq in data.get("tous_les_joueurs", []):
+            
+                # Exclure les dirigeants du tableau des statistiques
+                if not isinstance(j_eq, dict):
+                    continue
+            
+                poste = str(j_eq.get("poste", "")).strip().casefold()
+                if poste == "dirigeant":
+                    continue
+            
                 nom = str(j_eq.get("nom", "")).strip()
                 prenom = str(j_eq.get("prenom", "")).strip()
                 nom_complet = (
