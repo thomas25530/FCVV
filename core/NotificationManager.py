@@ -54,6 +54,10 @@ class NotificationManager:
                 android_id = None
         # Normaliser le payload reçu
         payload_recu = payload if isinstance(payload, dict) else {}
+        if ios_identifier is not None:
+            ios_identifier = str(ios_identifier).strip()
+            if not ios_identifier:
+                ios_identifier = None
         # 1. Chercher par source_id
         existante = None
         if source_id:
@@ -93,9 +97,16 @@ class NotificationManager:
             if not existante.get("type") and notif_type:
                 existante["type"] = notif_type
                 modifiee = True
-            if ios_identifier and existante.get("ios_identifier") != str(ios_identifier):
-                existante["ios_identifier"] = str(ios_identifier)
-                modifiee = True
+            if not ios_identifier:
+                ancien_payload = existante.get("payload") or {}
+                ios_identifier = (
+                    existante.get("ios_identifier")
+                    or ancien_payload.get("ios_identifier")
+                )
+            if ios_identifier:
+                if existante.get("ios_identifier") != ios_identifier:
+                    existante["ios_identifier"] = ios_identifier
+                    modifiee = True
             # IMPORTANT : fusionner le nouveau payload avec l'ancien
             ancien_payload = existante.get("payload")
             if not isinstance(ancien_payload, dict):
@@ -107,6 +118,10 @@ class NotificationManager:
                     if nouveau_payload.get(cle) != valeur:
                         nouveau_payload[cle] = valeur
                         modifiee = True
+            if ios_identifier:
+                if nouveau_payload.get("ios_identifier") != ios_identifier:
+                    nouveau_payload["ios_identifier"] = ios_identifier
+                    modifiee = True
             existante["payload"] = nouveau_payload
             print(f"[NM DEBUG] Nouveau payload fusionne = {nouveau_payload!r}")
             if modifiee:
@@ -123,6 +138,9 @@ class NotificationManager:
         notif_id = str(int(time.time() * 1000))
         while notif_id in ids_existants:
             notif_id = str(int(notif_id) + 1)
+        payload_final = dict(payload_recu)
+        if ios_identifier:
+            payload_final["ios_identifier"] = ios_identifier
         notif = {
             "id": notif_id,
             "android_id": android_id,
@@ -132,11 +150,11 @@ class NotificationManager:
             "categorie": categorie,
             "match_id": match_id,
             "type": notif_type,
-            "payload": dict(payload_recu),
+            "payload": payload_final,
             "lue": False,
             "traitee": False,
             "source_id": source_id,
-            "ios_identifier": str(ios_identifier) if ios_identifier else None,
+            "ios_identifier": ios_identifier,
         }
         self.notifications.insert(0, notif)
         self.sauvegarder_notifications()
@@ -464,23 +482,33 @@ class IOSNotificationManager(NotificationManager):
         """Retire la notification du centre de notifications iOS."""
         try:
             if not self.UNCenter:
-                return
-            ios_identifier = (notif.get("ios_identifier") or (notif.get("payload") or {}).get("ios_identifier"))
+                print("[FCM iOS] UNUserNotificationCenter indisponible.")
+                return False
+            payload = notif.get("payload") or {}
+            ios_identifier = (notif.get("ios_identifier") or payload.get("ios_identifier"))
+            if ios_identifier is not None:
+                ios_identifier = str(ios_identifier).strip()
             if not ios_identifier:
-                print("[FCM iOS] Aucun ios_identifier trouve pour cette notification.")
-                return
+                print(
+                    "[FCM iOS] Aucun ios_identifier trouve "
+                    f"pour la notification {notif.get('id')!r}."
+                )
+                print(f"[FCM iOS DEBUG] Notification = {notif!r}")
+                return False
             from pyobjus import autoclass
             NSArray = autoclass("NSArray")
             NSString = autoclass("NSString")
-            ns_id = NSString.stringWithUTF8String_(str(ios_identifier))
+            ns_id = NSString.stringWithUTF8String_(ios_identifier)
             identifiers = NSArray.arrayWithObject_(ns_id)
             self.UNCenter.removeDeliveredNotificationsWithIdentifiers_(identifiers)
             print(
-                f"[FCM iOS] Notification supprimee : "
-                f"ios_identifier={ios_identifier}"
+                "[FCM iOS] Demande de suppression envoyee : "
+                f"ios_identifier={ios_identifier!r}"
             )
+            return True
         except Exception as e:
-            print(f"[FCM iOS ERROR] annuler_notification_barre : {e}")
+            print(f"[FCM iOS ERROR] annuler_notification_barre : {e!r}")
+            return False
     
     def annuler_toutes_notifications_barre(self):
         """Supprime les notifications livrées et celles en attente sur iOS."""
