@@ -1518,6 +1518,10 @@ class MyApp(App):
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
             source_id = _get_str("FCVV_NOTIFICATION_SOURCE_ID")
             ios_identifier = _get_str( "FCVV_NOTIFICATION_IDENTIFIER")
+            print(
+                f"[IOS DEBUG] IDENTIFIANT FINAL TRANSMIS = "
+                 f"{ios_identifier!r}"
+            )
             notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
             if not notif_type:
                 notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
