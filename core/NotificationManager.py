@@ -38,7 +38,7 @@ class NotificationManager:
     
         return None
     
-    def ajouter_notification(self,titre,message,categorie=None,match_id=None,notif_type=None,payload=None,android_id=None,source_id=None,):
+    def ajouter_notification(self,titre,message,categorie=None,match_id=None,notif_type=None,payload=None,android_id=None,source_id=None,ios_identifier=None,):
         """Ajoute une notification sans doublon et conserve ses identifiants."""
         print("\n========== [NM DEBUG] AJOUT NOTIFICATION ==========")
         print(f"[NM DEBUG] Titre = {titre!r}")
@@ -93,6 +93,9 @@ class NotificationManager:
             if not existante.get("type") and notif_type:
                 existante["type"] = notif_type
                 modifiee = True
+            if ios_identifier and existante.get("ios_identifier") != str(ios_identifier):
+                existante["ios_identifier"] = str(ios_identifier)
+                modifiee = True
             # IMPORTANT : fusionner le nouveau payload avec l'ancien
             ancien_payload = existante.get("payload")
             if not isinstance(ancien_payload, dict):
@@ -133,6 +136,7 @@ class NotificationManager:
             "lue": False,
             "traitee": False,
             "source_id": source_id,
+            "ios_identifier": str(ios_identifier) if ios_identifier else None,
         }
         self.notifications.insert(0, notif)
         self.sauvegarder_notifications()
@@ -461,8 +465,7 @@ class IOSNotificationManager(NotificationManager):
         try:
             if not self.UNCenter:
                 return
-            payload = notif.get("payload") or {}
-            ios_identifier = payload.get("ios_identifier")
+            ios_identifier = (notif.get("ios_identifier") or (notif.get("payload") or {}).get("ios_identifier"))
             if not ios_identifier:
                 print("[FCM iOS] Aucun ios_identifier trouve pour cette notification.")
                 return
