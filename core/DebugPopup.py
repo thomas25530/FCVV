@@ -1,5 +1,8 @@
 
 import builtins
+import threading
+import inspect
+import os
 
 from kivy.clock import Clock
 from kivy.metrics import dp
@@ -8,29 +11,43 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
 from kivy.uix.button import Button
+from datetime import datetime
+
 
 class DebugPopup:
     def __init__(self):
         self.popup = None
-        self.label = None
         self.scroll = None
+        self.log_container = None
         self.logs = []
+        self.lock = threading.RLock()
         self.original_print = builtins.print
         self.capture_installee = False
         self.rafraichissement = None
+        self.logs_affiches = 0
 
     def installer(self):
         if self.capture_installee:
             return
-
         def debug_print(*args, **kwargs):
-            # Conserver le comportement original
             self.original_print(*args, **kwargs)
             try:
+                frame = inspect.currentframe().f_back
+                fichier = os.path.basename(frame.f_code.co_filename)
+                ligne = frame.f_lineno
+                fonction = frame.f_code.co_name
                 message = " ".join(str(arg) for arg in args)
-                self.logs.append(message)
-                if len(self.logs) > 500:
-                    self.logs = self.logs[-500:]
+                heure = datetime.now().strftime("%H:%M:%S")
+                log = (
+                    f"[{heure}] "
+                    f"[{fichier}:{ligne}] "
+                    f"[{fonction}()] "
+                    f"{message}"
+                )
+                with self.lock:
+                    self.logs.append(log)
+                    if len(self.logs) > 500:
+                        self.logs = self.logs[-500:]
             except Exception:
                 pass
         builtins.print = debug_print
@@ -40,66 +57,87 @@ class DebugPopup:
         if self.popup and self.popup.parent:
             self.popup.dismiss()
         contenu = BoxLayout(orientation="vertical",spacing=dp(5),padding=dp(8))
-        self.scroll = ScrollView( do_scroll_x=False )
-        self.label = Label(text="",size_hint_y=None,halign="left",valign="top", font_size=dp(12),color=(1, 1, 1, 1))
-        self.label.bind(width=lambda instance, value:setattr(instance, "text_size", (value, None)))
-        self.label.bind( texture_size=lambda instance, value:setattr(instance, "height", value[1] + dp(20)))
-        self.scroll.add_widget(self.label)
+        self.scroll = ScrollView( do_scroll_x=False, do_scroll_y=True)
+        # Conteneur vertical des lignes de debug
+        self.log_container = BoxLayout(orientation="vertical",size_hint_y=None, spacing=dp(2))
+        self.log_container.bind(minimum_height=self.log_container.setter("height") )
+        self.scroll.add_widget(self.log_container)
         contenu.add_widget(self.scroll)
-        boutons = BoxLayout(size_hint_y=None,height=dp(45),spacing=dp(5))
+        boutons = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(5))
         btn_copier = Button(text="Copier")
         btn_effacer = Button(text="Effacer")
         btn_fermer = Button(text="Fermer")
         btn_copier.bind(on_release=self.copier)
         btn_effacer.bind(on_release=self.effacer)
-        btn_fermer.bind(on_release=lambda instance: self.popup.dismiss())
         boutons.add_widget(btn_copier)
         boutons.add_widget(btn_effacer)
         boutons.add_widget(btn_fermer)
         contenu.add_widget(boutons)
-        self.popup = Popup(title="FCVV - DEBUG",content=contenu,size_hint=(0.95, 0.85),auto_dismiss=False)
-        self.popup.bind(on_open=self.demarrer_rafraichissement)
+        self.popup = Popup(title="FCVV - DEBUG", content=contenu, size_hint=(0.95, 0.85), auto_dismiss=False)
+        btn_fermer.bind(on_release=lambda instance: self.popup.dismiss())
+        self.popup.bind( on_open=self.demarrer_rafraichissement )
         self.popup.bind(on_dismiss=self.arreter_rafraichissement)
         self.popup.open()
 
     def demarrer_rafraichissement(self, instance):
+        self.logs_affiches = 0
+        self.log_container.clear_widgets()
         self.actualiser()
         if self.rafraichissement:
             self.rafraichissement.cancel()
-        self.rafraichissement = Clock.schedule_interval(self.actualiser_periodique,0.5)
+        self.rafraichissement = Clock.schedule_interval(self.actualiser_periodique,0.5 )
 
     def arreter_rafraichissement(self, instance):
         if self.rafraichissement:
             self.rafraichissement.cancel()
             self.rafraichissement = None
-        self.label = None
         self.scroll = None
+        self.log_container = None
 
     def actualiser_periodique(self, dt):
         self.actualiser()
 
-    def actualiser(self, dt=0):
-        if not self.label:
+    def actualiser(self):
+        if not self.log_container:
             return
-        texte = "\n".join(self.logs)
-        if self.label.text != texte:
-            self.label.text = texte
-            self.label.texture_update()
-            self.label.height = (self.label.texture_size[1] + dp(20))
-            Clock.schedule_once(self.descendre, 0.1)
+        # Récupérer une copie sécurisée des logs
+        with self.lock:
+            nouveaux_logs = list(self.logs)
+        # Si les anciens logs ont été supprimés
+        if self.logs_affiches > len(nouveaux_logs):
+            self.log_container.clear_widgets()
+            self.logs_affiches = 0
+        # Ajouter uniquement les nouvelles lignes
+        for message in nouveaux_logs[self.logs_affiches:]:
+            ligne = Label(text=message,size_hint_y=None,halign="left",valign="middle", font_size=dp(12),color=(1, 1, 1, 1),padding=(dp(3), dp(3)))
+            ligne.bind(
+                width=lambda instance, value:
+                setattr(instance,"text_size",(value, None)))
+            ligne.bind(
+                texture_size=lambda instance, value:
+                setattr(instance,"height",value[1] + dp(8)))
+            self.log_container.add_widget(ligne)
+            self.logs_affiches += 1
+        if self.scroll and nouveaux_logs:
+            Clock.schedule_once(self.descendre,0.1)
 
     def descendre(self, dt=0):
         if self.scroll:
             self.scroll.scroll_y = 0
 
     def effacer(self, instance):
-        self.logs.clear()
-        self.actualiser()
+        with self.lock:
+            self.logs.clear()
+        if self.log_container:
+            self.log_container.clear_widgets()
+        self.logs_affiches = 0
 
     def copier(self, instance):
         try:
             from kivy.core.clipboard import Clipboard
-            Clipboard.copy("\n".join(self.logs))
+            with self.lock:
+                texte = "\n".join(self.logs)
+            Clipboard.copy(texte)
             self.original_print("[DEBUG] Logs copies dans le presse-papiers.")
         except Exception as e:
             self.original_print("[DEBUG] Erreur copie :", repr(e))
