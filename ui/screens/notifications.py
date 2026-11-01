@@ -312,7 +312,7 @@ class NotificationsScreen(Screen):
             :self.nombre_notifications_affichees
         ]
         for notif in notifications_visibles:
-            card = NotificationCard(notif=notif,callback=self.ouvrir_notification,debug=True )
+            card = NotificationCard(notif=notif,callback=self.ouvrir_notification,debug=False )
             card.notifications_screen = self
             self.content.add_widget(card)
         # Ajouter le bouton seulement s'il reste des notifications.
