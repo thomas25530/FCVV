@@ -1550,6 +1550,7 @@ class MyApp(App):
                     notif_type=notif_type or None,
                     payload=payload,
                     source_id=source_id,
+                    ios_identifier=ios_identifier or None,
                 )
                 print(f"[IOS DEBUG] Resultat ajouter_notification = {notif_locale!r}")
                 # Le clic sur la notification iOS vaut consultation
