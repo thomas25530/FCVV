@@ -83,9 +83,11 @@ class DebugPopup:
         self.logs_affiches = 0
         self.log_container.clear_widgets()
         self.actualiser()
+        # Positionner automatiquement en bas à l'ouverture
+        Clock.schedule_once(self.descendre, 0.2)
         if self.rafraichissement:
             self.rafraichissement.cancel()
-        self.rafraichissement = Clock.schedule_interval(self.actualiser_periodique,0.5 )
+        self.rafraichissement = Clock.schedule_interval(self.actualiser_periodique, 0.5)
 
     def arreter_rafraichissement(self, instance):
         if self.rafraichissement:
@@ -100,26 +102,25 @@ class DebugPopup:
     def actualiser(self):
         if not self.log_container:
             return
+        # Vérifier si l'utilisateur est déjà en bas
+        est_en_bas = self.scroll and self.scroll.scroll_y <= 0.02
         # Récupérer une copie sécurisée des logs
         with self.lock:
             nouveaux_logs = list(self.logs)
-        # Si les anciens logs ont été supprimés
+        # Si des anciens logs ont été supprimés
         if self.logs_affiches > len(nouveaux_logs):
             self.log_container.clear_widgets()
             self.logs_affiches = 0
         # Ajouter uniquement les nouvelles lignes
         for message in nouveaux_logs[self.logs_affiches:]:
-            ligne = Label(text=message,size_hint_y=None,halign="left",valign="middle", font_size=dp(12),color=(1, 1, 1, 1),padding=(dp(3), dp(3)))
-            ligne.bind(
-                width=lambda instance, value:
-                setattr(instance,"text_size",(value, None)))
-            ligne.bind(
-                texture_size=lambda instance, value:
-                setattr(instance,"height",value[1] + dp(8)))
+            ligne = Label(text=message,size_hint_y=None,halign="left",valign="middle",font_size=dp(12), color=(1, 1, 1, 1),padding=(dp(3), dp(3)))
+            ligne.bind(width=lambda instance, value: setattr(instance, "text_size", (value, None)))
+            ligne.bind(texture_size=lambda instance, value: setattr(instance, "height", value[1] + dp(8)))
             self.log_container.add_widget(ligne)
             self.logs_affiches += 1
-        if self.scroll and nouveaux_logs:
-            Clock.schedule_once(self.descendre,0.1)
+        # Descendre uniquement si l'utilisateur était déjà en bas
+        if est_en_bas and self.scroll:
+            Clock.schedule_once(self.descendre, 0.1)
 
     def descendre(self, dt=0):
         if self.scroll:
