@@ -302,6 +302,7 @@ class SettingsScreen(Screen):
         if hasattr(app, 'config'):
             app.config.set('User', 'news_period', str(new_val))
             app.config.write()
+            self.refresh_root_menu()
         # Commande la mise à jour immédiate du HomeScreen s'il est chargé
         if app.root and hasattr(app.root, 'sm'):
             if app.root.sm.has_screen('home'):
@@ -590,6 +591,11 @@ class SettingsScreen(Screen):
             btn.text = original_text
             btn.disabled = False
 
+    def refresh_root_menu(self):
+        app = App.get_running_app()
+        if app and hasattr(app.root, "rebuild_menu"):
+            app.root.rebuild_menu()
+    
     def update_refresh_label_and_config(self, instance, value):
         new_val = int(value)
         if self.refresh_value_label:
@@ -599,6 +605,7 @@ class SettingsScreen(Screen):
         if hasattr(app, 'config'):
             app.config.set('User', 'refresh_interval', str(new_val))
             app.config.write()
+            self.refresh_root_menu()
         try:
             sm = app.root if hasattr(app.root, 'get_screen') else app.root.sm
             if sm.has_screen('soirees'):
@@ -639,6 +646,7 @@ class SettingsScreen(Screen):
         if hasattr(app, 'config'):
             app.config.set('User', 'dark_mode', '1' if value else '0')
             app.config.write()
+            self.refresh_root_menu()
             if app.root:
                 app.root.menu_built = False
             if hasattr(app, 'refresh_ui_theme'): 
