@@ -627,14 +627,24 @@ class RootLayout(FloatLayout):
         row_notifications.bind( on_release=lambda x:self.switch_screen("notifications"))
         self.menu_panel.add_widget(row_notifications)
         # =====================================
-        # BOUTON DEBUG TEMPORAIRE
+        # BOUTON DEBUG (ACCÈS SECRET)
+        # Visible uniquement si les 3 conditions sont réunies
         # =====================================
-        btn_debug = Button(text="OUVRIR DEBUG",size_hint_y=None,height=dp(45),background_color=(0.8, 0.2, 0.2, 1),color=(1, 1, 1, 1))
-        def ouvrir_debug(*args):
-            self.close_menu()
-            app.debug_popup.afficher()
-        btn_debug.bind(on_release=ouvrir_debug)
-        self.menu_panel.add_widget(btn_debug)
+        try:
+            debug_mode_enabled = (
+                app.config.getboolean("User", "dark_mode", fallback=False)
+                and app.config.getint("User", "refresh_interval", fallback=5) == 15
+                and app.config.getint("User", "news_period", fallback=15) == 60
+            )
+        except Exception:
+            debug_mode_enabled = False
+        if debug_mode_enabled:  
+            btn_debug = Button(text="OUVRIR DEBUG",size_hint_y=None,height=dp(45),background_color=(0.8, 0.2, 0.2, 1),color=(1, 1, 1, 1))
+            def ouvrir_debug(*args):
+                self.close_menu()
+                app.debug_popup.afficher()
+            btn_debug.bind(on_release=ouvrir_debug)
+            self.menu_panel.add_widget(btn_debug)
         # --- GESTION DU VESTIAIRE DYNAMIQUE ---
         categories_autorisees = getattr(app, "authorized_vestiaires", [])
         if len(categories_autorisees) > 1:
