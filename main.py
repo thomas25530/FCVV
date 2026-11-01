@@ -33,6 +33,7 @@ from constants import LANGUAGES
 from kivy.utils import platform
 
 from core.NotificationManager import NotificationManager
+from core.DebugPopup import DebugPopup
 
 # Bloc conditionnel pour éviter l'erreur "Unable to find JAVA_HOME" sur Windows
 if platform == 'android':
@@ -625,6 +626,15 @@ class RootLayout(FloatLayout):
         row_notifications = MenuRow( icon_source="assets/icons/notification.png",text="Notifications",badge_text=(str(unread_count) if unread_count > 0 else None))
         row_notifications.bind( on_release=lambda x:self.switch_screen("notifications"))
         self.menu_panel.add_widget(row_notifications)
+        # =====================================
+        # BOUTON DEBUG TEMPORAIRE
+        # =====================================
+        btn_debug = Button(text="OUVRIR DEBUG",size_hint_y=None,height=dp(45),background_color=(0.8, 0.2, 0.2, 1),color=(1, 1, 1, 1))
+        def ouvrir_debug(*args):
+            self.close_menu()
+            app.debug_popup.afficher()
+        btn_debug.bind(on_release=ouvrir_debug)
+        self.menu_panel.add_widget(btn_debug)
         # --- GESTION DU VESTIAIRE DYNAMIQUE ---
         categories_autorisees = getattr(app, "authorized_vestiaires", [])
         if len(categories_autorisees) > 1:
@@ -725,6 +735,10 @@ class MyApp(App):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # SYSTEME DE DEBUG
+        self.debug_popup = DebugPopup()
+        self.debug_popup.installer()
+        ############################
         self._notifications_lock = threading.RLock()
         self._notifications_sync_generation = 0
         self._ = _
@@ -1465,7 +1479,10 @@ class MyApp(App):
         Ajoute la notification au centre avec les états lue et traitee,
         puis effectue la redirection habituelle.
         """
+        print("\n========== [IOS DEBUG] DEBUT VERIFICATION ==========")
+        print(f"[IOS DEBUG] Platform = {platform}")
         if platform != "ios":
+            print("[IOS DEBUG] Plateforme differente de iOS : abandon.")
             return
         try:
             from pyobjus import autoclass
@@ -1473,14 +1490,18 @@ class MyApp(App):
             defaults = NSUserDefaults.standardUserDefaults()
             # 1. Vérifier la présence d'une notification en attente
             pending = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
+            print(f"[IOS DEBUG] FCVV_NOTIFICATION_PENDING = {pending!r}")
             if not pending:
                 print("[iOS FCM] Aucune notification en attente.")
+                print("========== [IOS DEBUG] FIN VERIFICATION ==========\n")
                 return
             print("[iOS FCM] Notification en attente detectee.")
             # 2. Lire les informations de la notification
             def _get_str(key):
                 val = defaults.stringForKey_(key)
-                return str(val) if val is not None else ""
+                result = str(val) if val is not None else ""
+                print(f"[IOS DEBUG] {key} = {result!r}")
+                return result
             titre = _get_str("FCVV_NOTIFICATION_TITLE")
             message = _get_str("FCVV_NOTIFICATION_BODY")
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
@@ -1491,36 +1512,59 @@ class MyApp(App):
             if not notif_type:
                 notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
             nt = notif_type.strip().lower()
+            print("[IOS DEBUG] -------- RECAPITULATIF --------")
+            print(f"[IOS DEBUG] Titre = {titre!r}")
+            print(f"[IOS DEBUG] Message present = {bool(message)}")
+            print(f"[IOS DEBUG] Categorie = {categorie!r}")
+            print(f"[IOS DEBUG] Match ID = {match_id!r}")
+            print(f"[IOS DEBUG] Source ID = {source_id!r}")
+            print(f"[IOS DEBUG] IOS Identifier = {ios_identifier!r}")
+            print(f"[IOS DEBUG] Notification type = {notif_type!r}")
+            print(f"[IOS DEBUG] Notification manager disponible = {bool(self.notification_manager)}")
             # 3. Ajouter la notification au centre
             # et mémoriser l'entrée locale créée.
             notif_locale = None
             if titre and message and self.notification_manager:
+                payload = {
+                    "categorie": categorie,
+                    "match_id": match_id,
+                    "source_id": source_id,
+                    "ios_identifier": ios_identifier,
+                }
+                print(f"[IOS DEBUG] Payload AVANT ajout = {payload}")
                 notif_locale = self.notification_manager.ajouter_notification(
                     titre=titre,
                     message=message,
                     categorie=categorie or None,
                     match_id=match_id or None,
                     notif_type=notif_type or None,
-                    payload={
-                        "categorie": categorie,
-                        "match_id": match_id,
-                        "source_id": source_id,
-                        "ios_identifier": ios_identifier,
-                    },
+                    payload=payload,
                     source_id=source_id,
                 )
+                print(f"[IOS DEBUG] Resultat ajouter_notification = {notif_locale!r}")
                 # Le clic sur la notification iOS vaut consultation
                 # et traitement de cette notification.
                 if notif_locale:
+                    print(
+                        f"[IOS DEBUG] Payload APRES ajout = "
+                        f"{notif_locale.get('payload')!r}"
+                    )
                     self.notification_manager.marquer_comme_traitee(notif_locale["id"] )
                     print(
                         "[iOS FCM] Notification ajoutee, "
                         "lue et traitee : "
                         f"{notif_locale['id']}"
                     )
+                else:
+                    print("[IOS DEBUG] ajouter_notification a retourne None.")
+                        
             # 4. Décrémenter le badge serveur
+            print(f"[IOS DEBUG] Categorie avant decrementation badge = {categorie!r}")
             if categorie != "TournoiVercel":
+                print("[IOS DEBUG] Appel decrementer_badge_depuis_api()")
                 self.decrementer_badge_depuis_api()
+            else:
+                print("[IOS DEBUG] Decrementation badge ignoree pour TournoiVercel.")
             # 5. Effectuer la redirection habituelle
             if nt in ("manual", "home") or not categorie:
                 print("[iOS FCM] Redirection -> HOME")
@@ -1530,6 +1574,7 @@ class MyApp(App):
                 Clock.schedule_once( lambda dt: self.executer_redirection_vestiaire( categorie, match_id if match_id else None, notif_type if notif_type else None ), 0.5 )
             # 6. Actualiser le menu si nécessaire
             if (notif_locale and self.root and hasattr(self.root, "rebuild_menu")):
+                print("[IOS DEBUG] Planification actualisation du menu.")
                 Clock.schedule_once(lambda dt: self.root.rebuild_menu(), 0 )
             # 7. Nettoyer les données de notification traitées
             keys_to_clean = [
@@ -1543,12 +1588,17 @@ class MyApp(App):
                 "FCVV_NOTIFICATION_IDENTIFIER",
                 "FCVV_NOTIFICATION_TYPE_ALT"
             ]
+            print("[IOS DEBUG] Nettoyage des cles NSUserDefaults :")
             for key in keys_to_clean:
+                print(f"[IOS DEBUG] Suppression de {key}")
                 defaults.removeObjectForKey_(key)
             defaults.synchronize()
             print("[iOS FCM] Cles NSUserDefaults purgees avec succes.")
         except Exception as e:
             print( f"[iOS FCM ERROR] Echec lors de la verification : {e!r}" )
+            import traceback
+            traceback.print_exc()
+        print("========== [IOS DEBUG] FIN VERIFICATION ==========\n")
     
     def verifier_redirection_notification_android(self):
         if platform != "android":
@@ -1941,6 +1991,7 @@ class MyApp(App):
         Window.bind(on_keyboard=self.on_back_button)
         Clock.schedule_once(lambda dt: self.start_network_tasks(), 1)
         if platform in ("android", "ios"):
+            print("[IOS DEBUG] Planification verifier_redirection_notification dans 2 secondes")
             Clock.schedule_once(lambda dt: self.verifier_redirection_notification(),2.0)
     
     def on_resume(self):
