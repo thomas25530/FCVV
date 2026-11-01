@@ -38,8 +38,13 @@ class NotificationManager:
     
         return None
     
-    def ajouter_notification(self, titre, message, categorie=None, match_id=None, notif_type=None, payload=None, android_id=None, source_id=None,):
+    def ajouter_notification(self,titre,message,categorie=None,match_id=None,notif_type=None,payload=None,android_id=None,source_id=None,):
         """Ajoute une notification sans doublon et conserve ses identifiants."""
+        print("\n========== [NM DEBUG] AJOUT NOTIFICATION ==========")
+        print(f"[NM DEBUG] Titre = {titre!r}")
+        print(f"[NM DEBUG] Source ID recu = {source_id!r}")
+        print(f"[NM DEBUG] Android ID recu = {android_id!r}")
+        print(f"[NM DEBUG] Payload recu = {payload!r}")
         # Normaliser les identifiants
         source_id = str(source_id).strip() if source_id else None
         if android_id is not None:
@@ -47,18 +52,25 @@ class NotificationManager:
                 android_id = int(android_id)
             except (TypeError, ValueError):
                 android_id = None
+        # Normaliser le payload reçu
+        payload_recu = payload if isinstance(payload, dict) else {}
         # 1. Chercher par source_id
         existante = None
         if source_id:
             for notif in self.notifications:
                 if notif.get("source_id") == source_id:
                     existante = notif
+                    print("[NM DEBUG] Doublon trouve par source_id.")
                     break
         # 2. Sinon, chercher par android_id
         if existante is None and android_id is not None:
             existante = self.trouver_notification_par_android_id(android_id)
+            if existante is not None:
+                print("[NM DEBUG] Doublon trouve par android_id.")
         # 3. Compléter la notification existante
         if existante is not None:
+            print(f"[NM DEBUG] Notification existante ID = {existante.get('id')}")
+            print(f"[NM DEBUG] Ancien payload = {existante.get('payload')!r}")
             modifiee = False
             if source_id and not existante.get("source_id"):
                 existante["source_id"] = source_id
@@ -81,10 +93,29 @@ class NotificationManager:
             if not existante.get("type") and notif_type:
                 existante["type"] = notif_type
                 modifiee = True
+            # IMPORTANT : fusionner le nouveau payload avec l'ancien
+            ancien_payload = existante.get("payload")
+            if not isinstance(ancien_payload, dict):
+                ancien_payload = {}
+            nouveau_payload = dict(ancien_payload)
+            for cle, valeur in payload_recu.items():
+                # Ne pas remplacer une valeur existante par une valeur vide
+                if valeur is not None and valeur != "":
+                    if nouveau_payload.get(cle) != valeur:
+                        nouveau_payload[cle] = valeur
+                        modifiee = True
+            existante["payload"] = nouveau_payload
+            print(f"[NM DEBUG] Nouveau payload fusionne = {nouveau_payload!r}")
             if modifiee:
+                print("[NM DEBUG] Notification modifiee : sauvegarde.")
                 self.sauvegarder_notifications()
+            else:
+                print("[NM DEBUG] Aucun changement necessaire.")
+            print(f"[NM DEBUG] Payload final = {existante.get('payload')!r}")
+            print("========== [NM DEBUG] FIN AJOUT ==========\n")
             return existante
         # 4. Créer une nouvelle notification
+        print("[NM DEBUG] Aucune notification existante : creation.")
         ids_existants = {str(n.get("id")) for n in self.notifications}
         notif_id = str(int(time.time() * 1000))
         while notif_id in ids_existants:
@@ -98,13 +129,16 @@ class NotificationManager:
             "categorie": categorie,
             "match_id": match_id,
             "type": notif_type,
-            "payload": payload or {},
+            "payload": dict(payload_recu),
             "lue": False,
             "traitee": False,
             "source_id": source_id,
         }
         self.notifications.insert(0, notif)
         self.sauvegarder_notifications()
+        print(f"[NM DEBUG] Nouvelle notification creee : {notif_id}")
+        print(f"[NM DEBUG] Payload enregistre = {notif['payload']!r}")
+        print("========== [NM DEBUG] FIN AJOUT ==========\n")
         return notif
     
     def get_unread_count(self):
