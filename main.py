@@ -1482,12 +1482,13 @@ class MyApp(App):
             self.verifier_redirection_notification_android()
         elif platform == "ios":
             self.verifier_redirection_notification_ios()
-    
+            
     def verifier_redirection_notification_ios(self):
         """
         Vérifie si l'application iOS a été ouverte depuis une notification.
-        Ajoute la notification au centre avec les états lue et traitee,
-        puis effectue la redirection habituelle.
+        Convertit correctement les objets Objective-C en Python,
+        ajoute la notification au centre, la marque comme traitée
+        et effectue la redirection habituelle.
         """
         print("\n========== [IOS DEBUG] DEBUT VERIFICATION ==========")
         print(f"[IOS DEBUG] Platform = {platform}")
@@ -1496,20 +1497,74 @@ class MyApp(App):
             return
         try:
             from pyobjus import autoclass
+            from ctypes import c_void_p, c_char_p
             NSUserDefaults = autoclass("NSUserDefaults")
             defaults = NSUserDefaults.standardUserDefaults()
-            # 1. Vérifier la présence d'une notification en attente
+            # --------------------------------------------------
+            # 1. CONVERSION OBJECTIVE-C -> PYTHON
+            # --------------------------------------------------
+            def objc_to_str(value):
+                """
+                Convertit NSString / objets Objective-C en str Python.
+                Evite les affichages __NSCFString object at ...
+                """
+                if value is None:
+                    return ""
+                # Cas d'une chaine Python deja convertie
+                if isinstance(value, str):
+                    return value
+                # Conversion NSString via UTF8String
+                try:
+                    utf8 = value.UTF8String()
+                    if utf8 is not None:
+                        if isinstance(utf8, bytes):
+                            return utf8.decode("utf-8", errors="replace")
+                        if isinstance(utf8, str):
+                            return utf8
+                        # Certaines versions de PyObjus retournent
+                        # un pointeur C au lieu de bytes.
+                        if isinstance(utf8, int):
+                            raw = c_char_p(utf8).value
+                            if raw:
+                                return raw.decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+                # Dernier recours : conversion Python
+                try:
+                    result = str(value)
+                    if "object at 0x" not in result:
+                        return result
+                except Exception:
+                    pass
+                return ""
+            # --------------------------------------------------
+            # 2. VERIFICATION NOTIFICATION EN ATTENTE
+            # --------------------------------------------------
             pending = defaults.objectForKey_("FCVV_NOTIFICATION_PENDING")
             print(f"[IOS DEBUG] FCVV_NOTIFICATION_PENDING = {pending!r}")
-            if not pending:
+            if pending is None:
                 print("[iOS FCM] Aucune notification en attente.")
                 print("========== [IOS DEBUG] FIN VERIFICATION ==========\n")
                 return
+            try:
+                pending_value = bool(pending.boolValue())
+            except Exception:
+                pending_value = bool(pending)
+            if not pending_value:
+                print("[iOS FCM] Notification non active.")
+                print("========== [IOS DEBUG] FIN VERIFICATION ==========\n")
+                return
             print("[iOS FCM] Notification en attente detectee.")
-            # 2. Lire les informations de la notification
+            # --------------------------------------------------
+            # 3. LECTURE SECURISEE DES DONNEES
+            # --------------------------------------------------
             def _get_str(key):
-                val = defaults.stringForKey_(key)
-                result = str(val) if val is not None else ""
+                try:
+                    val = defaults.objectForKey_(key)
+                    result = objc_to_str(val).strip()
+                except Exception as e:
+                    print(f"[IOS DEBUG] Erreur lecture {key} : {e!r}")
+                    result = ""
                 print(f"[IOS DEBUG] {key} = {result!r}")
                 return result
             titre = _get_str("FCVV_NOTIFICATION_TITLE")
@@ -1517,8 +1572,6 @@ class MyApp(App):
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
             source_id = _get_str("FCVV_NOTIFICATION_SOURCE_ID")
-            if not source_id:
-                print("[IOS DEBUG] ATTENTION : source_id absent.")
             notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
             if not notif_type:
                 notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
@@ -1530,17 +1583,21 @@ class MyApp(App):
             print(f"[IOS DEBUG] Match ID = {match_id!r}")
             print(f"[IOS DEBUG] Source ID = {source_id!r}")
             print(f"[IOS DEBUG] Notification type = {notif_type!r}")
-            print(f"[IOS DEBUG] Notification manager disponible = {bool(self.notification_manager)}")
-            # 3. Ajouter la notification au centre
-            # et mémoriser l'entrée locale créée.
+            print(
+                f"[IOS DEBUG] Notification manager disponible = "
+                f"{bool(self.notification_manager)}"
+            )
+            # --------------------------------------------------
+            # 4. AJOUT DANS LE CENTRE DE NOTIFICATIONS
+            # --------------------------------------------------
             notif_locale = None
             if titre and message and self.notification_manager:
                 payload = {
                     "categorie": categorie,
-                    "match_id": match_id,
+                    "match_id": match_id or None,
                     "source_id": source_id,
                 }
-                print(f"[IOS DEBUG] Payload AVANT ajout = {payload}")
+                print(f"[IOS DEBUG] Payload AVANT ajout = {payload!r}")
                 notif_locale = self.notification_manager.ajouter_notification(
                     titre=titre,
                     message=message,
@@ -1548,44 +1605,72 @@ class MyApp(App):
                     match_id=match_id or None,
                     notif_type=notif_type or None,
                     payload=payload,
-                    source_id=source_id,
+                    source_id=source_id or None,
                 )
-                print(f"[IOS DEBUG] Resultat ajouter_notification = {notif_locale!r}")
-                # Le clic sur la notification iOS vaut consultation
-                # et traitement de cette notification.
-                if notif_locale:
+                print(
+                    f"[IOS DEBUG] Resultat ajouter_notification = "
+                    f"{notif_locale!r}"
+                )
+                if notif_locale and notif_locale.get("id"):
+                    notif_id = notif_locale["id"]
                     print(
                         f"[IOS DEBUG] Payload APRES ajout = "
                         f"{notif_locale.get('payload')!r}"
                     )
-                    self.notification_manager.marquer_comme_traitee(notif_locale["id"] )
+                    # Marquer comme lue et traitee
+                    self.notification_manager.marquer_comme_traitee(notif_id)
                     print(
-                        "[iOS FCM] Notification ajoutee, "
-                        "lue et traitee : "
-                        f"{notif_locale['id']}"
+                        f"[iOS FCM] Notification ajoutee, lue et traitee : "
+                        f"{notif_id}"
                     )
                 else:
-                    print("[IOS DEBUG] ajouter_notification a retourne None.")
-                        
-            # 4. Décrémenter le badge serveur
-            print(f"[IOS DEBUG] Categorie avant decrementation badge = {categorie!r}")
-            if categorie != "TournoiVercel":
-                print("[IOS DEBUG] Appel decrementer_badge_depuis_api()")
-                self.decrementer_badge_depuis_api()
+                    print( "[IOS DEBUG] Ajouter_notification a retourne un resultat invalide.")
             else:
-                print("[IOS DEBUG] Decrementation badge ignoree pour TournoiVercel.")
-            # 5. Effectuer la redirection habituelle
+                print("[IOS DEBUG] Ajout ignore : titre, message ou notification_manager manquant.")
+            # --------------------------------------------------
+            # 5. DECREMENTATION BADGE SERVEUR
+            # --------------------------------------------------
+            print(
+                f"[IOS DEBUG] Categorie avant decrementation badge = "
+                f"{categorie!r}"
+            )
+            if categorie and categorie != "TournoiVercel":
+                print("[IOS DEBUG] Appel decrementer_badge_depuis_api()")
+                try:
+                    self.decrementer_badge_depuis_api()
+                except Exception as e:
+                    print(f"[IOS DEBUG] Erreur decrementation badge : {e!r}")
+            else:
+                print("[IOS DEBUG] Decrementation badge ignoree pour categorie vide ou TournoiVercel.")
+            # --------------------------------------------------
+            # 6. REDIRECTION
+            # --------------------------------------------------
             if nt in ("manual", "home") or not categorie:
                 print("[iOS FCM] Redirection -> HOME")
                 Clock.schedule_once(lambda dt: self.executer_redirection_home(),0.5)
             else:
                 print(f"[iOS FCM] Redirection -> VESTIAIRE ({categorie})")
-                Clock.schedule_once( lambda dt: self.executer_redirection_vestiaire( categorie, match_id if match_id else None, notif_type if notif_type else None ), 0.5 )
-            # 6. Actualiser le menu si nécessaire
-            if (notif_locale and self.root and hasattr(self.root, "rebuild_menu")):
+                Clock.schedule_once(
+                    lambda dt: self.executer_redirection_vestiaire(
+                        categorie,
+                        match_id if match_id else None,
+                        notif_type if notif_type else None
+                    ),
+                    0.5
+                )
+            # -------------------------------------------------
+            # 7. ACTUALISATION MENU
+            # --------------------------------------------------
+            if (
+                notif_locale
+                and self.root
+                and hasattr(self.root, "rebuild_menu")
+            ):
                 print("[IOS DEBUG] Planification actualisation du menu.")
-                Clock.schedule_once(lambda dt: self.root.rebuild_menu(), 0 )
-            # 7. Nettoyer les données de notification traitées
+                Clock.schedule_once(lambda dt: self.root.rebuild_menu(),0)
+            # --------------------------------------------------
+            # 8. NETTOYAGE NSUSERDEFAULTS
+            # --------------------------------------------------
             keys_to_clean = [
                 "FCVV_NOTIFICATION_PENDING",
                 "FCVV_NOTIFICATION_TITLE",
@@ -1594,7 +1679,7 @@ class MyApp(App):
                 "FCVV_NOTIFICATION_MATCH_ID",
                 "FCVV_NOTIFICATION_TYPE",
                 "FCVV_NOTIFICATION_SOURCE_ID",
-                "FCVV_NOTIFICATION_TYPE_ALT"
+                "FCVV_NOTIFICATION_TYPE_ALT",
             ]
             print("[IOS DEBUG] Nettoyage des cles NSUserDefaults :")
             for key in keys_to_clean:
@@ -1603,7 +1688,7 @@ class MyApp(App):
             defaults.synchronize()
             print("[iOS FCM] Cles NSUserDefaults purgees avec succes.")
         except Exception as e:
-            print( f"[iOS FCM ERROR] Echec lors de la verification : {e!r}" )
+            print(f"[iOS FCM ERROR] Echec lors de la verification : {e!r}")
             import traceback
             traceback.print_exc()
         print("========== [IOS DEBUG] FIN VERIFICATION ==========\n")
