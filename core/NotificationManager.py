@@ -38,7 +38,7 @@ class NotificationManager:
     
         return None
     
-    def ajouter_notification(self,titre,message,categorie=None,match_id=None,notif_type=None,payload=None,android_id=None,source_id=None,ios_identifier=None,):
+    def ajouter_notification(self,titre,message,categorie=None,match_id=None,notif_type=None,payload=None,android_id=None,source_id=None,):
         """Ajoute une notification sans doublon et conserve ses identifiants."""
         print("\n========== [NM DEBUG] AJOUT NOTIFICATION ==========")
         print(f"[NM DEBUG] Titre = {titre!r}")
@@ -54,10 +54,6 @@ class NotificationManager:
                 android_id = None
         # Normaliser le payload reçu
         payload_recu = payload if isinstance(payload, dict) else {}
-        if ios_identifier is not None:
-            ios_identifier = str(ios_identifier).strip()
-            if not ios_identifier:
-                ios_identifier = None
         # 1. Chercher par source_id
         existante = None
         if source_id:
@@ -97,16 +93,6 @@ class NotificationManager:
             if not existante.get("type") and notif_type:
                 existante["type"] = notif_type
                 modifiee = True
-            if not ios_identifier:
-                ancien_payload = existante.get("payload") or {}
-                ios_identifier = (
-                    existante.get("ios_identifier")
-                    or ancien_payload.get("ios_identifier")
-                )
-            if ios_identifier:
-                if existante.get("ios_identifier") != ios_identifier:
-                    existante["ios_identifier"] = ios_identifier
-                    modifiee = True
             # IMPORTANT : fusionner le nouveau payload avec l'ancien
             ancien_payload = existante.get("payload")
             if not isinstance(ancien_payload, dict):
@@ -118,10 +104,6 @@ class NotificationManager:
                     if nouveau_payload.get(cle) != valeur:
                         nouveau_payload[cle] = valeur
                         modifiee = True
-            if ios_identifier:
-                if nouveau_payload.get("ios_identifier") != ios_identifier:
-                    nouveau_payload["ios_identifier"] = ios_identifier
-                    modifiee = True
             existante["payload"] = nouveau_payload
             print(f"[NM DEBUG] Nouveau payload fusionne = {nouveau_payload!r}")
             if modifiee:
@@ -139,8 +121,6 @@ class NotificationManager:
         while notif_id in ids_existants:
             notif_id = str(int(notif_id) + 1)
         payload_final = dict(payload_recu)
-        if ios_identifier:
-            payload_final["ios_identifier"] = ios_identifier
         notif = {
             "id": notif_id,
             "android_id": android_id,
@@ -154,7 +134,6 @@ class NotificationManager:
             "lue": False,
             "traitee": False,
             "source_id": source_id,
-            "ios_identifier": ios_identifier,
         }
         self.notifications.insert(0, notif)
         self.sauvegarder_notifications()
@@ -485,12 +464,12 @@ class IOSNotificationManager(NotificationManager):
                 print("[FCM iOS] UNUserNotificationCenter indisponible.")
                 return False
             payload = notif.get("payload") or {}
-            ios_identifier = (notif.get("ios_identifier") or payload.get("ios_identifier"))
-            if ios_identifier is not None:
-                ios_identifier = str(ios_identifier).strip()
-            if not ios_identifier:
+            source_id = (notif.get("source_id") or payload.get("source_id"))
+            if source_id is not None:
+                source_id = str(source_id).strip()
+            if not source_id:
                 print(
-                    "[FCM iOS] Aucun ios_identifier trouve "
+                    f"[FCM iOS] Aucun source_id trouve "
                     f"pour la notification {notif.get('id')!r}."
                 )
                 print(f"[FCM iOS DEBUG] Notification = {notif!r}")
@@ -498,12 +477,12 @@ class IOSNotificationManager(NotificationManager):
             from pyobjus import autoclass
             NSArray = autoclass("NSArray")
             NSString = autoclass("NSString")
-            ns_id = NSString.stringWithUTF8String_(ios_identifier)
+            ns_id = NSString.stringWithUTF8String_(source_id)
             identifiers = NSArray.arrayWithObject_(ns_id)
             self.UNCenter.removeDeliveredNotificationsWithIdentifiers_(identifiers)
             print(
                 "[FCM iOS] Demande de suppression envoyee : "
-                f"ios_identifier={ios_identifier!r}"
+                f"source_id={source_id!r}"
             )
             return True
         except Exception as e:
