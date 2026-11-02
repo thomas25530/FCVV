@@ -1517,11 +1517,8 @@ class MyApp(App):
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
             source_id = _get_str("FCVV_NOTIFICATION_SOURCE_ID")
-            ios_identifier = _get_str( "FCVV_NOTIFICATION_IDENTIFIER")
-            print(
-                f"[IOS DEBUG] IDENTIFIANT FINAL TRANSMIS = "
-                 f"{ios_identifier!r}"
-            )
+            if not source_id:
+                print("[IOS DEBUG] ATTENTION : source_id absent.")
             notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
             if not notif_type:
                 notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
@@ -1532,7 +1529,6 @@ class MyApp(App):
             print(f"[IOS DEBUG] Categorie = {categorie!r}")
             print(f"[IOS DEBUG] Match ID = {match_id!r}")
             print(f"[IOS DEBUG] Source ID = {source_id!r}")
-            print(f"[IOS DEBUG] IOS Identifier = {ios_identifier!r}")
             print(f"[IOS DEBUG] Notification type = {notif_type!r}")
             print(f"[IOS DEBUG] Notification manager disponible = {bool(self.notification_manager)}")
             # 3. Ajouter la notification au centre
@@ -1543,7 +1539,6 @@ class MyApp(App):
                     "categorie": categorie,
                     "match_id": match_id,
                     "source_id": source_id,
-                    "ios_identifier": ios_identifier,
                 }
                 print(f"[IOS DEBUG] Payload AVANT ajout = {payload}")
                 notif_locale = self.notification_manager.ajouter_notification(
@@ -1554,7 +1549,6 @@ class MyApp(App):
                     notif_type=notif_type or None,
                     payload=payload,
                     source_id=source_id,
-                    ios_identifier=ios_identifier or None,
                 )
                 print(f"[IOS DEBUG] Resultat ajouter_notification = {notif_locale!r}")
                 # Le clic sur la notification iOS vaut consultation
@@ -1600,7 +1594,6 @@ class MyApp(App):
                 "FCVV_NOTIFICATION_MATCH_ID",
                 "FCVV_NOTIFICATION_TYPE",
                 "FCVV_NOTIFICATION_SOURCE_ID",
-                "FCVV_NOTIFICATION_IDENTIFIER",
                 "FCVV_NOTIFICATION_TYPE_ALT"
             ]
             print("[IOS DEBUG] Nettoyage des cles NSUserDefaults :")
