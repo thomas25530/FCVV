@@ -89,8 +89,6 @@ class NotificationCard(ButtonBehavior, BoxLayout):
                 f"id={notif.get('id')}\n"
                 f"source_id={notif.get('source_id')}\n"
                 f"android_id={notif.get('android_id')}\n"
-                f"ios_identifier={notif.get('ios_identifier')}\n"
-                f"ios_identifier_payload={payload.get('ios_identifier')}\n"
                 f"type={notif.get('type')}\n"
                 f"categorie={notif.get('categorie')}\n"
                 f"lue={notif.get('lue')}\n"
