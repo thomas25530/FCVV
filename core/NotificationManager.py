@@ -458,35 +458,133 @@ class IOSNotificationManager(NotificationManager):
         return True
     
     def annuler_notification_barre(self, notif):
-        """Retire la notification du centre de notifications iOS."""
+        """
+        Annule une notification iOS dans le centre de notifications.
+        Recherche par source_id dans userInfo, puis supprime
+        avec le véritable request.identifier iOS.
+        """
+        import threading
         try:
-            if not self.UNCenter:
-                print("[FCM iOS] UNUserNotificationCenter indisponible.")
+            from pyobjus import autoclass, objc_block
+            if not isinstance(notif, dict):
+                print("[FCVV iOS] Notification invalide")
                 return False
             payload = notif.get("payload") or {}
-            source_id = (notif.get("source_id") or payload.get("source_id"))
-            if source_id is not None:
-                source_id = str(source_id).strip()
-            if not source_id:
-                print(
-                    f"[FCM iOS] Aucun source_id trouve "
-                    f"pour la notification {notif.get('id')!r}."
-                )
-                print(f"[FCM iOS DEBUG] Notification = {notif!r}")
+            source_id = (
+                notif.get("source_id")
+                or payload.get("source_id")
+            )
+            if source_id is None:
+                print("[FCVV iOS] source_id absent")
                 return False
-            from pyobjus import autoclass
-            NSArray = autoclass("NSArray")
+            source_id = str(source_id).strip()
+            if not source_id:
+                print("[FCVV iOS] source_id vide")
+                return False
+            print(f"[FCVV iOS] Recherche source_id={source_id}")
+            UNUserNotificationCenter = autoclass("UNUserNotificationCenter")
             NSString = autoclass("NSString")
-            ns_id = NSString.stringWithUTF8String_(source_id)
-            identifiers = NSArray.arrayWithObject_(ns_id)
-            self.UNCenter.removeDeliveredNotificationsWithIdentifiers_(identifiers)
+            NSArray = autoclass("NSMutableArray")
+            center = (UNUserNotificationCenter.currentNotificationCenter())
+            # Conversion fiable de la chaîne Python en NSString
+            source_id_objc = NSString.stringWithUTF8String_(source_id.encode("utf-8"))
+            resultat = {
+                "identifiants": [],
+                "erreur": None
+            }
+            evenement = threading.Event()
+            # --------------------------------------------------
+            # CALLBACK : RECHERCHE DES NOTIFICATIONS LIVREES
+            # --------------------------------------------------
+            def callback(notifications):
+                try:
+                    if notifications is None:
+                        print("[FCVV iOS] Aucune notification livree.")
+                        return
+                    for index in range(notifications.count()):
+                        notification = (notifications.objectAtIndex_(index))
+                        request = notification.request
+                        content = request.content
+                        user_info = content.userInfo
+                        if user_info is None:
+                            continue
+                        current_source = (user_info.objectForKey_("source_id"))
+                        if current_source is None:
+                            continue
+                        # Comparaison NSString / NSString
+                        if not current_source.isEqualToString_(source_id_objc):
+                            continue
+                        identifier = request.identifier
+                        if identifier is not None:
+                            resultat["identifiants"].append(identifier)
+                            print("[FCVV iOS] Notification trouvee : "
+                                f"{identifier}"
+                            )
+                except Exception as e:
+                    resultat["erreur"] = repr(e)
+                    print(f"[FCVV iOS] Erreur callback : {e!r}")
+                finally:
+                    evenement.set()
+            # --------------------------------------------------
+            # CREATION DU BLOC OBJECTIVE-C
+            # --------------------------------------------------
+            bloc = objc_block(
+                callback,
+                restype=None,
+                argtypes=["@"]
+            )
+            # --------------------------------------------------
+            # DEMANDE DE RECHERCHE
+            # --------------------------------------------------
+            center.getDeliveredNotificationsWithCompletionHandler_( bloc)
+            # Ne jamais attendre sur le thread principal iOS.
+            # On attend au maximum 5 secondes sur un thread secondaire.
+            if threading.current_thread() is threading.main_thread():
+                print("[FCVV iOS] Recherche lancee sur le thread principal.Suppression differee.")
+                def attendre_et_supprimer():
+                    if not evenement.wait(10):
+                        print("[FCVV iOS] Delai depasse : callback non recu.")
+                        return
+                    if resultat["erreur"]:
+                        print(
+                            "[FCVV iOS] Recherche echouee : "
+                            f"{resultat['erreur']}"
+                        )
+                        return
+                    identifiants = resultat["identifiants"]
+                    if not identifiants:
+                        print("[FCVV iOS] Aucune notification correspondante.")
+                        return
+                    tableau = NSArray.arrayWithArray_(identifiants)
+                    center.removeDeliveredNotificationsWithIdentifiers_(tableau)
+                    print(
+                        f"[FCVV iOS] Demande de suppression envoyee : "
+                        f"{len(identifiants)} notification(s)"
+                    )
+                threading.Thread(target=attendre_et_supprimer,daemon=True).start()
+                return True
+            # Cas où la méthode est appelée depuis un thread secondaire
+            if not evenement.wait(10):
+                print("[FCVV iOS] Delai dépasse : callback non recu.")
+                return False
+            if resultat["erreur"]:
+                print(f"[FCVV iOS] Erreur : {resultat['erreur']}")
+                return False
+            identifiants = resultat["identifiants"]
+            if not identifiants:
+                print( "[FCVV iOS] Aucune notification correspondante.")
+                return False
+            tableau = NSArray.arrayWithArray_(identifiants)
+            center.removeDeliveredNotificationsWithIdentifiers_(tableau)
             print(
-                "[FCM iOS] Demande de suppression envoyee : "
-                f"source_id={source_id!r}"
+                f"[FCVV iOS] Demande de suppression envoyee : "
+                f"{len(identifiants)} notification(s)"
             )
             return True
         except Exception as e:
-            print(f"[FCM iOS ERROR] annuler_notification_barre : {e!r}")
+            print(f"[FCVV iOS] Erreur annulation notification : {e!r}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def annuler_toutes_notifications_barre(self):
