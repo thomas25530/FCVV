@@ -96,6 +96,38 @@ jobs:
           echo " FIN RECHERCHE PYOBJUS"
           echo "======================================" 
       # ============================================================
+      # 5. INSPECTION RECETTE PYOBJUS
+      # ============================================================
+      - name: Inspect PyObjus recipe
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          RECIPE_DIR="$(python -c 'import site; print(site.getsitepackages()[0])')/kivy_ios/recipes/pyobjus"
+
+          echo "======================================"
+          echo " CONTENU RECETTE PYOBJUS"
+          echo "======================================"
+
+          echo "=== FICHIERS ==="
+          find "$RECIPE_DIR" -maxdepth 3 -type f -print
+
+          echo "=== CONTENU DES FICHIERS DE CONFIGURATION ==="
+          for f in "$RECIPE_DIR"/*.py "$RECIPE_DIR"/*.sh "$RECIPE_DIR"/*.patch; do
+              [ -f "$f" ] || continue
+              echo ""
+              echo "========== $f =========="
+              sed -n '1,240p' "$f"
+          done
+
+          echo ""
+          echo "=== RECHERCHE CALLBACKS ET VERSIONS ==="
+          grep -RniE 'version|url|objc_block|block|callback|build' "$RECIPE_DIR" || true
+
+          echo "======================================"
+          echo " FIN INSPECTION"
+          echo "======================================"
+      # ============================================================
       # 4. CREATE FCVV SDL + MAIN PATCHER (V3)
       # ============================================================
       - name: Create FCVV SDL + main patcher
