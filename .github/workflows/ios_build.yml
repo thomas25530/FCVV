@@ -68,43 +68,33 @@ jobs:
           pip install "Cython>=3.0,<3.1" "kivy-ios==2025.5.17" requests urllib3 pyyaml fpdf2 fonttools plyer
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
       # ============================================================
-      # 4. DIAGNOSTIC PYOBJUS
+      # 4. DIAGNOSTIC PYOBJUS DANS KIVY-IOS
       # ============================================================
-      - name: Diagnose PyObjus
+      - name: Diagnose PyObjus in kivy-ios
         shell: bash
         run: |
-          set -euxo pipefail
-          echo " DIAGNOSTIC PYOBJUS"
-          echo "=== VERSION PYTHON ==="
-          python --version
-          echo "=== PACKAGE PYOBJUS ==="
-          pip show pyobjus || true
-          echo "=== MODULE PYOBJUS ==="
-          python - <<'PY'
-          import pyobjus
-          import importlib.util
-          print("Fichier :", pyobjus.__file__)
-          print("Version :", getattr(pyobjus, "__version__", "inconnue"))
-          print("\n=== CONTENU DE PYOBJUS ===")
-          for name in sorted(dir(pyobjus)):
-              print(name)
-          print("\n=== RECHERCHE CALLBACKS ===")
-          for name in ("objc_block", "ObjcBlock", "objc_method"):
-              print(name, ":", hasattr(pyobjus, name))
-          print("\n=== MODULES INTERNES ===")
-          for name in (
-              "pyobjus",
-              "pyobjus.pyobjus",
-              "pyobjus.protocols",
-              "pyobjus.dylib",
-          ):
-              try:
-                  spec = importlib.util.find_spec(name)
-                  print(name, ":", spec.origin if spec else "introuvable")
-              except Exception as e:
-                  print(name, ":", repr(e))
-          PY
-          echo " FIN DIAGNOSTIC PYOBJUS" 
+          set -uo pipefail
+
+          echo "======================================"
+          echo " RECHERCHE PYOBJUS"
+          echo "======================================"
+
+          echo "=== EMPLACEMENT KIVY-IOS ==="
+          python -m pip show kivy-ios
+
+          KIVY_IOS_DIR="$(python -c 'import site; print(site.getsitepackages()[0])')/kivy_ios"
+
+          echo "Répertoire : $KIVY_IOS_DIR"
+
+          echo "=== RECHERCHE DES RECETTES PYOBJUS ==="
+          find "$KIVY_IOS_DIR" -iname '*pyobjus*' -print 2>/dev/null || true
+
+          echo "=== RECHERCHE DES FICHIERS PYOBJUS ==="
+          find "$HOME" -iname '*pyobjus*' -print 2>/dev/null | head -200 || true
+
+          echo "======================================"
+          echo " FIN RECHERCHE PYOBJUS"
+          echo "======================================" 
       # ============================================================
       # 4. CREATE FCVV SDL + MAIN PATCHER (V3)
       # ============================================================
