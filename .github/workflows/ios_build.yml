@@ -68,6 +68,44 @@ jobs:
           pip install "Cython>=3.0,<3.1" "kivy-ios==2025.5.17" requests urllib3 pyyaml fpdf2 fonttools plyer
           ruby -e 'require "xcodeproj"; puts "xcodeproj OK"'
       # ============================================================
+      # 4. DIAGNOSTIC PYOBJUS
+      # ============================================================
+      - name: Diagnose PyObjus
+        shell: bash
+        run: |
+          set -euxo pipefail
+          echo " DIAGNOSTIC PYOBJUS"
+          echo "=== VERSION PYTHON ==="
+          python --version
+          echo "=== PACKAGE PYOBJUS ==="
+          pip show pyobjus || true
+          echo "=== MODULE PYOBJUS ==="
+          python - <<'PY'
+          import pyobjus
+          import importlib.util
+          print("Fichier :", pyobjus.__file__)
+          print("Version :", getattr(pyobjus, "__version__", "inconnue"))
+          print("\n=== CONTENU DE PYOBJUS ===")
+          for name in sorted(dir(pyobjus)):
+              print(name)
+          print("\n=== RECHERCHE CALLBACKS ===")
+          for name in ("objc_block", "ObjcBlock", "objc_method"):
+              print(name, ":", hasattr(pyobjus, name))
+          print("\n=== MODULES INTERNES ===")
+          for name in (
+              "pyobjus",
+              "pyobjus.pyobjus",
+              "pyobjus.protocols",
+              "pyobjus.dylib",
+          ):
+              try:
+                  spec = importlib.util.find_spec(name)
+                  print(name, ":", spec.origin if spec else "introuvable")
+              except Exception as e:
+                  print(name, ":", repr(e))
+          PY
+          echo " FIN DIAGNOSTIC PYOBJUS" 
+      # ============================================================
       # 4. CREATE FCVV SDL + MAIN PATCHER (V3)
       # ============================================================
       - name: Create FCVV SDL + main patcher
