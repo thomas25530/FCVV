@@ -13,7 +13,7 @@ jobs:
       IOS_DEPLOYMENT_TARGET: "13.0"
       FIREBASE_VERSION: "10.29.0"
       APP_BUNDLE_ID: "org.fcvv.fcvv"
-      APP_VERSION: "1.1.0"
+      APP_VERSION: "1.1.1"
 
     steps:
       # ============================================================
