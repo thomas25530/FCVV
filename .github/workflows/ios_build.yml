@@ -1343,6 +1343,8 @@ jobs:
             fpdf2 \
             fonttools
 
+          toolchain pip install rubicon-objc==0.5.7
+          
           echo "============================================================"
           echo "  CLEANUP PYTHON NATIVE EXTENSIONS"
           echo "============================================================"
