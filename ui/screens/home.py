@@ -11,7 +11,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.image import AsyncImage, Image
 from kivy.uix.scrollview import ScrollView
-from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Rotate, RoundedRectangle
+from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Rotate, RoundedRectangle, Line
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.metrics import dp
@@ -22,6 +22,7 @@ from kivy.uix.carousel import Carousel
 from kivy.uix.scatter import Scatter
 from kivy.uix.button import Button
 from kivy.uix.widget import Widget
+from kivy.uix.behaviors import ButtonBehavior
 from constants import LANGUAGES
 import webbrowser
 from kivy.utils import platform
@@ -254,12 +255,15 @@ class MonthSeparator(Label):
         self.bind(width=lambda s, w: setattr(s, 'text_size', (w, None)))
         
 # --- FIL D'ACTUALITÉS : CARTE INDIVIDUELLE AVEC DEBUG INTEGRÉ ---
-class NewsCard(BoxLayout):
-    def __init__(self, title, date, description, images=None, **kwargs):
+class NewsCard(ButtonBehavior, BoxLayout):
+    def __init__(self, title, date, description, images=None,target=None,news_data=None, **kwargs):
         self._check_events = []
         self.card_title = title
         self.card_date = date
+        self.target = target or {}
+        self.news_data = news_data or {}
         self.active = True  # Flag pour la sécurité des threads
+        self.image_clicked = False
         # --------------------------------------------------------
         # NORMALISATION & FILTRE ANTI-DOUBLONS (Conserve l'ordre)
         # --------------------------------------------------------
@@ -279,8 +283,18 @@ class NewsCard(BoxLayout):
             try: user_font_size = app.config.getint('User', 'font_size_factor')
             except: pass
         with self.canvas.before:
-            Color(1, 1, 1, 1) 
+            if self.target:
+                Color(0.94, 0.97, 1.0, 1)
+            else:
+                Color(1, 1, 1, 1) 
             self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(10)])
+        if self.target:
+            self.chevron_label = Label(text="VOIR >>>",color=(0.35, 0.35, 0.35, 1),font_size="12sp",bold=True,size_hint=(None, None),size=(dp(70), dp(24)),halign="center",valign="middle")
+            self.chevron_label.bind(size=lambda inst, val:setattr(inst, "text_size", val))
+            self.add_widget(self.chevron_label)
+            with self.canvas.after:
+                Color(0.55, 0.70, 1.0, 0.8)
+                self.border_rect = Line(rounded_rectangle=(self.x,self.y,self.width,self.height,dp(10)),width=1.5)
         self.bind(pos=self._update_rect, size=self._update_rect)
         # UI Elements
         title_label = Label(text=f"[b]{title}[/b]", markup=True, color=(0.1, 0.1, 0.3, 1), font_size=f"{user_font_size}sp", size_hint_y=None, halign='left', valign='middle')
@@ -328,7 +342,7 @@ class NewsCard(BoxLayout):
             for event in self._check_events:
                 Clock.unschedule(event)
             self._check_events = []
-
+    
     def _build_media_zone(self):
         if not self.image_list:
             return None
@@ -466,13 +480,36 @@ class NewsCard(BoxLayout):
         if abs(touch.dy) > dp(10):
             return False
         if abs(touch.dx) < dp(10) and abs(touch.dy) < dp(10):
-            ImagePreview(img_sources=self.image_list).open()
+            self.image_clicked = True
+            ImagePreview( img_sources=self.image_list ).open()
+            Clock.schedule_once(lambda dt: setattr(self, "image_clicked", False), 0.2)
             return True
         return False
 
     def _update_rect(self, instance, value):
         self.bg_rect.pos = instance.pos
         self.bg_rect.size = instance.size
+        if self.target and hasattr(self, "chevron_label"):
+            self.chevron_label.pos = (self.right - dp(80),self.top - dp(30))
+        if self.target and hasattr(self, "border_rect"):
+            self.border_rect.rounded_rectangle = (self.x,self.y,self.width,self.height,dp(10))
+    
+    def on_press(self):
+        if self.target:
+            self.opacity = 0.75
+    
+    def on_release(self):
+        self.opacity = 1
+        if self.image_clicked:
+            return
+        if not self.target:
+            return
+        try:
+            print(f"[ACTU] Clic sur : {self.card_title}")
+            print(f"[ACTU] Target : {self.target}")
+            App.get_running_app().root.sm.get_screen( "home").rediriger_actualite(self.news_data)
+        except Exception as e:
+            print(f"[ACTU] Erreur redirection : {e}")
 
 class HomeScreen(Screen):
     def __init__(self, **kwargs):
@@ -592,6 +629,38 @@ class HomeScreen(Screen):
 #         self._is_refreshing = False
 #===============================================================================
         
+    def rediriger_actualite(self, actu):
+        try:
+            target = actu.get("target", {})
+            if not isinstance(target, dict):
+                return
+            screen_name = target.get("screen")
+            if not screen_name:
+                return
+            app = App.get_running_app()
+            if not hasattr(app.root, "switch_screen"):
+                return
+            app.root.switch_screen(screen_name)
+            Clock.schedule_once(lambda dt: self._post_redirection_actualite(target),0.3)
+        except Exception as e:
+            print(f"[ACTU] Erreur redirection : {e}")
+    
+    def _post_redirection_actualite(self, target):
+        try:
+            screen_name = target.get("screen")
+            if not screen_name:
+                return
+            app = App.get_running_app()
+            # Cas particulier : vestiaire:U11
+            real_screen_name = screen_name.split(":", 1)[0]
+            if not app.root.sm.has_screen(real_screen_name):
+                return
+            screen = app.root.sm.get_screen(real_screen_name)
+            if hasattr(screen, "rediriger_depuis_actualite"):
+                screen.rediriger_depuis_actualite(target)
+        except Exception as e:
+            print(f"[ACTU] Post-redirection erreur : {e}")
+    
     def show_main_loader(self, show):
         self.main_loader.opacity = 1 if show else 0
         if show: Clock.schedule_interval(self._rotate_loader, 1/30)
@@ -908,7 +977,14 @@ class HomeScreen(Screen):
                 # ----------------------------------------------------
                 # CREATION DE LA CARTE
                 # ----------------------------------------------------
-                card = NewsCard(title=item.get("title", ""),date=item.get("date", ""),description=item.get("description", ""),images=item.get("images") or item.get("image", []))
+                card = NewsCard(
+                    title=item.get("title", ""),
+                    date=item.get("date", ""),
+                    description=item.get("description", ""),
+                    images=item.get("images") or item.get("image", []),
+                    target=item.get("target", {}),
+                    news_data=item
+                )
                 self.news_layout.add_widget(card)
             except Exception as e:
                 print(f"[UI ERROR] Generation carte #{generation_id} : {e}")
