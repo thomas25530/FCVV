@@ -489,40 +489,28 @@ class IOSNotificationManager(NotificationManager):
         """
         Supprime une notification livrée dans le centre iOS.
     
-        Priorité :
-        1. Utilise ios_identifier s'il est déjà disponible.
-        2. Sinon recherche la notification par source_id dans userInfo.
-        3. Récupère request.identifier et supprime la notification.
+        1. Utilise ios_identifier si disponible.
+        2. Sinon recherche par source_id dans userInfo.
+        3. Supprime les notifications correspondantes.
         """
         try:
             if not isinstance(notif, dict):
                 print("[FCVV iOS] Notification invalide")
                 return False
-            try:
-                from rubicon.objc import Block, ObjCClass, ObjCInstance
-                print("[FCVV iOS] Rubicon disponible")
-            except Exception as e:
-                print(f"[FCVV iOS] Rubicon indisponible : {e}")
-            from rubicon.objc.types import objc_id
+            from rubicon.objc import Block, ObjCClass, ObjCInstance
             payload = notif.get("payload") or {}
-            source_id = (
-                notif.get("source_id")
-                or payload.get("source_id")
-            )
+            source_id = (notif.get("source_id") or payload.get("source_id"))
             ios_identifier = notif.get("ios_identifier")
-            UNUserNotificationCenter = ObjCClass( "UNUserNotificationCenter" )
-            center = ( UNUserNotificationCenter.currentNotificationCenter())
+            UNUserNotificationCenter = ObjCClass("UNUserNotificationCenter")
+            center = UNUserNotificationCenter.currentNotificationCenter()
             # --------------------------------------------------
-            # 1. IDENTIFIANT IOS DEJA CONNU
+            # 1. SUPPRESSION DIRECTE SI IDENTIFIANT CONNU
             # --------------------------------------------------
             if ios_identifier:
                 identifier = self.objc_to_str(ios_identifier).strip()
                 if identifier:
-                    center.removeDeliveredNotificationsWithIdentifiers_( [identifier])
-                    print(
-                        f"[FCVV iOS] Suppression directe : "
-                        f"{identifier}"
-                    )
+                    center.removeDeliveredNotificationsWithIdentifiers_([identifier])
+                    print( f"[FCVV iOS] Suppression directe : {identifier}" )
                     return True
             # --------------------------------------------------
             # 2. RECHERCHE PAR SOURCE_ID
@@ -535,74 +523,59 @@ class IOSNotificationManager(NotificationManager):
                 print("[FCVV iOS] source_id vide")
                 return False
             print(f"[FCVV iOS] Recherche notification source_id={source_id}")
-            # Callback appelé par iOS.
-            # objc_id représente ici l'objet NSArray reçu.
-            def callback(notifications: objc_id) -> None:
+            def callback(notifications):
                 try:
-                    if not notifications:
-                        print( "[FCVV iOS] Aucune notification livree.")
+                    if notifications is None:
+                        print("[FCVV iOS] Aucune notification livree")
                         return
                     notifications_obj = ObjCInstance(notifications)
-                    print(
-                        f"[FCVV iOS] Notifications livrees="
-                        f"{notifications_obj.count()}"
-                    )
+                    count = int(notifications_obj.count())
+                    print(f"[FCVV iOS] Notifications livrees={count}")
                     identifiants = []
-                    for index in range(notifications_obj.count()):
+                    for index in range(count):
                         notification = (notifications_obj.objectAtIndex_(index))
-                        print(f"[FCVV iOS] Analyse notification #{index}")
                         request = notification.request
                         content = request.content
                         user_info = content.userInfo
-                        if not user_info:
+                        if user_info is None:
                             continue
-                        current_source = user_info.objectForKey_("source_id")
+                        current_source = (user_info.objectForKey_("source_id"))
                         if current_source is None:
                             continue
-                        current_source = self.objc_to_str(current_source).strip()
-                        print(
-                            f"[FCVV iOS] source_id userInfo="
-                            f"{current_source!r}"
-                        )
+                        current_source = (self.objc_to_str(current_source).strip())
+                        print( f"[FCVV iOS] source_id={current_source!r}")
                         if current_source != source_id:
                             continue
-                        identifier = self.objc_to_str(request.identifier).strip()
-                        print(f"[FCVV iOS] identifier={identifier!r}")
+                        identifier = (self.objc_to_str(request.identifier).strip())
                         if identifier:
                             identifiants.append(identifier)
-                            print(
-                                "[FCVV iOS] Notification trouvee : "
-                                f"{identifier}"
-                            )
                     # --------------------------------------------------
                     # 3. SUPPRESSION DES NOTIFICATIONS TROUVEES
                     # --------------------------------------------------
                     if identifiants:
                         center.removeDeliveredNotificationsWithIdentifiers_(identifiants)
                         print(
-                            "[FCVV iOS] Suppression demandee : "
+                            f"[FCVV iOS] Suppression demandee : "
                             f"{len(identifiants)} notification(s)"
                         )
                     else:
                         print(
-                            "[FCVV iOS] Aucune notification ne correspond "
-                            f"a source_id={source_id}"
+                            f"[FCVV iOS] Aucune notification correspondant "
+                            f"a {source_id}"
                         )
                 except Exception as e:
                     print(f"[FCVV iOS] Erreur callback : {e!r}")
                 finally:
-                    # Libération de la référence conservée.
                     self._notification_blocks.pop(source_id, None)
             # --------------------------------------------------
-            # 4. CREATION DU BLOCK OBJECTIVE-C AVEC RUBICON
+            # 4. CREATION ET CONSERVATION DU BLOCK
             # --------------------------------------------------
             bloc = Block(callback)
-            # Conservation du Block jusqu'au retour d'iOS.
             self._notification_blocks[source_id] = bloc
             # --------------------------------------------------
             # 5. APPEL IOS ASYNCHRONE
             # --------------------------------------------------
-            center.getDeliveredNotificationsWithCompletionHandler_( bloc)
+            center.getDeliveredNotificationsWithCompletionHandler_( bloc )
             print("[FCVV iOS] Recherche asynchrone lancee.")
             return True
         except Exception as e:
