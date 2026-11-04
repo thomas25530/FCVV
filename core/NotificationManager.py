@@ -458,6 +458,33 @@ class IOSNotificationManager(NotificationManager):
         # Firebase attend que le token APNs soit associé.
         return True
     
+    def objc_to_str(self, value):
+        """Convertit NSString/NSObject vers str Python fiable."""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        try:
+            utf8 = value.UTF8String()
+            if utf8 is not None:
+                if isinstance(utf8, bytes):
+                    return utf8.decode("utf-8", errors="replace")
+                if isinstance(utf8, str):
+                    return utf8
+                if isinstance(utf8, int):
+                    raw = c_char_p(utf8).value
+                    if raw:
+                        return raw.decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        try:
+            result = str(value)
+            if "object at 0x" not in result:
+                return result
+        except Exception:
+            pass
+        return ""
+    
     def annuler_notification_barre(self, notif):
         """
         Supprime une notification livrée dans le centre iOS.
@@ -471,7 +498,11 @@ class IOSNotificationManager(NotificationManager):
             if not isinstance(notif, dict):
                 print("[FCVV iOS] Notification invalide")
                 return False
-            from rubicon.objc import Block, ObjCClass, ObjCInstance
+            try:
+                from rubicon.objc import Block, ObjCClass, ObjCInstance
+                print("[FCVV iOS] Rubicon disponible")
+            except Exception as e:
+                print(f"[FCVV iOS] Rubicon indisponible : {e}")
             from rubicon.objc.types import objc_id
             payload = notif.get("payload") or {}
             source_id = (
@@ -485,10 +516,14 @@ class IOSNotificationManager(NotificationManager):
             # 1. IDENTIFIANT IOS DEJA CONNU
             # --------------------------------------------------
             if ios_identifier:
-                identifier = str(ios_identifier)
-                center.removeDeliveredNotificationsWithIdentifiers_([identifier])
-                print(f"[FCVV iOS] Suppression directe : {identifier}")
-                return True
+                identifier = self.objc_to_str(ios_identifier).strip()
+                if identifier:
+                    center.removeDeliveredNotificationsWithIdentifiers_( [identifier])
+                    print(
+                        f"[FCVV iOS] Suppression directe : "
+                        f"{identifier}"
+                    )
+                    return True
             # --------------------------------------------------
             # 2. RECHERCHE PAR SOURCE_ID
             # --------------------------------------------------
@@ -508,22 +543,33 @@ class IOSNotificationManager(NotificationManager):
                         print( "[FCVV iOS] Aucune notification livree.")
                         return
                     notifications_obj = ObjCInstance(notifications)
+                    print(
+                        f"[FCVV iOS] Notifications livrees="
+                        f"{notifications_obj.count()}"
+                    )
                     identifiants = []
                     for index in range(notifications_obj.count()):
                         notification = (notifications_obj.objectAtIndex_(index))
+                        print(f"[FCVV iOS] Analyse notification #{index}")
                         request = notification.request
                         content = request.content
                         user_info = content.userInfo
                         if not user_info:
                             continue
-                        current_source = ( user_info.objectForKey_("source_id"))
+                        current_source = user_info.objectForKey_("source_id")
                         if current_source is None:
                             continue
-                        if str(current_source) != source_id:
+                        current_source = self.objc_to_str(current_source).strip()
+                        print(
+                            f"[FCVV iOS] source_id userInfo="
+                            f"{current_source!r}"
+                        )
+                        if current_source != source_id:
                             continue
-                        identifier = request.identifier
+                        identifier = self.objc_to_str(request.identifier).strip()
+                        print(f"[FCVV iOS] identifier={identifier!r}")
                         if identifier:
-                            identifiants.append(str(identifier))
+                            identifiants.append(identifier)
                             print(
                                 "[FCVV iOS] Notification trouvee : "
                                 f"{identifier}"
