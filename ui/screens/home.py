@@ -284,17 +284,20 @@ class NewsCard(ButtonBehavior, BoxLayout):
             except: pass
         with self.canvas.before:
             if self.target:
-                Color(0.94, 0.97, 1.0, 1)
+                Color(0.91, 0.95, 1.0, 1)
             else:
-                Color(1, 1, 1, 1) 
-            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(10)])
+                Color(1, 1, 1, 1)
+        
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
         if self.target:
-            self.chevron_label = Label(text="VOIR >>>",color=(0.35, 0.35, 0.35, 1),font_size="12sp",bold=True,size_hint=(None, None),size=(dp(70), dp(24)),halign="center",valign="middle")
+            # Indication de navigation en haut à droite
+            self.chevron_label = Label(text="[b]> ACCÈS DIRECT[/b]", markup=True,color=(0.08, 0.28, 0.72, 1),font_size="12sp",size_hint=(None, None), size=(dp(125), dp(30)),halign="center",valign="middle")
             self.chevron_label.bind(size=lambda inst, val:setattr(inst, "text_size", val))
             self.add_widget(self.chevron_label)
+            # Bordure bleue plus visible
             with self.canvas.after:
-                Color(0.55, 0.70, 1.0, 0.8)
-                self.border_rect = Line(rounded_rectangle=(self.x,self.y,self.width,self.height,dp(10)),width=1.5)
+                Color(0.20, 0.42, 0.90, 1)
+                self.border_rect = Line(rounded_rectangle=(self.x,self.y, self.width, self.height,dp(14)),width=1.8 )
         self.bind(pos=self._update_rect, size=self._update_rect)
         # UI Elements
         title_label = Label(text=f"[b]{title}[/b]", markup=True, color=(0.1, 0.1, 0.3, 1), font_size=f"{user_font_size}sp", size_hint_y=None, halign='left', valign='middle')
@@ -332,6 +335,18 @@ class NewsCard(ButtonBehavior, BoxLayout):
             media_zone = self._build_media_zone()
             if media_zone:
                 self.add_widget(media_zone)
+        if self.target:
+            action_bar = BoxLayout(orientation="horizontal",size_hint_y=None,height=dp(43),spacing=dp(8),padding=[dp(12), 0, dp(10), 0])
+            with action_bar.canvas.before:
+                Color(0.82, 0.89, 1.0, 1)
+                action_bar.bg = RoundedRectangle(pos=action_bar.pos,size=action_bar.size, radius=[dp(8)])
+            action_bar.bind(pos=lambda inst, val:setattr(inst.bg, "pos", val),size=lambda inst, val:setattr(inst.bg, "size", val))
+            action_label = Label(text="[b]APPUYER POUR CONSULTER[/b]",markup=True,color=(0.08, 0.25, 0.65, 1),font_size="13sp",halign="left",valign="middle")
+            action_label.bind(size=lambda inst, val:setattr(inst, "text_size", val))
+            action_bar.add_widget(action_label)
+            arrow = Label(text=">>",color=(0.08, 0.25, 0.65, 1),font_size="20sp", bold=True, size_hint_x=None,width=dp(25))
+            action_bar.add_widget(arrow)
+            self.add_widget(action_bar)
         self.bind(minimum_height=self.setter('height'))
         self.has_reached_end = False
         self._last_known_font_size = get_user_font_size()
@@ -496,10 +511,10 @@ class NewsCard(ButtonBehavior, BoxLayout):
     
     def on_press(self):
         if self.target:
-            self.opacity = 0.75
+            Animation( opacity=0.72,duration=0.08).start(self)
     
     def on_release(self):
-        self.opacity = 1
+        Animation(opacity=1, duration=0.12).start(self)
         if self.image_clicked:
             return
         if not self.target:
@@ -507,7 +522,7 @@ class NewsCard(ButtonBehavior, BoxLayout):
         try:
             print(f"[ACTU] Clic sur : {self.card_title}")
             print(f"[ACTU] Target : {self.target}")
-            App.get_running_app().root.sm.get_screen( "home").rediriger_actualite(self.news_data)
+            App.get_running_app().root.sm.get_screen("home" ).rediriger_actualite(self.news_data)
         except Exception as e:
             print(f"[ACTU] Erreur redirection : {e}")
 
