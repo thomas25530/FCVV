@@ -6,6 +6,7 @@ import os
 import time
 from datetime import datetime
 import tempfile
+import ctypes
 
 class NotificationManager:
     def __init__(self, app):
@@ -462,28 +463,11 @@ class IOSNotificationManager(NotificationManager):
         """Convertit NSString/NSObject vers str Python fiable."""
         if value is None:
             return ""
-        if isinstance(value, str):
-            return value
         try:
-            utf8 = value.UTF8String()
-            if utf8 is not None:
-                if isinstance(utf8, bytes):
-                    return utf8.decode("utf-8", errors="replace")
-                if isinstance(utf8, str):
-                    return utf8
-                if isinstance(utf8, int):
-                    raw = c_char_p(utf8).value
-                    if raw:
-                        return raw.decode("utf-8", errors="replace")
-        except Exception:
-            pass
-        try:
-            result = str(value)
-            if "object at 0x" not in result:
-                return result
-        except Exception:
-            pass
-        return ""
+            return str(value)
+        except Exception as e:
+            print(f"[FCVV iOS] Erreur conversion NSString : {e!r}")
+            return ""
     
     def annuler_notification_barre(self, notif):
         """
@@ -565,12 +549,12 @@ class IOSNotificationManager(NotificationManager):
                         )
                 except Exception as e:
                     print(f"[FCVV iOS] Erreur callback : {e!r}")
-                finally:
-                    self._notification_blocks.pop(source_id, None)
+                #finally:
+                #self._notification_blocks.pop(source_id, None)
             # --------------------------------------------------
             # 4. CREATION ET CONSERVATION DU BLOCK
             # --------------------------------------------------
-            bloc = Block(callback)
+            bloc = Block(callback, None, ctypes.c_void_p)
             self._notification_blocks[source_id] = bloc
             # --------------------------------------------------
             # 5. APPEL IOS ASYNCHRONE
