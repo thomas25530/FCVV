@@ -482,6 +482,11 @@ class IOSNotificationManager(NotificationManager):
                 print("[FCVV iOS] Notification invalide")
                 return False
             from rubicon.objc import Block, ObjCClass, ObjCInstance
+            try:
+                from rubicon.objc import objc_id
+                print("[FCVV iOS] objc_id disponible :", objc_id)
+            except Exception as e:
+                print("[FCVV iOS] Erreur import objc_id :", repr(e))
             payload = notif.get("payload") or {}
             source_id = (notif.get("source_id") or payload.get("source_id"))
             ios_identifier = notif.get("ios_identifier")
@@ -554,7 +559,7 @@ class IOSNotificationManager(NotificationManager):
             # --------------------------------------------------
             # 4. CREATION ET CONSERVATION DU BLOCK
             # --------------------------------------------------
-            bloc = Block(callback, None, ctypes.c_void_p)
+            bloc = Block(callback, None, objc_id)
             self._notification_blocks[source_id] = bloc
             # --------------------------------------------------
             # 5. APPEL IOS ASYNCHRONE
