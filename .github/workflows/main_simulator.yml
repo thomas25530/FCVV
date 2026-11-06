@@ -1618,20 +1618,27 @@ jobs:
           fi
           echo "Workspace = $WORKSPACE_PATH"
           # --------------------------------------------------------
-          # 2. Recherche de l'iPhone 15
+          # 2. Recherche automatique d'un simulateur iPhone
           # --------------------------------------------------------
+          
+          echo "===== SIMULATEURS DISPONIBLES ====="
+          
+          xcrun simctl list devices available
+          
           DEVICE_ID=$(
             xcrun simctl list devices available \
-              | grep -m 1 'iPhone 15 (' \
-              | sed -E 's/.*\(([A-F0-9-]+)\).*/\1/'
+              | sed -nE '/iPhone [0-9]+/s/.*\(([A-F0-9-]{36})\).*/\1/p' \
+              | head -n 1
           )
+          
           if [ -z "$DEVICE_ID" ]; then
-            echo "ERREUR : iPhone 15 indisponible."
-            echo "===== DEVICES DISPONIBLES ====="
-            xcrun simctl list devices available
+            echo "ERREUR : aucun simulateur iPhone disponible."
+            echo "===== LISTE COMPLÈTE DES SIMULATEURS ====="
+            xcrun simctl list devices
             exit 1
           fi
-          echo "iPhone 15 = $DEVICE_ID"
+          
+          echo "Simulateur iPhone sélectionné = $DEVICE_ID"
           # --------------------------------------------------------
           # 3. Vérification état actuel du simulateur
           # --------------------------------------------------------
