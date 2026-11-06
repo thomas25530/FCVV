@@ -751,6 +751,7 @@ class MyApp(App):
         ############################
         self._notifications_lock = threading.RLock()
         self._notifications_sync_generation = 0
+        self._notifications_sync_lock = threading.Lock()
         self._ = _
         self.use_kivy_settings = False
         self.config = self.load_config() 
@@ -1318,91 +1319,210 @@ class MyApp(App):
         import uuid
         if not self.config.has_section("User"):
             self.config.add_section("User")
-        identifiant = self.config.get("User","id_installation_notifications",fallback="").strip()
+        identifiant = self.config.get(
+            "User",
+            "id_installation_notifications",
+            fallback=""
+        ).strip()
         if not identifiant:
             identifiant = uuid.uuid4().hex
-            self.config.set("User","id_installation_notifications",identifiant)
+            self.config.set(
+                "User",
+                "id_installation_notifications",
+                identifiant
+            )
             self.config.write()
         return identifiant
     
+    def get_or_create_date_premiere_synchronisation(self):
+        from datetime import datetime, timezone
+        if not self.config.has_section("User"):
+            self.config.add_section("User")
+        date_premiere = self.config.get(
+            "User",
+            "date_premiere_synchronisation",
+            fallback=""
+        ).strip()
+        if not date_premiere:
+            date_premiere = datetime.now(timezone.utc).isoformat()
+            self.config.set(
+                "User",
+                "date_premiere_synchronisation",
+                date_premiere
+            )
+            self.config.write()
+            print(
+                "[NOTIFICATIONS] Date de premiere synchronisation enregistree : "
+                f"{date_premiere}"
+            )
+    
+        return date_premiere
+    
     def _synchroniser_notifications_thread(self):
         import requests
+        from datetime import datetime, timezone
         from kivy.utils import platform
-
+        from kivy.clock import Clock
         try:
-            # Capturer la génération avant la requête réseau.
+            # --------------------------------------------------
+            # CAPTURER LA GÉNÉRATION ET LA DATE DE DÉBUT
+            # --------------------------------------------------
             with self._notifications_lock:
                 generation = self._notifications_sync_generation
-
-            nom_parent = self.get_current_user_name()
-            if not nom_parent:
+            # Date de référence provisoire, capturée AVANT la requête API.
+            date_debut_sync = datetime.now(timezone.utc)
+            # --------------------------------------------------
+            # IDENTIFIER L'UTILISATEUR
+            # --------------------------------------------------
+            nom_parent = (self.get_current_user_name() or "").strip()
+            visiteur_anonyme = not bool(nom_parent)
+            if visiteur_anonyme:
                 nom_parent = "visiteur_anonyme"
-                print("[NOTIFICATIONS] Synchronisation en mode visiteur anonyme.")
-
-            # Identifiant unique et persistant de cette installation.
-            id_installation = (self.get_or_create_notification_installation_id())
-
+                print(
+                    "[NOTIFICATIONS] Synchronisation en mode "
+                    "visiteur anonyme."
+                )
+            id_installation = ( self.get_or_create_notification_installation_id())
+            # --------------------------------------------------
+            # APPEL API
+            # --------------------------------------------------
             response = requests.get(
                 "https://fcvv-api.onrender.com/notifications/synchroniser",
-                headers={"nom_parent": nom_parent},
+                headers={
+                    "nom_parent": nom_parent,
+                    "id_installation": id_installation,
+                },
                 timeout=15,
                 verify=(platform != "win"),
             )
-
             if response.status_code != 200:
                 print(
                     f"[NOTIFICATIONS] Erreur API : "
                     f"{response.status_code} - {response.text}"
                 )
                 return
-
             notifications = response.json().get("notifications", [])
             manager = getattr(self, "notification_manager", None)
-
             if manager is None:
                 print("[NOTIFICATIONS] Gestionnaire introuvable.")
                 return
-
-            # Lire les associations enregistrées par Java.
+            # --------------------------------------------------
+            # DATE LIMITE DE PREMIÈRE SYNCHRONISATION ANONYME
+            # --------------------------------------------------
+            date_limite = None
+            enregistrer_date_premiere_sync = False
+            if visiteur_anonyme:
+                date_premiere = self.config.get(
+                    "User",
+                    "date_premiere_synchronisation",
+                    fallback=""
+                ).strip()
+                if date_premiere:
+                    try:
+                        date_limite = datetime.fromisoformat(
+                            date_premiere.replace("Z", "+00:00")
+                        )
+                        if date_limite.tzinfo is None:
+                            date_limite = date_limite.replace(
+                                tzinfo=timezone.utc
+                            )
+                        date_limite = date_limite.astimezone(timezone.utc)
+                    except (ValueError, TypeError):
+                        print(
+                            "[NOTIFICATIONS] Date de premiere "
+                            "synchronisation invalide. "
+                            "Nouvelle date de reference utilisee."
+                        )
+                        date_limite = date_debut_sync
+                        enregistrer_date_premiere_sync = True
+                else:
+                    # Première synchronisation de cette installation.
+                    date_limite = date_debut_sync
+                    enregistrer_date_premiere_sync = True
+                # Filtrer les notifications antérieures à la date limite.
+                notifications_filtrees = []
+                for item in notifications:
+                    date_notification = item.get("date")
+                    if not date_notification:
+                        continue
+                    try:
+                        date_notif = datetime.fromisoformat(
+                            str(date_notification).replace(
+                                "Z", "+00:00"
+                            )
+                        )
+                        if date_notif.tzinfo is None:
+                            date_notif = date_notif.replace(
+                                tzinfo=timezone.utc
+                            )
+                        date_notif = date_notif.astimezone(timezone.utc)
+                        if date_notif >= date_limite:
+                            notifications_filtrees.append(item)
+                    except (ValueError, TypeError):
+                        print(
+                            "[NOTIFICATIONS] Date serveur invalide : "
+                            f"{date_notification}"
+                        )
+                print(
+                    "[NOTIFICATIONS] Filtrage anonyme : "
+                    f"{len(notifications_filtrees)} notification(s) "
+                    f"conservee(s) sur {len(notifications)}."
+                )
+                notifications = notifications_filtrees
+            # --------------------------------------------------
+            # LECTURE DES ASSOCIATIONS ANDROID
+            # --------------------------------------------------
             preferences = None
-
             if platform == "android":
                 try:
                     from jnius import autoclass
-
-                    PythonActivity = autoclass(
-                        "org.kivy.android.PythonActivity"
-                    )
+                    PythonActivity = autoclass("org.kivy.android.PythonActivity" )
                     activity = PythonActivity.mActivity
-
-                    preferences = activity.getSharedPreferences(
-                        "fcvv_notification_ids",
-                        0,  # Context.MODE_PRIVATE
-                    )
-
+                    preferences = activity.getSharedPreferences("fcvv_notification_ids", 0,)
                 except Exception as e:
                     print(
                         "[NOTIFICATIONS] Lecture des android_id "
                         f"indisponible : {e}"
                     )
-
             nouvelles = 0
             associations_ajoutees = 0
-
+            # --------------------------------------------------
+            # AJOUT DES NOTIFICATIONS
+            # --------------------------------------------------
             with self._notifications_lock:
+                # Vérifier que le vidage n'a pas invalidé la requête.
                 if generation != self._notifications_sync_generation:
                     print(
                         "[NOTIFICATIONS] Synchronisation ignoree : "
                         "un vidage a eu lieu pendant la requete."
                     )
                     return
-
+                # Enregistrer la date seulement après avoir vérifié
+                # que cette synchronisation est toujours valide.
+                if (
+                    visiteur_anonyme
+                    and enregistrer_date_premiere_sync
+                ):
+                    if not self.config.has_section("User"):
+                        self.config.add_section("User")
+    
+                    self.config.set(
+                        "User",
+                        "date_premiere_synchronisation",
+                        date_limite.isoformat()
+                    )
+                    self.config.write()
+                    print(
+                        "[NOTIFICATIONS] Date de premiere "
+                        "synchronisation enregistree : "
+                        f"{date_limite.isoformat()}"
+                    )
                 for item in notifications:
                     source_id = item.get("source_id")
                     if not source_id:
                         continue
-
-                    # Vérifier si la notification existe déjà localement.
+                    ios_identifier = str(source_id).strip() if platform == "ios" else None
+                    # Vérifier si la notification existe déjà.
                     existante = next(
                         (
                             n for n in manager.notifications
@@ -1410,32 +1530,24 @@ class MyApp(App):
                         ),
                         None,
                     )
-
-                    # Retrouver l'identifiant Android associé par Java.
+                    # Retrouver l'identifiant Android associé.
                     android_id = None
-
                     if preferences is not None:
                         try:
                             valeur = preferences.getInt(
                                 "source:" + str(source_id),
                                 0,
                             )
-
+    
                             if valeur > 0:
                                 android_id = valeur
-
                         except Exception as e:
                             print(
-                                "[NOTIFICATIONS] Erreur lecture android_id "
-                                f"pour {source_id} : {e}"
+                                "[NOTIFICATIONS] Erreur lecture "
+                                f"android_id pour {source_id} : {e}"
                             )
-
                     categorie = item.get("categorie") or None
                     match_id = item.get("match_id")
-
-                    # Appeler aussi ajouter_notification pour les éléments
-                    # existants : cette méthode complète leur android_id
-                    # lorsqu'il est disponible, sans créer de doublon.
                     notif_locale = manager.ajouter_notification(
                         titre=item.get("titre", ""),
                         message=item.get("corps", ""),
@@ -1448,45 +1560,61 @@ class MyApp(App):
                             "source": item.get("source"),
                         },
                         source_id=source_id,
+                        ios_identifier=ios_identifier,
                         android_id=android_id,
+                        date_creation=item.get("date"),
                     )
-
+    
                     if existante is None:
                         nouvelles += 1
-
                     if (
                         notif_locale
                         and android_id is not None
-                        and str(notif_locale.get("android_id")) == str(android_id)
+                        and str(notif_locale.get("android_id"))
+                        == str(android_id)
                     ):
                         associations_ajoutees += 1
-
                     if android_id is not None:
                         print(
                             "[NOTIFICATIONS] Association retrouvee : "
-                            f"source_id={source_id}, android_id={android_id}"
+                            f"source_id={source_id}, "
+                            f"android_id={android_id}"
                         )
-
+            # --------------------------------------------------
+            # FIN DE SYNCHRONISATION
+            # --------------------------------------------------
             print(
                 f"[NOTIFICATIONS] Synchronisation terminee : "
                 f"{nouvelles} nouvelle(s), "
                 f"{associations_ajoutees} association(s) Android."
             )
-
             if nouvelles:
                 def actualiser_menu(dt):
-                    if self.root and hasattr(self.root, "rebuild_menu"):
+                    if (
+                        self.root
+                        and hasattr(self.root, "rebuild_menu")
+                    ):
                         self.root.rebuild_menu()
-
                 Clock.schedule_once(actualiser_menu, 0)
-
         except Exception as e:
             print(f"[NOTIFICATIONS] Erreur de synchronisation : {e}")
 
             
     def lancer_synchronisation_notifications(self, dt=0):
         import threading
-        threading.Thread(target=self._synchroniser_notifications_thread, daemon=True,).start()
+        # Vérifier qu'une synchronisation n'est pas déjà en cours
+        if not self._notifications_sync_lock.acquire(blocking=False):
+            print( "[NOTIFICATIONS] Synchronisation deja en cours. Nouvelle demande ignoree.")
+            return
+        def lancer():
+            try:
+                self._synchroniser_notifications_thread()
+            except Exception as e:
+                print( f"[NOTIFICATIONS] Erreur synchronisation : {e}")
+            finally:
+                # Toujours libérer le verrou, même en cas d'erreur
+                self._notifications_sync_lock.release()
+        threading.Thread(target=lancer,daemon=True).start()
 
     def verifier_redirection_notification(self):
         """
@@ -1586,6 +1714,7 @@ class MyApp(App):
             categorie = _get_str("FCVV_NOTIFICATION_TOPIC")
             match_id = _get_str("FCVV_NOTIFICATION_MATCH_ID")
             source_id = _get_str("FCVV_NOTIFICATION_SOURCE_ID")
+            ios_identifier = source_id
             notif_type = _get_str("FCVV_NOTIFICATION_TYPE")
             if not notif_type:
                 notif_type = _get_str("FCVV_NOTIFICATION_TYPE_ALT")
@@ -1610,6 +1739,7 @@ class MyApp(App):
                     "categorie": categorie,
                     "match_id": match_id or None,
                     "source_id": source_id,
+                    "ios_identifier": ios_identifier,
                 }
                 print(f"[IOS DEBUG] Payload AVANT ajout = {payload!r}")
                 notif_locale = self.notification_manager.ajouter_notification(
@@ -1620,6 +1750,7 @@ class MyApp(App):
                     notif_type=notif_type or None,
                     payload=payload,
                     source_id=source_id or None,
+                    ios_identifier=ios_identifier or None,
                 )
                 print(
                     f"[IOS DEBUG] Resultat ajouter_notification = "
