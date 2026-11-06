@@ -221,22 +221,29 @@ class NotificationsScreen(Screen):
         self.refresh()
     
     def vider_notifications(self, *args):
-        content = BoxLayout(orientation="vertical",spacing=dp(10),padding=dp(10) )
+        content = BoxLayout(orientation="vertical",spacing=dp(10), padding=dp(10) )
         message = Label(text="Supprimer toutes les notifications ?",halign="center",valign="middle")
-        message.bind(size=lambda instance, size: setattr( instance, "text_size", (size[0] - dp(10), None)))
+        message.bind(size=lambda instance, size: setattr(instance,"text_size",(size[0] - dp(10), None)))
         content.add_widget(message)
-        boutons = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(10) )
-        popup = Popup(title="Confirmation",content=content,size_hint=(0.85, 0.4),auto_dismiss=False )
+        boutons = BoxLayout( size_hint_y=None, height=dp(45), spacing=dp(10))
+        popup = Popup(  title="Confirmation", content=content, size_hint=(0.85, 0.4),auto_dismiss=False)
         btn_annuler = Button(text="Annuler")
         btn_ok = Button(text="Supprimer")
         boutons.add_widget(btn_annuler)
         boutons.add_widget(btn_ok)
         content.add_widget(boutons)
         btn_annuler.bind(on_release=popup.dismiss)
+    
         def afficher_message_erreur(texte):
             content.clear_widgets()
-            message = Label(text=texte,halign="center", valign="middle",size_hint_y=1)
-            message.bind(size=lambda instance, size: setattr( instance, "text_size", (size[0] - dp(12), size[1])))
+            message = Label(text=texte, halign="center",valign="middle",size_hint_y=1 )
+            message.bind(
+                size=lambda instance, size: setattr(
+                    instance,
+                    "text_size",
+                    (size[0] - dp(12), size[1])
+                )
+            )
             content.add_widget(message)
             boutons.clear_widgets()
             btn_annuler.disabled = False
@@ -249,54 +256,119 @@ class NotificationsScreen(Screen):
         def confirmer(*_):
             app = App.get_running_app()
             api_url = API_BASE_URL
-            nom_parent = (app.config.get("User", "nom_parent", fallback="") or app.config.get("User", "nom", fallback="")) if hasattr(app, "config") else ""
-            if not api_url or not nom_parent:
-                print("[NOTIFICATIONS] URL ou utilisateur manquant.")
-                afficher_message_erreur("Utilisateur introuvable.")
+            # --------------------------------------------------
+            # 1. Identifier l'utilisateur
+            # --------------------------------------------------
+            nom_parent = ""
+            if hasattr(app, "config"):
+                nom_parent = (
+                    app.config.get(
+                        "User",
+                        "nom_parent",
+                        fallback=""
+                    )
+                    or app.config.get(
+                        "User",
+                        "nom",
+                        fallback=""
+                    )
+                ).strip()
+            # Si aucun compte n'est connecté :
+            # utiliser l'identité commune des visiteurs.
+            if not nom_parent:
+                nom_parent = "visiteur_anonyme"
+                print("[NOTIFICATIONS] Vidage demande en mode anonyme.")
+            if not api_url:
+                afficher_message_erreur("Adresse de l'API introuvable.")
                 return
-            manager = getattr(app, "notification_manager", None)
+            # --------------------------------------------------
+            # 2. Vérifier le gestionnaire local
+            # --------------------------------------------------
+            manager = getattr( app,"notification_manager",None )
             if manager is None:
                 print("[NOTIFICATIONS] Gestionnaire local introuvable.")
                 afficher_message_erreur("Erreur de stockage local.")
                 return
+            # --------------------------------------------------
+            # 3. Récupérer l'identifiant unique du téléphone
+            # --------------------------------------------------
+            try:
+                id_installation = (app.get_or_create_notification_installation_id())
+            except Exception as e:
+                print(
+                    "[NOTIFICATIONS] Erreur identifiant installation : "
+                    f"{e}"
+                )
+                afficher_message_erreur("Impossible d'identifier cet appareil.")
+                return
+            if not id_installation:
+                afficher_message_erreur("Identifiant de l'appareil introuvable.")
+                return
+            # --------------------------------------------------
+            # 4. Désactiver les boutons pendant la requête
+            # --------------------------------------------------
             btn_ok.disabled = True
             btn_annuler.disabled = True
             btn_ok.text = "Suppression..."
             def appeler_api():
                 import requests
                 try:
-                    response = requests.delete(f"{api_url}/notifications/vider",headers={"nom_parent": nom_parent},timeout=20, verify=(platform != "win"))
+                    # Envoyer les deux identifiants à l'API.
+                    response = requests.delete(
+                        f"{api_url}/notifications/vider",
+                        headers={
+                            "nom_parent": nom_parent,
+                            "id_installation": id_installation,
+                        },
+                        timeout=20,
+                        verify=(platform != "win")
+                    )
                     response.raise_for_status()
                     resultat = response.json()
                     if not resultat.get("success"):
-                        raise RuntimeError("Le serveur n'a pas confirmé le vidage." )
+                        raise RuntimeError("Le serveur n'a pas confirme le vidage.")
+                    print(
+                        "[NOTIFICATIONS] Vidage serveur confirme : "
+                        f"{nom_parent}"
+                    )
+                    # --------------------------------------------------
+                    # 5. Vider également l'historique local
+                    # --------------------------------------------------
                     def terminer(_dt):
                         try:
                             with app._notifications_lock:
+                                # Invalider les synchronisations en cours.
                                 app._notifications_sync_generation += 1
-                                vidage_local_reussi = ( manager.vider_notifications())
+                                vidage_local_reussi = (manager.vider_notifications())
                             if vidage_local_reussi is not True:
-                                raise RuntimeError( "Échec de la sauvegarde locale.")
+                                raise RuntimeError("echec de la sauvegarde locale.")
+                            print( "[NOTIFICATIONS] Vidage local termine.")
                             popup.dismiss()
+                            # Actualiser le menu.
                             if ( app.root and hasattr(app.root, "rebuild_menu")):
                                 app.root.rebuild_menu()
+                            # Actualiser le badge iOS.
                             if (platform == "ios" and hasattr(app,"remettre_zero_badge_depuis_api")):
                                 app.remettre_zero_badge_depuis_api()
                             self.nombre_notifications_affichees = 15
                             self.refresh()
                         except Exception as e:
                             print(f"[NOTIFICATIONS] Erreur locale : {e}")
-                            afficher_message_erreur("Vidage local impossible.\nRéessaie.")
+                            afficher_message_erreur("Vidage local impossible.\nReessaie.")
                     Clock.schedule_once(terminer, 0)
                 except Exception as e:
                     print(f"[NOTIFICATIONS] echec du vidage serveur : {e}")
                     def afficher_erreur(_dt):
-                        afficher_message_erreur("Connexion impossible.\nRéessaie." )
+                        afficher_message_erreur("Connexion impossible.\nReessaie.")
                     Clock.schedule_once(afficher_erreur, 0)
+            # --------------------------------------------------
+            # 6. Exécuter la requête dans un thread séparé
+            # --------------------------------------------------
             import threading
             threading.Thread(target=appeler_api,daemon=True).start()
         btn_ok.bind(on_release=confirmer)
         popup.open()
+
 
     def refresh(self):
         self.content.clear_widgets()
@@ -361,6 +433,7 @@ class NotificationsScreen(Screen):
             f"id={notif.get('id')!r}, "
             f"android_id={notif.get('android_id')!r}, "
             f"source_id={notif.get('source_id')!r}, "
+            f"ios_identifier={notif.get('ios_identifier')!r}, "
             f"cles={list(notif.keys())}"
         )
         manager.annuler_notification_barre(notif)
