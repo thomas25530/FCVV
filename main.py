@@ -1313,6 +1313,17 @@ class MyApp(App):
             except Exception as e:
                 print(f"[FCM TOKEN ERROR] Erreur synchronisation : {e}")
         threading.Thread(target=_thread_sync,daemon=True).start()
+
+    def get_or_create_notification_installation_id(self):
+        import uuid
+        if not self.config.has_section("User"):
+            self.config.add_section("User")
+        identifiant = self.config.get("User","id_installation_notifications",fallback="").strip()
+        if not identifiant:
+            identifiant = uuid.uuid4().hex
+            self.config.set("User","id_installation_notifications",identifiant)
+            self.config.write()
+        return identifiant
     
     def _synchroniser_notifications_thread(self):
         import requests
@@ -1325,8 +1336,11 @@ class MyApp(App):
 
             nom_parent = self.get_current_user_name()
             if not nom_parent:
-                print("[NOTIFICATIONS] Aucun utilisateur identifie.")
-                return
+                nom_parent = "visiteur_anonyme"
+                print("[NOTIFICATIONS] Synchronisation en mode visiteur anonyme.")
+
+            # Identifiant unique et persistant de cette installation.
+            id_installation = (self.get_or_create_notification_installation_id())
 
             response = requests.get(
                 "https://fcvv-api.onrender.com/notifications/synchroniser",
