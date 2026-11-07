@@ -1476,6 +1476,8 @@ class SoireesScreen(Screen):
             "groupes": getattr(tournoi, "groupes", {}),
             "departages_tab": getattr(tournoi, "departages_tab", {}),
             "ordres_forces": getattr(tournoi, "ordres_forces", {}),
+            "penalites": getattr(tournoi, "penalites", {}),
+            "matchs": getattr(tournoi, "matchs", []),
             "debug": is_debug
         }
         return hashlib.md5(str(data).encode()).hexdigest()
@@ -1514,9 +1516,17 @@ class SoireesScreen(Screen):
         classement_groupes = self.current_tournoi.classement_par_groupe()
         
         cols_config = [
-            (_("pos"), 0.07), (_("team"), 0.33), (_("pts"), 0.1), 
-            (_("played"), 0.08), (_("won"), 0.07), (_("drawn"), 0.07), 
-            (_("lost"), 0.07), (_("gf"), 0.07), (_("ga"), 0.07), (_("diff"), 0.07)
+            (_("pos"), 0.06),
+            (_("team"), 0.30),
+            (_("pts"), 0.08),
+            (_("penalty"), 0.07),
+            (_("played"), 0.07),
+            (_("won"), 0.07),
+            (_("drawn"), 0.07),
+            (_("lost"), 0.07),
+            (_("gf"), 0.07),
+            (_("ga"), 0.07),
+            (_("diff"), 0.07)
         ]
         for g in sorted(classement_groupes.keys()):
             data = classement_groupes[g]
@@ -1535,10 +1545,25 @@ class SoireesScreen(Screen):
             bg_rgb = hex_to_rgb(group_colors.get(g, "#FFFFFF"))
             for i, (equipe, d) in enumerate(data, 1):
                 row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(35), spacing=1)
-                row_values = [str(i), str(equipe), str(d.get("pts", 0)), 
-                              str(d.get("victoires", 0) + d.get("nuls", 0) + d.get("defaites", 0)), 
-                              str(d.get("victoires", 0)), str(d.get("nuls", 0)), str(d.get("defaites", 0)), 
-                              str(d.get("bp", 0)), str(d.get("bc", 0)), str(d.get("diff", 0))]
+                penalites = getattr(self.current_tournoi, "penalites", {}) or {}
+                penalite = penalites.get(equipe, 0)
+                row_values = [
+                    str(i),
+                    str(equipe),
+                    str(d.get("pts", 0)),
+                    str(penalite),
+                    str(
+                        d.get("victoires", 0)
+                        + d.get("nuls", 0)
+                        + d.get("defaites", 0)
+                    ),
+                    str(d.get("victoires", 0)),
+                    str(d.get("nuls", 0)),
+                    str(d.get("defaites", 0)),
+                    str(d.get("bp", 0)),
+                    str(d.get("bc", 0)),
+                    str(d.get("diff", 0))
+                ]
 
                 for idx, val in enumerate(row_values):
                     row.add_widget(StyledLabel(
