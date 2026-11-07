@@ -28,6 +28,7 @@ LANGUAGES = {
         # Écran Présentation (Onglets)
         'press_kit': 'Dossier Presse',
         'documents': 'Documents',
+        "penalty": 'Pén.',
         
         # Écran Paramètres (Sections et Items)
         'display': 'Affichage',
@@ -126,6 +127,7 @@ LANGUAGES = {
         'about': 'About',
         'login_vestiaire': 'Login',
         'vestiaire': 'Mon Vestiaire',
+        "penalty": 'Pén.',
 
         # New Teams Screens
         'agenda': 'Schedule',
