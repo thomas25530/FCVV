@@ -167,6 +167,7 @@ class TournoiLogic:
             self.phases = saved_data.get("phases_finales", self.phases)
             
             self.ordres_forces = saved_data.get("ordres_forces", {})
+            self.penalites = saved_data.get("penalites", {}) or {}
             
             self._init_classement()
             self.recalculer_classement(preserve_tab=True)
@@ -197,6 +198,7 @@ class TournoiLogic:
         instance.departages_tab = {tuple(k.split("|")): v for k, v in raw_departages.items()}
         
         instance.ordres_forces = data.get("ordres_forces", {})
+        instance.penalites = data.get("penalites", {}) or {}
         
         # Groupes (MÊME NOM QUE DANS INIT)
         raw_groupes = data.get("groupes", {})
@@ -988,6 +990,16 @@ class TournoiLogic:
             if sa is None or sb is None:
                 continue
             self._appliquer_resultat(classement_temp[a], classement_temp[b],sa,sb)
+        # 2️⃣ bis : application des pénalités
+        # On modifie uniquement les statistiques temporaires.
+        penalites = getattr(self, "penalites", {}) or {}
+        for equipe, stats in classement_temp.items():
+            penalite = penalites.get(equipe, 0)
+            try:
+                penalite = max(0, int(penalite))
+            except (TypeError, ValueError):
+                penalite = 0
+            stats["pts"] -= penalite
         # 3️⃣ Calcul des différences de buts
         for stats in classement_temp.values():
             stats["diff"] = stats["bp"] - stats["bc"]
