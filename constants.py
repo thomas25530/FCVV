@@ -16,6 +16,7 @@ LANGUAGES = {
         'login_vestiaire': 'Login',
         'vestiaire': 'Mon Vestiaire',
         'login_benevoles': 'Espace Bénévoles',
+        'benevoles': 'Espace Bénévoles',
         
         # Nouveaux écrans Équipes
         'agenda': 'Agenda',
@@ -129,6 +130,7 @@ LANGUAGES = {
         'login_vestiaire': 'Login',
         'vestiaire': 'Mon Vestiaire',
         'login_benevoles': 'Espace Bénévoles',
+        'benevoles': 'Espace Bénévoles',
         "penalty": 'Pén.',
 
         # New Teams Screens
