@@ -40,7 +40,7 @@ class BenevolesLoginScreen(Screen):
             self.bg_rect = Rectangle(pos=self.pos,size=self.size)
         self.bind(pos=self._update_bg,size=self._update_bg)
         # Conteneur central
-        anchor = AnchorLayout(anchor_x="center",anchor_y="center",padding=[dp(20), dp(20)])
+        anchor = AnchorLayout(anchor_x="center",anchor_y="top",padding=[dp(20), dp(20), dp(20), dp(10)])
         # Carte blanche
         card = BoxLayout( orientation="vertical",   padding=[dp(24), dp(20), dp(24), dp(24)], spacing=dp(12), size_hint=(0.9, None), height=dp(430))
         with card.canvas.before:
