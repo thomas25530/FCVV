@@ -508,6 +508,9 @@ class SettingsScreen(Screen):
                 if app.config.has_section("Notifications"):
                     app.config.remove_section("Notifications")
                 app.config.add_section("Notifications")
+                if app.config.has_section("Benevoles"):
+                    app.config.remove_section("Benevoles")
+                app.config.add_section("Benevoles")
                 if hasattr(app, "authorized_vestiaires"):
                     app.authorized_vestiaires = []
                 if hasattr(app, "roles") and isinstance(app.roles, dict):
