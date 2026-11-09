@@ -405,6 +405,8 @@ class RootLayout(FloatLayout):
             "inscriptions": ("ui.screens.inscription", "InscriptionsScreen"),
             "soirees": ("ui.screens.soirees", "SoireesScreen"),
             "restauration": ("ui.screens.restauration", "RestaurationScreen"),
+            "login_benevoles": ("ui.screens.login_benevoles","BenevolesLoginScreen"),
+            "benevoles": ("ui.screens.benevoles", "BenevolesScreen"),
             "boutique": ("ui.screens.boutique", "BoutiqueScreen"),
             "partenaires": ("ui.screens.partenaires", "PartenairesScreen"),
             "info": ("ui.screens.info", "InfoScreen"),
@@ -596,7 +598,8 @@ class RootLayout(FloatLayout):
                 ("Présentation", "presentation"), 
                 ("Inscriptions", "inscriptions"),
                 ("Soirées", "soirees"), 
-                ("Restauration", "restauration")
+                ("Restauration", "restauration"),
+                ("Espace Bénévoles", "login_benevoles")
             ]
         ))
         # Autres options
@@ -638,7 +641,7 @@ class RootLayout(FloatLayout):
             )
         except Exception:
             debug_mode_enabled = False
-        if debug_mode_enabled:  
+        if debug_mode_enabled:
             btn_debug = Button(text="OUVRIR DEBUG",size_hint_y=None,height=dp(45),background_color=(0.8, 0.2, 0.2, 1),color=(1, 1, 1, 1))
             def ouvrir_debug(*args):
                 self.close_menu()
