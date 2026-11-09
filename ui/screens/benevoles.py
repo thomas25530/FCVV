@@ -1062,6 +1062,15 @@ class BenevolesScreen(Screen):
     # ---------------------------------------------------------
     # ANNUAIRE DES CONTACTS
     # ---------------------------------------------------------
+    def sort_annuaire(self, contacts):
+        """Trie les contacts par fonction par ordre alphabétique."""
+        return sorted(
+            contacts,
+            key=lambda contact: str(
+                contact.get("fonction", "") or ""
+            ).strip().casefold()
+        )
+    
     def display_annuaire(self):
         self.add_title(
             "Annuaire des contacts",
@@ -1124,6 +1133,7 @@ class BenevolesScreen(Screen):
             searchable_text = " ".join( str(value) for value in searchable_fields if value).lower()
             if search_text in searchable_text:
                 filtered_contacts.append(contact)
+        filtered_contacts = self.sort_annuaire(filtered_contacts)
         self.annuaire_count_label.text = ("{} contact(s) trouvé(s)".format(len(filtered_contacts)))
         if not filtered_contacts:
             card = self.create_card()
