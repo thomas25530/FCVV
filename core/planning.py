@@ -237,6 +237,20 @@ class PlanningScreen(BoxLayout):
     COLOR_LIGHT_BLUE = "#EAF0FF"
     COLOR_SUCCESS = "#219653"
     COLOR_WARNING = "#F2994A"
+    
+    # Adaptation de l'interface pour iOS
+    IS_IOS = platform == "ios"
+
+    UI_SCALE = 1.25 if IS_IOS else 1.0
+    FONT_SCALE = 1.30 if IS_IOS else 1.0
+
+    def _dp(self, value):
+        """Adapte les dimensions de l'interface selon la plateforme."""
+        return dp(value * self.UI_SCALE)
+
+    def _sp(self, value):
+        """Adapte la taille des textes selon la plateforme."""
+        return "{}sp".format(value * self.FONT_SCALE)
 
     def __init__(self, sheet_url="", **kwargs):
         super().__init__(orientation="vertical", size_hint_y=None, **kwargs)
@@ -247,7 +261,7 @@ class PlanningScreen(BoxLayout):
         self.selected_tournament = None
         self.loading = False
         self._build_header()
-        self.body = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(12))
+        self.body = BoxLayout(orientation="vertical",size_hint_y=None,spacing=self._dp(12))
         self.body.bind(minimum_height=self.body.setter("height"))
         self.add_widget(self.body)
         if self.sheet_url:
@@ -260,27 +274,16 @@ class PlanningScreen(BoxLayout):
             )
     # ------------------------- Interface -------------------------
     def _label(self, text, size=14, color=None, bold=False):
-        label = Label(
-            text=str(text or ""),
-            size_hint_y=None,
-            height=dp(max(25, size * 1.8)),
-            font_size="{}sp".format(size),
-            color=get_color_from_hex(color or self.COLOR_TEXT),
-            bold=bold,
-            halign="left",
-            valign="middle",
-        )
+        label = Label(text=str(text or ""),size_hint_y=None,height=self._dp(max(25, size * 1.8)),font_size=self._sp(size),color=get_color_from_hex(color or self.COLOR_TEXT), bold=bold,halign="left", valign="middle", )
         label.bind(width=lambda obj, width: setattr(obj, "text_size", (width, None)))
-        label.bind(texture_size=lambda obj, value: setattr(
-            obj, "height", max(dp(25), value[1] + dp(8))
-        ))
+        label.bind(texture_size=lambda obj, value: setattr(obj,"height", max(self._dp(25), value[1] + self._dp(8))))
         return label
 
     def _button(self, text, callback, primary=True):
         button = Button(
             text=text,
             size_hint_y=None,
-            height=dp(42),
+            height=self._dp(42),
             background_normal="",
             background_down="",
             background_color=get_color_from_hex(
@@ -288,19 +291,19 @@ class PlanningScreen(BoxLayout):
             ),
             color=get_color_from_hex(self.COLOR_PRIMARY),
             bold=True,
-            font_size="13sp",
+            font_size=self._sp(13),
         )
         button.bind(on_release=lambda _instance: callback())
         return button
 
     def _card(self, title=None, subtitle=None):
-        card = BoxLayout( orientation="vertical", size_hint_y=None, padding=dp(14), spacing=dp(7))
+        card = BoxLayout(orientation="vertical",size_hint_y=None, padding=self._dp(14), spacing=self._dp(7))
         card.bind(minimum_height=card.setter("height"))
         with card.canvas.before:
             from kivy.graphics import Color, RoundedRectangle
             Color(*get_color_from_hex("#FFFFFF"))
-            card._background = RoundedRectangle( pos=card.pos, size=card.size, radius=[dp(14)])
-        card.bind( pos=lambda obj, value: setattr(obj._background, "pos", value), size=lambda obj, value: setattr(obj._background, "size", value),)
+            card._background = RoundedRectangle( pos=card.pos,size=card.size,radius=[self._dp(14)])
+        card.bind(pos=lambda obj, value: setattr(obj._background, "pos", value),size=lambda obj, value: setattr(obj._background, "size", value ) )
         if title:
             card.add_widget(self._label(title, 16, self.COLOR_PRIMARY, True))
         if subtitle:
@@ -308,17 +311,13 @@ class PlanningScreen(BoxLayout):
         return card
 
     def _build_header(self):
-        header = BoxLayout(orientation="horizontal",size_hint_y=None,height=dp(48),spacing=dp(6))
+        header = BoxLayout(orientation="horizontal",size_hint_y=None,height=self._dp(48),spacing=self._dp(6))
         refresh_btn = self._button("Actualiser",self.refresh,primary=True)
-        stats_btn = self._button("Stats",self.display_stats,primary=True)
+        stats_btn = self._button( "Stats", self.display_stats, primary=True)
         header.add_widget(refresh_btn)
         header.add_widget(stats_btn)
         self.add_widget(header)
-        self.status_label = self._label(
-            "Chargement du planning…",
-            12,
-            self.COLOR_WHITE
-        )
+        self.status_label = self._label("Chargement du planning…",12, self.COLOR_WHITE)
         self.add_widget(self.status_label)
         
     def _show_message(self, title, message):
@@ -654,7 +653,7 @@ class PlanningScreen(BoxLayout):
                 )
             card.add_widget(self._button("Voir les tournois de cette journée",lambda key=day_key: self.open_day(key)))
             self.body.add_widget(card)
-        self.body.add_widget(Widget(size_hint_y=None, height=dp(18)))
+        self.body.add_widget(Widget(size_hint_y=None, height=self._dp(18)))
 
     def open_day(self, day_key):
         self.selected_day = day_key
@@ -890,7 +889,7 @@ class PlanningScreen(BoxLayout):
                 card.add_widget(self._label( titre,14, self.COLOR_PRIMARY, True))
                 card.add_widget( self._label( contenu, 13,self.COLOR_TEXT ))
                 self.body.add_widget(card)
-        self.body.add_widget(Widget(size_hint_y=None, height=dp(20)))
+        self.body.add_widget(Widget(size_hint_y=None, height=self._dp(20)))
     # ------------------------- Affichage stats -------------------------
     def display_stats(self):
         stats = PlanningStats.build(self.days)
@@ -1013,4 +1012,4 @@ class PlanningScreen(BoxLayout):
                     )
                 )
             self.body.add_widget(card)
-        self.body.add_widget( Widget(size_hint_y=None,height=dp(20)))
+        self.body.add_widget( Widget(size_hint_y=None,height=self._dp(20)))
