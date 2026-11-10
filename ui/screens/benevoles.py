@@ -47,6 +47,27 @@ class BenevolesScreen(Screen):
     COLOR_WARNING = "#F2994A"
     COLOR_PALE_BLUE = "#DCE8FF"
 
+    # ---------------------------------------------------------
+    # ADAPTATION IOS
+    # ---------------------------------------------------------
+    IS_IOS = platform == "ios"
+
+    UI_SCALE = 1.25 if IS_IOS else 1.0
+    FONT_SCALE = 1.30 if IS_IOS else 1.0
+
+    def get_font_size(self, value):
+        """Adapte la taille des textes selon la plateforme."""
+        return value * self.FONT_SCALE
+
+    def get_dp(self, value):
+        """Adapte les dimensions selon la plateforme."""
+        return dp(value * self.UI_SCALE)
+
+    def get_sp(self, value):
+        """Retourne une taille de police Kivy en sp."""
+        return f"{self.get_font_size(value)}sp"
+    
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.current_tab = "accueil"
@@ -72,7 +93,7 @@ class BenevolesScreen(Screen):
         # -----------------------------------------------------
         self.navigation_scroll = ScrollView(
             size_hint=(1, None),
-            height=dp(56),
+            height=self.get_dp(56),
             do_scroll_x=True,
             do_scroll_y=False,
             bar_width=dp(0),
@@ -82,8 +103,8 @@ class BenevolesScreen(Screen):
             orientation="horizontal",
             size_hint=(None, 1),
             width=0,
-            padding=[dp(10), dp(5), dp(10), dp(7)],
-            spacing=dp(5)
+            padding=[self.get_dp(10), self.get_dp(5),self.get_dp(10), self.get_dp(7)],
+            spacing=self.get_dp(5)
         )
         self.navigation.bind(minimum_width=self.navigation.setter("width"))
         self.tab_buttons = {}
@@ -98,7 +119,7 @@ class BenevolesScreen(Screen):
         for tab_id, tab_title in tabs:
             button = Button(
                 text=tab_title,
-                font_size="12sp",
+                font_size=self.get_sp(12),
                 bold=True,
                 background_normal="",
                 background_down="",
@@ -107,7 +128,7 @@ class BenevolesScreen(Screen):
                 ),
                 color=get_color_from_hex(self.COLOR_WHITE),
                 size_hint=(None, 1),
-                width=dp(130)
+                width=self.get_dp(130)
             )
             button.bind( on_release=lambda instance, t=tab_id: self.change_tab(t) )
             self.tab_buttons[tab_id] = button
@@ -119,7 +140,7 @@ class BenevolesScreen(Screen):
         # CONTENU DÉFILANT
         # -----------------------------------------------------
         self.scroll_view = ScrollView( do_scroll_x=False,bar_width=dp(0),scroll_type=["bars", "content"],bar_color=get_color_from_hex(self.COLOR_ACCENT), bar_inactive_color=(1, 1, 1, 0.25))
-        self.content = BoxLayout( orientation="vertical", size_hint_y=None, padding=[dp(15), dp(14), dp(15), dp(25)], spacing=dp(14))
+        self.content = BoxLayout( orientation="vertical", size_hint_y=None, padding=[self.get_dp(15), self.get_dp(14), self.get_dp(15), self.get_dp(25)], spacing=self.get_dp(14))
         self.content.bind( minimum_height=self.content.setter("height"))
         self.scroll_view.add_widget(self.content)
         self.main_layout.add_widget(self.scroll_view)
@@ -133,26 +154,13 @@ class BenevolesScreen(Screen):
     # ---------------------------------------------------------
     # OUTILS GRAPHIQUES
     # ---------------------------------------------------------
-    def make_label(
-        self,
-        text,
-        font_size="14sp",
-        color=None,
-        bold=False,
-        height=None,
-        halign="left"
-    ):
-        label = Label(
-            text=str(text),
-            font_size=font_size,
-            color=get_color_from_hex(
-                color or self.COLOR_TEXT
-            ),
-            bold=bold,
-            halign=halign,
-            valign="middle",
-            size_hint_y=None
-        )
+    def make_label(self, text, font_size="14sp", color=None,bold=False, height=None, halign="left"):
+        if isinstance(font_size, str) and font_size.endswith("sp"):
+            font_value = float(font_size[:-2])
+            font_size = self.get_sp(font_value)
+        elif isinstance(font_size, (int, float)):
+            font_size = self.get_sp(font_size)
+        label = Label(text=str(text), font_size=font_size,color=get_color_from_hex(color or self.COLOR_TEXT),bold=bold,halign=halign,valign="middle",size_hint_y=None)
         # Adapter la largeur du texte à celle du label
         def update_text_width(instance, width):
             instance.text_size = (max(1, width), None)
@@ -161,16 +169,16 @@ class BenevolesScreen(Screen):
         if height is None:
             def update_height(instance, texture_size):
                 instance.height = max(
-                    dp(24),
-                    texture_size[1] + dp(8)
+                    self.get_dp(24),
+                    texture_size[1] + self.get_dp(8)
                 )
             label.bind(texture_size=update_height)
             # Premier calcul
             update_text_width(label, label.width)
             label.texture_update()
             label.height = max(
-                dp(24),
-                label.texture_size[1] + dp(8)
+                self.get_dp(24),
+                label.texture_size[1] + self.get_dp(8)
             )
         else:
             label.height = dp(height)
@@ -178,7 +186,7 @@ class BenevolesScreen(Screen):
         return label
 
     def add_spacer(self, height=5):
-        self.content.add_widget( Widget(size_hint_y=None,height=dp(height)))
+        self.content.add_widget( Widget(size_hint_y=None,height=self.get_dp(height)))
 
     def clear_content(self):
         self.content.clear_widgets()
@@ -192,8 +200,8 @@ class BenevolesScreen(Screen):
         card = BoxLayout(
             orientation="vertical",
             size_hint_y=None,
-            padding=dp(padding),
-            spacing=dp(spacing)
+            padding=self.get_dp(padding),
+            spacing=self.get_dp(spacing)
         )
         card.bind(minimum_height=card.setter("height"))
         with card.canvas.before:
@@ -203,7 +211,7 @@ class BenevolesScreen(Screen):
             card.background = RoundedRectangle(
                 pos=card.pos,
                 size=card.size,
-                radius=[dp(14)]
+                radius=[self.get_dp(14)]
             )
         card.bind(
             pos=lambda instance, value:
@@ -224,14 +232,14 @@ class BenevolesScreen(Screen):
         button = Button(
             text=title,
             size_hint_y=None,
-            height=dp(40),
+            height=self.get_dp(40),
             background_normal="",
             background_down="",
             background_color=get_color_from_hex(
                 color or self.COLOR_LIGHT_BLUE
             ),
             color=get_color_from_hex(self.COLOR_PRIMARY),
-            font_size="13sp",
+            font_size=self.get_sp(13),
             bold=True
         )
         button.bind(on_release=lambda instance, link=url:self.open_url(link))
@@ -474,11 +482,11 @@ class BenevolesScreen(Screen):
         logout_button = Button(
             text="Se déconnecter",
             size_hint=(1, None),
-            height=dp(48),
+            height=self.get_dp(48),
             background_normal="",
             background_color=get_color_from_hex("#DC2626"),
             color=(1, 1, 1, 1),
-            font_size=dp(16),
+            font_size=self.get_sp(16),
             bold=True
         )
         logout_button.bind(on_release=self.logout)
@@ -623,7 +631,7 @@ class BenevolesScreen(Screen):
             self.add_empty_message("Aucun pôle n'est actuellement renseigné.")
             self.add_bottom_safe_spacing()
             return
-        self.poles_grid = GridLayout(cols=2, spacing=dp(12), padding=[0, dp(5), 0, dp(10)], size_hint=(1, None))
+        self.poles_grid = GridLayout(cols=2, spacing=self.get_dp(12), padding=[0, self.get_dp(5), 0, self.get_dp(10)], size_hint=(1, None))
         self.poles_grid.bind(minimum_height=self.poles_grid.setter("height"))
         cards = []
         for pole in poles:
@@ -711,8 +719,8 @@ class BenevolesScreen(Screen):
         if taches:
             terminees = sum(1 for t in taches if isinstance(t, dict) and str(t.get("statut", "")).strip().lower() in ("terminee", "terminée", "termine", "terminé", "faite", "fait", "completed", "done", "true", "1"))
             restantes = len(taches) - terminees
-            card.pole_labels["taches"] = self.add_to_card(card, "Tâches : {} terminée(s) / {} à faire".format(terminees, restantes), font_size="11sp", color=self.COLOR_MUTED)
-        button = Button(text="Voir la fiche", size_hint_y=None, height=dp(38), background_normal="", background_down="", background_color=get_color_from_hex(self.COLOR_ACCENT), color=get_color_from_hex(self.COLOR_PRIMARY), font_size="11sp", bold=True)
+            card.pole_labels["taches"] = self.add_to_card(card, "Tâches : {} terminée(s) / {} à faire".format(terminees, restantes), font_size=self.get_sp(11), color=self.COLOR_MUTED)
+        button = Button(text="Voir la fiche", size_hint_y=None, height=self.get_dp(38), background_normal="", background_down="", background_color=get_color_from_hex(self.COLOR_ACCENT), color=get_color_from_hex(self.COLOR_PRIMARY), font_size="11sp", bold=True)
         button.bind(on_release=lambda instance, selected=pole: self.open_pole(selected))
         card.add_widget(button)
         return card
@@ -727,12 +735,12 @@ class BenevolesScreen(Screen):
         back_button = Button(
             text="‹  Retour aux pôles",
             size_hint_y=None,
-            height=dp(38),
+            height=self.get_dp(38),
             background_normal="",
             background_down="",
             background_color=get_color_from_hex(self.COLOR_ACCENT),
             color=get_color_from_hex(self.COLOR_PRIMARY),
-            font_size="13sp",
+            font_size=self.get_sp(13),
             bold=True
         )
         back_button.bind( on_release=lambda instance: self.back_to_poles())
@@ -847,7 +855,7 @@ class BenevolesScreen(Screen):
                     task_title = str(task)
                     is_completed = False
                     completion_date = ""
-                task_row = BoxLayout(orientation="horizontal", size_hint_y=None, spacing=dp(8), padding=[0, dp(4), 0, dp(4)])
+                task_row = BoxLayout(orientation="horizontal",size_hint_y=None,spacing=self.get_dp(8),padding=[ 0, self.get_dp(4),0,self.get_dp(4)])
                 task_label = self.make_label(task_title, font_size="13sp", color=self.COLOR_TEXT)
                 task_label.size_hint_x = 1
                 task_label.halign = "left"
@@ -860,7 +868,7 @@ class BenevolesScreen(Screen):
                     status_label = self.make_label(status_text, font_size="10sp", color="#16A34A", bold=True)
                     status_label.font_name = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets", "fonts", "DejaVuSans.ttf")
                     status_label.size_hint_x = None
-                    status_label.width = dp(150)
+                    status_label.width = self.get_dp(150)
                     status_label.text_size = (None, None)
                     status_label.halign = "right"
                     status_label.valign = "middle"
@@ -964,10 +972,10 @@ class BenevolesScreen(Screen):
     # NAVIGATION RETOUR
     # ---------------------------------------------------------
     def add_back_button(self, destination):
-        button = Button(text="Retour",size_hint_y=None,height=dp(42),background_normal="",background_down="",background_color=get_color_from_hex( self.COLOR_ACCENT),
+        button = Button(text="Retour",size_hint_y=None,height=self.get_dp(42),background_normal="",background_down="",background_color=get_color_from_hex( self.COLOR_ACCENT),
             color=get_color_from_hex(
                 self.COLOR_PRIMARY
-            ), bold=True)
+            ),font_size=self.get_sp(14), bold=True)
         button.bind(on_release=lambda instance:self.change_tab(destination))
         self.content.add_widget(button)
     # ---------------------------------------------------------
@@ -1086,9 +1094,9 @@ class BenevolesScreen(Screen):
             hint_text="Nom, prénom, fonction, entreprise, téléphone...",
             multiline=False,
             size_hint_y=None,
-            height=dp(46),
-            font_size="14sp",
-            padding=[dp(10), dp(12)],
+            height=self.get_dp(46),
+            font_size=self.get_sp(14),
+            padding=[self.get_dp(10),self.get_dp(12)],
             background_normal="",
             background_active="",
             background_color=get_color_from_hex(self.COLOR_LIGHT_BLUE),
