@@ -22,6 +22,8 @@ from kivy.utils import platform
 
 from kivy.uix.textinput import TextInput
 
+from core.planning import PlanningScreen
+
 class BenevolesScreen(Screen):
     # ---------------------------------------------------------
     # CONFIGURATION VISUELLE
@@ -90,6 +92,7 @@ class BenevolesScreen(Screen):
             ("reunions", "Réunions"),
             ("poles", "Pôles"),
             ("annuaire", "Annuaire"),
+            ("planning", "Planning"),
             ("documents", "Documents")
         ]
         for tab_id, tab_title in tabs:
@@ -279,6 +282,8 @@ class BenevolesScreen(Screen):
             self.display_documents()
         elif self.current_tab == "annuaire":
             self.display_annuaire()
+        elif self.current_tab == "planning":
+            self.display_planning()
     # ---------------------------------------------------------
     # NAVIGATION
     # ---------------------------------------------------------
@@ -465,7 +470,6 @@ class BenevolesScreen(Screen):
         else:
             self.add_empty_message( "Aucun rendez-vous prévu pour le moment." )
         self.add_spacer(5)
-        
         # Bouton de déconnexion tout en bas de l'accueil
         logout_button = Button(
             text="Se déconnecter",
@@ -477,11 +481,8 @@ class BenevolesScreen(Screen):
             font_size=dp(16),
             bold=True
         )
-        
         logout_button.bind(on_release=self.logout)
-        
         self.content.add_widget(logout_button)
-        
         # Espace de sécurité Android
         self.add_bottom_safe_spacing()
     # ---------------------------------------------------------
@@ -1058,7 +1059,6 @@ class BenevolesScreen(Screen):
                 webbrowser.open(url)
         except Exception as error:
             print("[BENEVOLES] Impossible d'ouvrir le lien :", error)
-
     # ---------------------------------------------------------
     # ANNUAIRE DES CONTACTS
     # ---------------------------------------------------------
@@ -1133,6 +1133,7 @@ class BenevolesScreen(Screen):
             searchable_text = " ".join( str(value) for value in searchable_fields if value).lower()
             if search_text in searchable_text:
                 filtered_contacts.append(contact)
+        # Tri alphabétique par fonction
         filtered_contacts = self.sort_annuaire(filtered_contacts)
         self.annuaire_count_label.text = ("{} contact(s) trouvé(s)".format(len(filtered_contacts)))
         if not filtered_contacts:
@@ -1185,3 +1186,16 @@ class BenevolesScreen(Screen):
         if email:
             self.add_card_button( card,"Envoyer un email","mailto:" + str(email),color="#6B7280")
         parent.add_widget(card)
+    # ---------------------------------------------------------
+    # PLANNING
+    # ---------------------------------------------------------
+    def display_planning(self):
+        self.add_title("Planning","Retrouve les affectations des bénévoles par journée et par tournoi.")
+        # benevoles_data correspond déjà à tournoi > appli > benevoles.
+        sheet_url = (self.benevoles_data.get("planning_google_sheet", "")
+            if isinstance(self.benevoles_data, dict)
+            else ""
+        )
+        planning_view = PlanningScreen(sheet_url=sheet_url)
+        self.content.add_widget(planning_view)
+        self.add_bottom_safe_spacing()
