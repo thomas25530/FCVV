@@ -27,6 +27,7 @@ import urllib.parse
 import zipfile
 import xml.etree.ElementTree as ET
 import ssl
+import certifi
 
 from datetime import datetime, date, timedelta
 from collections import defaultdict
@@ -349,13 +350,10 @@ class PlanningScreen(BoxLayout):
 
     def _download_worker(self):
         try:
-            is_windows = (platform == "win")
             export_url = self._xlsx_export_url(self.sheet_url)
-            request = urllib.request.Request(export_url,headers={"User-Agent": "Mozilla/5.0 (compatible; BenevolesPlanning/1.0)"})
-            if is_windows:
-                context = ssl._create_unverified_context()
-            else:
-                context = ssl.create_default_context()
+            request = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0 (compatible; BenevolesPlanning/1.0)"})
+            # Utilisation d'un bundle de certificats CA fiable
+            context = ssl.create_default_context( cafile=certifi.where())
             with urllib.request.urlopen(
                 request,
                 timeout=25,
