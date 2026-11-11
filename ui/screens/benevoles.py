@@ -67,7 +67,6 @@ class BenevolesScreen(Screen):
         """Retourne une taille de police Kivy en sp."""
         return f"{self.get_font_size(value)}sp"
     
-    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.current_tab = "accueil"
@@ -135,22 +134,53 @@ class BenevolesScreen(Screen):
             self.navigation.add_widget(button)
         self.navigation_scroll.add_widget(self.navigation)
         self.main_layout.add_widget(self.navigation_scroll)
-
         # -----------------------------------------------------
-        # CONTENU DÉFILANT
+        # ZONE FIXE + ZONE SCROLLABLE
         # -----------------------------------------------------
-        self.scroll_view = ScrollView( do_scroll_x=False,bar_width=dp(0),scroll_type=["bars", "content"],bar_color=get_color_from_hex(self.COLOR_ACCENT), bar_inactive_color=(1, 1, 1, 0.25))
-        self.content = BoxLayout( orientation="vertical", size_hint_y=None, padding=[self.get_dp(15), self.get_dp(14), self.get_dp(15), self.get_dp(25)], spacing=self.get_dp(14))
-        self.content.bind( minimum_height=self.content.setter("height"))
+        self.page_container = BoxLayout(orientation="vertical")
+        # Header fixe
+        self.fixed_content = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            spacing=self.get_dp(14),
+            padding=[
+                self.get_dp(15),
+                self.get_dp(14),
+                self.get_dp(15),
+                0
+            ]
+        )
+        self.fixed_content.bind( minimum_height=self.fixed_content.setter("height"))
+        # Contenu scrollable
+        self.scroll_view = ScrollView(
+            do_scroll_x=False,
+            bar_width=dp(0),
+            scroll_type=["bars", "content"],
+            bar_color=get_color_from_hex(self.COLOR_ACCENT),
+            bar_inactive_color=(1, 1, 1, 0.25)
+        )
+        self.content = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            padding=[
+                self.get_dp(15),
+                0,
+                self.get_dp(15),
+                self.get_dp(25)
+            ],
+            spacing=self.get_dp(14)
+        )
+        self.content.bind( minimum_height=self.content.setter("height") )
         self.scroll_view.add_widget(self.content)
-        self.main_layout.add_widget(self.scroll_view)
+        self.page_container.add_widget(self.fixed_content)
+        self.page_container.add_widget(self.scroll_view)
+        self.main_layout.add_widget(self.page_container)
         self.add_widget(self.main_layout)
         self.update_tab_buttons()
 
     def update_background(self, instance, value):
         self.background_rect.pos = instance.pos
         self.background_rect.size = instance.size
-
     # ---------------------------------------------------------
     # OUTILS GRAPHIQUES
     # ---------------------------------------------------------
@@ -182,7 +212,6 @@ class BenevolesScreen(Screen):
             )
         else:
             label.height = dp(height)
-    
         return label
 
     def add_spacer(self, height=5):
@@ -190,19 +219,17 @@ class BenevolesScreen(Screen):
 
     def clear_content(self):
         self.content.clear_widgets()
+        self.add_spacer(5)
+        if hasattr(self, "fixed_content"):
+            self.fixed_content.clear_widgets()
 
     def add_title(self, title, subtitle=None):
-        self.content.add_widget(self.make_label( title,font_size="20sp", bold=True, color=self.COLOR_WHITE ))
+        self.fixed_content.add_widget(self.make_label(title,font_size="20sp", bold=True, color=self.COLOR_WHITE))
         if subtitle:
-            self.content.add_widget(self.make_label( subtitle, font_size="13sp",color=self.COLOR_PALE_BLUE ))
+            self.fixed_content.add_widget(self.make_label( subtitle, font_size="13sp",color=self.COLOR_PALE_BLUE))
 
     def create_card(self, padding=14, spacing=8, color=None):
-        card = BoxLayout(
-            orientation="vertical",
-            size_hint_y=None,
-            padding=self.get_dp(padding),
-            spacing=self.get_dp(spacing)
-        )
+        card = BoxLayout(orientation="vertical",size_hint_y=None,padding=self.get_dp(padding),spacing=self.get_dp(spacing))
         card.bind(minimum_height=card.setter("height"))
         with card.canvas.before:
             Color(*get_color_from_hex(
@@ -296,6 +323,8 @@ class BenevolesScreen(Screen):
     # NAVIGATION
     # ---------------------------------------------------------
     def change_tab(self, tab):
+        if hasattr(self, "planning_view"):
+            self.planning_view.deactivate()
         self.current_tab = tab
         self.selected_pole = None
         self.display_current_tab()
@@ -397,31 +426,48 @@ class BenevolesScreen(Screen):
     def display_home(self):
         self.clear_content()
         data = self.benevoles_data or {}
-        # -----------------------------------------------------
-        # 1. BIENVENUE
-        # -----------------------------------------------------
+        
         presentation = data.get("presentation", {}) or {}
+
         if not isinstance(presentation, dict):
             presentation = {}
-        welcome_card = self.create_card( padding=20, spacing=8)
-        self.add_to_card(
-            welcome_card,
+        
+        self.fixed_content.clear_widgets()
+        
+        self.add_title(
             presentation.get("titre", "Bienvenue !"),
-            font_size="22sp",
-            color=self.COLOR_PRIMARY,
-            bold=True
-        )
-        self.add_to_card(
-            welcome_card,
             presentation.get(
                 "message",
                 "Bienvenue dans votre espace bénévoles."
-            ),
-            font_size="15sp",
-            color=self.COLOR_TEXT
+            )
         )
-        self.content.add_widget(welcome_card)
-        self.add_spacer(5)
+        # -----------------------------------------------------
+        # 1. BIENVENUE
+        # -----------------------------------------------------
+        #=======================================================================
+        # presentation = data.get("presentation", {}) or {}
+        # if not isinstance(presentation, dict):
+        #     presentation = {}
+        # welcome_card = self.create_card( padding=20, spacing=8)
+        # self.add_to_card(
+        #     welcome_card,
+        #     presentation.get("titre", "Bienvenue !"),
+        #     font_size="22sp",
+        #     color=self.COLOR_PRIMARY,
+        #     bold=True
+        # )
+        # self.add_to_card(
+        #     welcome_card,
+        #     presentation.get(
+        #         "message",
+        #         "Bienvenue dans votre espace bénévoles."
+        #     ),
+        #     font_size="15sp",
+        #     color=self.COLOR_TEXT
+        # )
+        # self.content.add_widget(welcome_card)
+        # self.add_spacer(5)
+        #=======================================================================
         # -----------------------------------------------------
         # 2. INFORMATIONS IMPORTANTES
         # -----------------------------------------------------
@@ -559,7 +605,7 @@ class BenevolesScreen(Screen):
     # ONGLET RÉUNIONS
     # ---------------------------------------------------------
     def display_meetings(self):
-        self.add_title( "Réunions", "Retrouve les rendez-vous et les comptes rendus.")
+        self.add_title( "Réunions", "Retrouvez les rendez-vous et les comptes rendus.")
         meetings = self.get_sorted_meetings()
         upcoming = self.get_upcoming_meetings()
         self.add_section_title("Réunions à venir")
@@ -625,7 +671,7 @@ class BenevolesScreen(Screen):
     # ONGLET PÔLES
     # ---------------------------------------------------------
     def display_poles(self):
-        self.add_title("Les pôles du tournoi", "Découvre les équipes, leurs missions et leurs référents.")
+        self.add_title("Les pôles du tournoi", "Découvrez les équipes, leurs missions et leurs référents.")
         poles = self.benevoles_data.get("poles", []) or []
         if not poles:
             self.add_empty_message("Aucun pôle n'est actuellement renseigné.")
@@ -1082,45 +1128,65 @@ class BenevolesScreen(Screen):
     def display_annuaire(self):
         self.add_title(
             "Annuaire des contacts",
-            "Retrouve facilement les prestataires et interlocuteurs du tournoi."
+            "Retrouvez facilement les prestataires et interlocuteurs du tournoi."
         )
-        contacts = self.benevoles_data.get("annuaire", []) or []
+        contacts = self.benevoles_data.get(
+            "annuaire",
+            []
+        ) or []
         if not isinstance(contacts, list):
             contacts = []
-        # Champ de recherche
-        search_card = self.create_card(padding=12, spacing=7)
-        self.add_to_card(search_card,"Rechercher un contact",font_size="14sp", bold=True,color=self.COLOR_PRIMARY)
+        # -------------------------------------------------
+        # Recherche FIXE
+        # -------------------------------------------------
+        search_card = self.create_card( padding=12,spacing=7)
+        self.add_to_card(search_card,"Rechercher un contact", font_size="14sp",bold=True,color=self.COLOR_PRIMARY)
         self.annuaire_search_input = TextInput(
             hint_text="Nom, prénom, fonction, entreprise, téléphone...",
             multiline=False,
             size_hint_y=None,
             height=self.get_dp(46),
             font_size=self.get_sp(14),
-            padding=[self.get_dp(10),self.get_dp(12)],
+            padding=[
+                self.get_dp(10),
+                self.get_dp(12)
+            ],
             background_normal="",
             background_active="",
-            background_color=get_color_from_hex(self.COLOR_LIGHT_BLUE),
-            foreground_color=get_color_from_hex(self.COLOR_TEXT),
-            hint_text_color=get_color_from_hex(self.COLOR_MUTED),
-            cursor_color=get_color_from_hex(self.COLOR_PRIMARY)
+            background_color=get_color_from_hex(
+                self.COLOR_LIGHT_BLUE
+            ),
+            foreground_color=get_color_from_hex(
+                self.COLOR_TEXT
+            ),
+            hint_text_color=get_color_from_hex(
+                self.COLOR_MUTED
+            ),
+            cursor_color=get_color_from_hex(
+                self.COLOR_PRIMARY
+            )
         )
         search_card.add_widget(self.annuaire_search_input)
-        self.content.add_widget(search_card)
-        # Compteur de résultats
-        self.annuaire_count_label = self.make_label( "",font_size="12sp",color=self.COLOR_PALE_BLUE)
-        self.content.add_widget(self.annuaire_count_label)
-        # Conteneur des résultats
-        self.annuaire_results = BoxLayout(orientation="vertical",size_hint_y=None, spacing=dp(10))
-        self.annuaire_results.bind(minimum_height=self.annuaire_results.setter("height"))
+        self.fixed_content.add_widget(search_card)
+        # -------------------------------------------------
+        # Compteur FIXE
+        # -------------------------------------------------
+        self.annuaire_count_label = self.make_label("",font_size="12sp",color=self.COLOR_PALE_BLUE)
+        self.fixed_content.add_widget(self.annuaire_count_label)
+        # -------------------------------------------------
+        # Liste SCROLLABLE
+        # -------------------------------------------------
+        self.annuaire_results = BoxLayout(orientation="vertical", size_hint_y=None,spacing=dp(10))
+        self.annuaire_results.bind( minimum_height=self.annuaire_results.setter( "height"))
         self.content.add_widget(self.annuaire_results)
-        # Recherche instantanée
         self.annuaire_search_input.bind(text=self.filter_annuaire)
-        self.filter_annuaire(self.annuaire_search_input, "")
+        self.filter_annuaire(self.annuaire_search_input,"" )
         self.add_bottom_safe_spacing()
     
     def filter_annuaire(self, instance, search_text):
         """Filtre les contacts selon les mots recherchés."""
         self.annuaire_results.clear_widgets()
+        self.annuaire_results.height = 0
         contacts = self.benevoles_data.get("annuaire", []) or []
         if not isinstance(contacts, list):
             contacts = []
@@ -1156,7 +1222,11 @@ class BenevolesScreen(Screen):
             return
         # Affichage des contacts
         for contact in filtered_contacts:
-            self.display_contact_card(contact,parent=self.annuaire_results)
+            self.display_contact_card(
+                contact,
+                parent=self.annuaire_results
+            )
+        self.annuaire_results.do_layout()
     
     def display_contact_card(self, contact, parent=None):
         """Affiche une fiche de contact."""
@@ -1198,12 +1268,13 @@ class BenevolesScreen(Screen):
     # PLANNING
     # ---------------------------------------------------------
     def display_planning(self):
-        self.add_title("Planning","Retrouve les affectations des bénévoles par journée et par tournoi.")
+        self.add_title("Planning","Retrouvez les affectations des bénévoles par journée et par tournoi.")
         # benevoles_data correspond déjà à tournoi > appli > benevoles.
         sheet_url = (self.benevoles_data.get("planning_google_sheet", "")
             if isinstance(self.benevoles_data, dict)
             else ""
         )
-        planning_view = PlanningScreen(sheet_url=sheet_url)
+        planning_view = PlanningScreen(sheet_url=sheet_url,fixed_container=self.fixed_content)
+        self.planning_view = planning_view
         self.content.add_widget(planning_view)
         self.add_bottom_safe_spacing()
