@@ -23,6 +23,7 @@ from kivy.utils import platform
 from kivy.uix.textinput import TextInput
 
 from core.planning import PlanningScreen
+from core.stock import StockScreen
 
 class BenevolesScreen(Screen):
     # ---------------------------------------------------------
@@ -109,10 +110,11 @@ class BenevolesScreen(Screen):
         self.tab_buttons = {}
         tabs = [
             ("accueil", "Accueil"),
-            ("reunions", "Réunions"),
             ("poles", "Pôles"),
-            ("annuaire", "Annuaire"),
             ("planning", "Planning"),
+            ("stock", "Stock"),
+            ("reunions", "Réunions"),
+            ("annuaire", "Annuaire"),
             ("documents", "Documents")
         ]
         for tab_id, tab_title in tabs:
@@ -319,12 +321,16 @@ class BenevolesScreen(Screen):
             self.display_annuaire()
         elif self.current_tab == "planning":
             self.display_planning()
+        elif self.current_tab == "stock":
+            self.display_stock()
     # ---------------------------------------------------------
     # NAVIGATION
     # ---------------------------------------------------------
     def change_tab(self, tab):
         if hasattr(self, "planning_view"):
             self.planning_view.deactivate()
+        if hasattr(self, "stock_view"):
+            self.stock_view.deactivate()
         self.current_tab = tab
         self.selected_pole = None
         self.display_current_tab()
@@ -1277,4 +1283,21 @@ class BenevolesScreen(Screen):
         planning_view = PlanningScreen(sheet_url=sheet_url,fixed_container=self.fixed_content)
         self.planning_view = planning_view
         self.content.add_widget(planning_view)
+        self.add_bottom_safe_spacing()
+        # ---------------------------------------------------------
+    # STOCK
+    # ---------------------------------------------------------
+    def display_stock(self):
+        self.add_title(
+            "Gestion des stocks",
+            "Consultez rapidement les consommables disponibles."
+        )
+        sheet_url = (
+            self.benevoles_data.get("stock_google_sheet", "")
+            if isinstance(self.benevoles_data, dict)
+            else ""
+        )
+        stock_view = StockScreen(sheet_url=sheet_url,fixed_container=self.fixed_content)
+        self.stock_view = stock_view
+        self.content.add_widget(stock_view)
         self.add_bottom_safe_spacing()
