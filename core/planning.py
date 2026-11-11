@@ -43,45 +43,32 @@ from kivy.utils import platform
 
 from core.planning_stats import PlanningStats
 
-
 # Espaces de noms OOXML utilisés dans un fichier XLSX.
 _NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _NS_REL_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _NS_REL_PKG = "http://schemas.openxmlformats.org/package/2006/relationships"
 
-
 def _local_name(tag):
     return tag.rsplit("}", 1)[-1]
 
-
 def _normalise(value):
-    try:
-        value = str(value or "").strip().lower()
-        value = value.replace("é", "e").replace("è", "e").replace("ê", "e")
-        value = value.replace("à", "a").replace("ù", "u").replace("ç", "c")
-        value = value.replace("ô", "o").replace("î", "i").replace("ï", "i")
-        value = re.sub(r"[^a-z0-9]+", " ", value)
-        return " ".join(value.split())
-    except Exception as e:
-        print("[NORMALISE] ERREUR")
-        print("[NORMALISE] TYPE =", type(value))
-        print("[NORMALISE] VALEUR =", repr(value))
-        print("[NORMALISE] EXCEPTION =", repr(e))
-        raise
-
+    value = str(value or "").strip().lower()
+    value = value.replace("é", "e").replace("è", "e").replace("ê", "e")
+    value = value.replace("à", "a").replace("ù", "u").replace("ç", "c")
+    value = value.replace("ô", "o").replace("î", "i").replace("ï", "i")
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return " ".join(value.split())
 
 def _parse_date(value):
     """Convertit les dates texte courantes et les numéros de série Excel."""
     if value is None or str(value).strip() == "":
         return None
-
     if isinstance(value, (int, float)):
         try:
             # Système de dates Excel 1900.
             return (datetime(1899, 12, 30) + timedelta(days=float(value))).date()
         except (ValueError, OverflowError):
             return None
-
     text = str(value).strip()
     # Google Sheets exporte souvent les cellules de date sous forme
     # de numéro de série Excel, y compris dans les métadonnées.
@@ -90,7 +77,6 @@ def _parse_date(value):
             return (datetime(1899, 12, 30) + timedelta(days=float(text))).date()
         except (ValueError, OverflowError):
             pass
-
     for fmt in (
         "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y",
         "%Y/%m/%d", "%d/%m/%y",
@@ -99,7 +85,6 @@ def _parse_date(value):
             return datetime.strptime(text, fmt).date()
         except ValueError:
             pass
-
     # Date éventuellement intégrée dans le nom d'onglet.
     match = re.search(r"(\d{1,2})[./_-](\d{1,2})[./_-](\d{2,4})", text)
     if match:
@@ -110,7 +95,6 @@ def _parse_date(value):
             return date(year, month, day)
         except ValueError:
             pass
-
     match = re.search(r"(20\d{2})[./_-](\d{1,2})[./_-](\d{1,2})", text)
     if match:
         try:
@@ -141,13 +125,9 @@ class _XlsxReader:
     """Lecteur XLSX minimal basé sur zipfile et ElementTree."""
 
     def __init__(self, content):
-        print("[XLSX] Ouverture ZIP")
         self.archive = zipfile.ZipFile(io.BytesIO(content))
-        print("[XLSX] ZIP ouvert")
         self.shared_strings = self._read_shared_strings()
-        print("[XLSX] Shared strings =", len(self.shared_strings))
         self.sheets = self._read_sheet_map()
-        print("[XLSX] Sheets trouvees =", len(self.sheets))
 
     def _xml(self, path):
         return ET.fromstring(self.archive.read(path))
@@ -174,8 +154,6 @@ class _XlsxReader:
         result = []
         sheets_node = workbook.find("{%s}sheets" % _NS_MAIN)
         if sheets_node is None:
-            for name, path in result:
-                print("[XLSX] Sheet =", repr(name))
             return result
 
         for sheet in sheets_node:
@@ -266,14 +244,16 @@ class PlanningScreen(BoxLayout):
         """Adapte la taille des textes selon la plateforme."""
         return "{}sp".format(value * self.FONT_SCALE)
 
-    def __init__(self, sheet_url="", **kwargs):
+    def __init__(self,sheet_url="",fixed_container=None, **kwargs):
         super().__init__(orientation="vertical", size_hint_y=None, **kwargs)
+        self.fixed_container = fixed_container
         self.bind(minimum_height=self.setter("height"))
         self.sheet_url = str(sheet_url or "").strip()
         self.days = {}
         self.selected_day = None
         self.selected_tournament = None
         self.loading = False
+        self.is_active = True
         self._build_header()
         self.body = BoxLayout(orientation="vertical",size_hint_y=None,spacing=self._dp(12))
         self.body.bind(minimum_height=self.body.setter("height"))
@@ -286,6 +266,19 @@ class PlanningScreen(BoxLayout):
                 "Ajoute la clé 'planning_google_sheet' dans "
                 "tournoi > appli > benevoles dans la configuration."
             )
+    
+    def deactivate(self):
+        self.is_active = False
+    
+    def _set_fixed_content(self, *widgets):
+        if not self.fixed_container:
+            return
+        if not self.is_active:
+            return
+        self.fixed_container.clear_widgets()
+        for widget in widgets:
+            self.fixed_container.add_widget(widget)
+
     # ------------------------- Interface -------------------------
     def _label(self, text, size=14, color=None, bold=False):
         label = Label(text=str(text or ""),size_hint_y=None,height=self._dp(max(25, size * 1.8)),font_size=self._sp(size),color=get_color_from_hex(color or self.COLOR_TEXT), bold=bold,halign="left", valign="middle", )
@@ -325,14 +318,15 @@ class PlanningScreen(BoxLayout):
         return card
 
     def _build_header(self):
-        header = BoxLayout(orientation="horizontal",size_hint_y=None,height=self._dp(48),spacing=self._dp(6))
-        refresh_btn = self._button("Actualiser",self.refresh,primary=True)
-        stats_btn = self._button( "Stats", self.display_stats, primary=True)
-        header.add_widget(refresh_btn)
-        header.add_widget(stats_btn)
-        self.add_widget(header)
-        self.status_label = self._label("Chargement du planning…",12, self.COLOR_WHITE)
-        self.add_widget(self.status_label)
+        self.title_label = self._label("Planning",20,self.COLOR_WHITE, True )
+        self.subtitle_label = self._label("Retrouvez les affectations des bénévoles par journée et par tournoi.",13,self.COLOR_WHITE)
+        self.header = BoxLayout(orientation="horizontal",size_hint_y=None,height=self._dp(48),spacing=self._dp(6))
+        refresh_btn = self._button("Actualiser",self.refresh, primary=True)
+        stats_btn = self._button("Stats",self.display_stats,primary=True)
+        self.header.add_widget(refresh_btn)
+        self.header.add_widget(stats_btn)
+        self.status_label = self._label("Chargement du planning…",12,self.COLOR_WHITE)
+        self._set_fixed_content(self.title_label,self.subtitle_label,self.header, self.status_label)
         
     def _show_message(self, title, message):
         self.body.clear_widgets()
@@ -360,45 +354,30 @@ class PlanningScreen(BoxLayout):
         self.status_label.text = "Mise à jour du planning…"
         thread = threading.Thread(target=self._download_worker, daemon=True)
         thread.start()
-
+    
     def _download_worker(self):
-        print("[PLANNING] ===== DEBUT DOWNLOAD WORKER =====")
-        print("[PLANNING] URL source =", repr(self.sheet_url))
         try:
             export_url = self._xlsx_export_url(self.sheet_url)
-            print("[PLANNING] Export URL OK")
-            print("[PLANNING] Export URL =", repr(export_url))
-            print("[PLANNING] Creation Request")
-            request = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0 (compatible; BenevolesPlanning/1.0)"})
-            # Utilisation d'un bundle de certificats CA fiable
-            print("[PLANNING] certifi.where =", repr(certifi.where()))
-            print("[PLANNING] Creation contexte SSL")
-            context = ssl.create_default_context( cafile=certifi.where())
-            print("[PLANNING] Contexte SSL cree")
-            print("[PLANNING] Debut telechargement")
-            with urllib.request.urlopen(
-                request,
-                timeout=25,
-                context=context
-            ) as response:
+            request = urllib.request.Request( export_url,headers={ "User-Agent": "Mozilla/5.0 (compatible; BenevolesPlanning/1.0)" })
+            # Android/iOS : utilise certifi
+            # Windows : utilise le store de certificats Windows
+            if platform == "win":
+                context = ssl.create_default_context()
+            else:
+                context = ssl.create_default_context(cafile=certifi.where())
+            with urllib.request.urlopen( request, timeout=25, context=context) as response:
                 content = response.read()
-                print("[PLANNING] Telechargement OK")
-                print("[PLANNING] Taille XLSX =", len(content))
-            print("[PLANNING] Creation XlsxReader")
             reader = _XlsxReader(content)
-            print("[PLANNING] Lecture de toutes les feuilles")
             parsed = self._parse_workbook(reader.all_sheets())
-            print("[PLANNING] XlsxReader OK")
-            Clock.schedule_once(lambda _dt: self._on_loaded(parsed, None), 0)
+            Clock.schedule_once(lambda _dt: self._on_loaded(parsed, None), 0 )
         except Exception as error:
-            import traceback
-            print("[PLANNING] ===== EXCEPTION =====")
-            print(traceback.format_exc())
-            message = traceback.format_exc()
-            Clock.schedule_once(lambda _dt, msg=message: self._on_loaded(None, msg), 0)
+            message = str(error)
+            Clock.schedule_once( lambda _dt, msg=message: self._on_loaded(None, msg),0)
 
     def _on_loaded(self, parsed, error):
         self.loading = False
+        if not self.is_active:
+            return
         if error:
             self.status_label.text = "Impossible de charger le planning."
             self._show_message(
@@ -415,13 +394,10 @@ class PlanningScreen(BoxLayout):
         self.display_calendar()
     # ------------------------- Analyse des feuilles -------------------------
     def _parse_workbook(self, sheets):
-        print("[PARSE] Debut parse workbook")
-        print("[PARSE] Nombre feuilles =", len(sheets))
         tournaments = []
         infos_by_date = {}
         # Première passe : feuilles Planning.
         for sheet_name, rows in sheets:
-            print("[PARSE] Analyse sheet =", repr(sheet_name))
             normalized_name = _normalise(sheet_name)
             if "planning" not in normalized_name:
                 continue
@@ -443,15 +419,16 @@ class PlanningScreen(BoxLayout):
             day_key = tournament["date"].isoformat()
             tournament["infos_jour"] = infos_by_date.get(day_key, [])
             grouped[day_key].append(tournament)
-        for day_key, tournaments in grouped.items():
-            for tournament in tournaments:
-                print(
-                    "[PLANNING] Tournoi =",
-                    tournament["nom"],
-                    "infos_jour =",
-                    tournament.get("infos_jour")
-                )
-        
+        #=======================================================================
+        # for day_key, tournaments in grouped.items():
+        #     for tournament in tournaments:
+        #         print(
+        #             "[PLANNING] Tournoi =",
+        #             tournament["nom"],
+        #             "infos_jour =",
+        #             tournament.get("infos_jour")
+        #         )
+        #=======================================================================
         return dict(sorted(grouped.items(), key=lambda item: item[0]))
 
     def _date_from_sheet_name(self, name):
@@ -639,6 +616,7 @@ class PlanningScreen(BoxLayout):
 
     def display_calendar(self):
         self.body.clear_widgets()
+        self._set_fixed_content( self.title_label, self.subtitle_label,self.header, self.status_label )
         self.selected_day = None
         self.selected_tournament = None
         if not self.days:
@@ -694,11 +672,21 @@ class PlanningScreen(BoxLayout):
             return
         self.body.clear_widgets()
         parsed = datetime.strptime(day_key, "%Y-%m-%d").date()
-        self.body.add_widget(self._button("‹ Retour au calendrier", self.display_calendar, False))
-        self.body.add_widget(self._label(
-            parsed.strftime("%d/%m/%Y") + " — Choisis un tournoi",
-            18, self.COLOR_WHITE, True
-        ))
+        self._set_fixed_content(
+        self._button(
+            "‹ Retour au calendrier",
+            self.display_calendar,
+            False
+        ),
+        self._label(
+            parsed.strftime("%d/%m/%Y")
+            + " — Choisis un tournoi",
+            18,
+            self.COLOR_WHITE,
+            True
+        )
+    )
+
         for tournament in tournaments:
             people = {
                 (
@@ -719,19 +707,45 @@ class PlanningScreen(BoxLayout):
     def open_tournament(self, tournament):
         self.selected_tournament = tournament
         self.body.clear_widgets()
-        self.body.add_widget(self._button(
-            "‹ Retour aux journées",
-            self.display_calendar,
-            False
-        ))
-        if self.selected_day and len(self.days.get(self.selected_day, [])) > 1:
-            self.body.add_widget(self._button(
-                "‹ Choisir un autre tournoi de cette journée",
-                lambda: self.open_day(self.selected_day),
+        fixed_widgets = [
+            self._button(
+                "‹ Retour aux journées",
+                self.display_calendar,
                 False
-            ))
-        self.body.add_widget(self._label(tournament["nom"], 21, self.COLOR_WHITE, True))
-        self.body.add_widget(self._label(tournament["date"].strftime("%d/%m/%Y"), 13, self.COLOR_WHITE))
+            )
+        
+        ]
+        if (
+            self.selected_day
+            and len(
+                self.days.get(
+                    self.selected_day,
+                    []
+                )
+            ) > 1
+        ):
+            fixed_widgets.append(
+                self._button(
+                    "‹ Choisir un autre tournoi",
+                    lambda: self.open_day(
+                        self.selected_day
+                    ),
+                    False
+                )
+            )
+        
+        fixed_widgets.append(self._label(tournament["nom"],21,self.COLOR_WHITE,True))
+        
+        fixed_widgets.append(
+            self._label(
+                tournament["date"].strftime(
+                    "%d/%m/%Y"
+                ),
+                13,
+                self.COLOR_WHITE
+            )
+        )
+        self._set_fixed_content(*fixed_widgets)
         # ==========================================================
         # Vue d'ensemble
         # ==========================================================
@@ -769,25 +783,11 @@ class PlanningScreen(BoxLayout):
                 )
             )
         if tournament.get("debut"):
-            horaires.append(
-                "Début : {}".format(
-                    tournament["debut"]
-                )
-            )
+            horaires.append("Début : {}".format( tournament["debut"]))
         if tournament.get("fin"):
-            horaires.append(
-                "Fin : {}".format(
-                    tournament["fin"]
-                )
-            )
+            horaires.append("Fin : {}".format( tournament["fin"]) )
         for texte in horaires:
-            overview.add_widget(
-                self._label(
-                    texte,
-                    13,
-                    self.COLOR_TEXT
-                )
-            )
+            overview.add_widget(self._label( texte, 13, self.COLOR_TEXT ))
         # -------------------------------------------------
         # Responsable
         # -------------------------------------------------
@@ -812,14 +812,7 @@ class PlanningScreen(BoxLayout):
         # --------------------------------------------------
         # Postes critiques
         # --------------------------------------------------
-        overview.add_widget(
-            self._label(
-                "Postes indispensables",
-                14,
-                self.COLOR_PRIMARY,
-                True
-            )
-        )
+        overview.add_widget(self._label("Postes indispensables", 14, self.COLOR_PRIMARY,True))
         covered = 0
         for required_post in required_posts:
             nb = sum(
@@ -925,8 +918,15 @@ class PlanningScreen(BoxLayout):
     def display_stats(self):
         stats = PlanningStats.build(self.days)
         self.body.clear_widgets()
-        self.body.add_widget(self._button("‹ Retour",self.display_calendar,False ))
-        self.body.add_widget(self._label("Statistiques",20, self.COLOR_WHITE,True ))
+        self._set_fixed_content(
+        self._button( "‹ Retour", self.display_calendar,False),
+        self._label(
+            "Statistiques",
+            20,
+           self.COLOR_WHITE,
+            True
+       )
+    )
         # ==========================================================
         # Vue d'ensemble
         # ==========================================================
