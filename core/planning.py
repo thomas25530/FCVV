@@ -55,12 +55,19 @@ def _local_name(tag):
 
 
 def _normalise(value):
-    value = str(value or "").strip().lower()
-    value = value.replace("é", "e").replace("è", "e").replace("ê", "e")
-    value = value.replace("à", "a").replace("ù", "u").replace("ç", "c")
-    value = value.replace("ô", "o").replace("î", "i").replace("ï", "i")
-    value = re.sub(r"[^a-z0-9]+", " ", value)
-    return " ".join(value.split())
+    try:
+        value = str(value or "").strip().lower()
+        value = value.replace("é", "e").replace("è", "e").replace("ê", "e")
+        value = value.replace("à", "a").replace("ù", "u").replace("ç", "c")
+        value = value.replace("ô", "o").replace("î", "i").replace("ï", "i")
+        value = re.sub(r"[^a-z0-9]+", " ", value)
+        return " ".join(value.split())
+    except Exception as e:
+        print("[NORMALISE] ERREUR")
+        print("[NORMALISE] TYPE =", type(value))
+        print("[NORMALISE] VALEUR =", repr(value))
+        print("[NORMALISE] EXCEPTION =", repr(e))
+        raise
 
 
 def _parse_date(value):
@@ -134,9 +141,13 @@ class _XlsxReader:
     """Lecteur XLSX minimal basé sur zipfile et ElementTree."""
 
     def __init__(self, content):
+        print("[XLSX] Ouverture ZIP")
         self.archive = zipfile.ZipFile(io.BytesIO(content))
+        print("[XLSX] ZIP ouvert")
         self.shared_strings = self._read_shared_strings()
+        print("[XLSX] Shared strings =", len(self.shared_strings))
         self.sheets = self._read_sheet_map()
+        print("[XLSX] Sheets trouvees =", len(self.sheets))
 
     def _xml(self, path):
         return ET.fromstring(self.archive.read(path))
@@ -163,6 +174,8 @@ class _XlsxReader:
         result = []
         sheets_node = workbook.find("{%s}sheets" % _NS_MAIN)
         if sheets_node is None:
+            for name, path in result:
+                print("[XLSX] Sheet =", repr(name))
             return result
 
         for sheet in sheets_node:
@@ -349,22 +362,39 @@ class PlanningScreen(BoxLayout):
         thread.start()
 
     def _download_worker(self):
+        print("[PLANNING] ===== DEBUT DOWNLOAD WORKER =====")
+        print("[PLANNING] URL source =", repr(self.sheet_url))
         try:
             export_url = self._xlsx_export_url(self.sheet_url)
+            print("[PLANNING] Export URL OK")
+            print("[PLANNING] Export URL =", repr(export_url))
+            print("[PLANNING] Creation Request")
             request = urllib.request.Request(export_url, headers={"User-Agent": "Mozilla/5.0 (compatible; BenevolesPlanning/1.0)"})
             # Utilisation d'un bundle de certificats CA fiable
+            print("[PLANNING] certifi.where =", repr(certifi.where()))
+            print("[PLANNING] Creation contexte SSL")
             context = ssl.create_default_context( cafile=certifi.where())
+            print("[PLANNING] Contexte SSL cree")
+            print("[PLANNING] Debut telechargement")
             with urllib.request.urlopen(
                 request,
                 timeout=25,
                 context=context
             ) as response:
                 content = response.read()
+                print("[PLANNING] Telechargement OK")
+                print("[PLANNING] Taille XLSX =", len(content))
+            print("[PLANNING] Creation XlsxReader")
             reader = _XlsxReader(content)
+            print("[PLANNING] Lecture de toutes les feuilles")
             parsed = self._parse_workbook(reader.all_sheets())
+            print("[PLANNING] XlsxReader OK")
             Clock.schedule_once(lambda _dt: self._on_loaded(parsed, None), 0)
         except Exception as error:
-            message = str(error)
+            import traceback
+            print("[PLANNING] ===== EXCEPTION =====")
+            print(traceback.format_exc())
+            message = traceback.format_exc()
             Clock.schedule_once(lambda _dt, msg=message: self._on_loaded(None, msg), 0)
 
     def _on_loaded(self, parsed, error):
@@ -385,10 +415,13 @@ class PlanningScreen(BoxLayout):
         self.display_calendar()
     # ------------------------- Analyse des feuilles -------------------------
     def _parse_workbook(self, sheets):
+        print("[PARSE] Debut parse workbook")
+        print("[PARSE] Nombre feuilles =", len(sheets))
         tournaments = []
         infos_by_date = {}
         # Première passe : feuilles Planning.
         for sheet_name, rows in sheets:
+            print("[PARSE] Analyse sheet =", repr(sheet_name))
             normalized_name = _normalise(sheet_name)
             if "planning" not in normalized_name:
                 continue
