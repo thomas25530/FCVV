@@ -30,7 +30,10 @@ class DebugPopup:
         if self.capture_installee:
             return
         def debug_print(*args, **kwargs):
-            self.original_print(*args, **kwargs)
+            try:
+                self.original_print(" ".join(repr(arg) for arg in args))
+            except Exception:
+                pass
             try:
                 frame = inspect.currentframe().f_back
                 fichier = os.path.basename(frame.f_code.co_filename)
