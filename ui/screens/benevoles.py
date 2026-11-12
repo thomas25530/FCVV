@@ -1056,11 +1056,12 @@ class BenevolesScreen(Screen):
     
     def logout(self, instance=None):
         app = App.get_running_app()
-        if not app.config.has_section("Benevoles"):
-            app.config.add_section("Benevoles")
-        app.config.set("Benevoles","authenticated","0")
-        app.config.set("Benevoles", "credentials_hash", "" )
-        app.config.write()
+        try:
+            login_screen = app.root.sm.get_screen("login_benevoles")
+            login_screen.logout()
+            return
+        except Exception as e:
+            print(f"[BENEVOLES] Erreur logout centralise : {e}")
         if app.root and hasattr(app.root, "switch_screen"):
             app.root.switch_screen("login_benevoles")
     # ---------------------------------------------------------
