@@ -28,6 +28,8 @@ import zipfile
 import xml.etree.ElementTree as ET
 import ssl
 import certifi
+import webbrowser
+from urllib.parse import urlparse
 
 from datetime import datetime, date, timedelta
 from collections import defaultdict
@@ -278,7 +280,42 @@ class PlanningScreen(BoxLayout):
         self.fixed_container.clear_widgets()
         for widget in widgets:
             self.fixed_container.add_widget(widget)
-
+    
+    def open_google_sheet(self):
+        url = str(self.sheet_url or "").strip()
+        if not url:
+            print("[BENEVOLES] Aucun lien Google Sheets configure.")
+            return
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            scheme = parsed.scheme.lower()
+            if scheme not in ("http", "https") or not parsed.netloc:
+                print("[BENEVOLES] URL Google Sheets invalide :", url)
+                return
+            if platform == "ios":
+                from pyobjus import autoclass
+                UIApplication = autoclass("UIApplication")
+                NSURL = autoclass("NSURL")
+                nsurl = NSURL.URLWithString_(url)
+                if nsurl is None:
+                    print("[BENEVOLES] URL Google Sheets invalide :", url)
+                    return
+                app_instance = UIApplication.sharedApplication()
+                app_instance.openURL_options_completionHandler_( nsurl, None, None)
+            elif platform == "android":
+                from jnius import autoclass
+                Intent = autoclass("android.content.Intent")
+                Uri = autoclass("android.net.Uri")
+                PythonActivity = autoclass("org.kivy.android.PythonActivity")
+                intent = Intent( Intent.ACTION_VIEW, Uri.parse(url))
+                PythonActivity.mActivity.startActivity(intent)
+            else:
+                import webbrowser
+                webbrowser.open(url)
+        except Exception as error:
+            print("[BENEVOLES] Impossible d'ouvrir Google Sheets :",error)
+    
     # ------------------------- Interface -------------------------
     def _label(self, text, size=14, color=None, bold=False):
         label = Label(text=str(text or ""),size_hint_y=None,height=self._dp(max(25, size * 1.8)),font_size=self._sp(size),color=get_color_from_hex(color or self.COLOR_TEXT), bold=bold,halign="left", valign="middle", )
@@ -318,15 +355,21 @@ class PlanningScreen(BoxLayout):
         return card
 
     def _build_header(self):
-        self.title_label = self._label("Planning",20,self.COLOR_WHITE, True )
-        self.subtitle_label = self._label("Retrouvez les affectations des bénévoles par journée et par tournoi.",13,self.COLOR_WHITE)
-        self.header = BoxLayout(orientation="horizontal",size_hint_y=None,height=self._dp(48),spacing=self._dp(6))
-        refresh_btn = self._button("Actualiser",self.refresh, primary=True)
-        stats_btn = self._button("Stats",self.display_stats,primary=True)
+        self.title_label = self._label("Planning", 20, self.COLOR_WHITE, True )
+        self.subtitle_label = self._label(
+            "Retrouvez les affectations des bénévoles par journée et par tournoi.",
+            13,
+            self.COLOR_WHITE
+        )
+        self.header = BoxLayout(orientation="horizontal", size_hint_y=None, height=self._dp(48), spacing=self._dp(6) )
+        self.manage_btn = self._button("Gérer",self.open_google_sheet,primary=True)
+        self.manage_btn.size_hint_x = 0.5
+        refresh_btn = self._button("Actualiser",self.refresh,primary=True)
+        refresh_btn.size_hint_x = 0.5
+        self.header.add_widget(self.manage_btn)
         self.header.add_widget(refresh_btn)
-        self.header.add_widget(stats_btn)
-        self.status_label = self._label("Chargement du planning…",12,self.COLOR_WHITE)
-        self._set_fixed_content(self.title_label,self.subtitle_label,self.header, self.status_label)
+        self.status_label = self._label("Chargement du planning…", 12, self.COLOR_WHITE)
+        self._set_fixed_content(self.title_label,self.subtitle_label, self.header, self.status_label)
         
     def _show_message(self, title, message):
         self.body.clear_widgets()
@@ -616,7 +659,7 @@ class PlanningScreen(BoxLayout):
 
     def display_calendar(self):
         self.body.clear_widgets()
-        self._set_fixed_content( self.title_label, self.subtitle_label,self.header, self.status_label )
+        self._set_fixed_content( self.title_label, self.subtitle_label, self.header, self.status_label )
         self.selected_day = None
         self.selected_tournament = None
         if not self.days:
@@ -662,6 +705,7 @@ class PlanningScreen(BoxLayout):
                 )
             card.add_widget(self._button("Voir les tournois de cette journée",lambda key=day_key: self.open_day(key)))
             self.body.add_widget(card)
+        self.body.add_widget(self._button("Statistiques",self.display_stats, True))
         self.body.add_widget(Widget(size_hint_y=None, height=self._dp(18)))
 
     def open_day(self, day_key):
