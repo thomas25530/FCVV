@@ -189,28 +189,57 @@ class NotificationManager:
         self.sauvegarder_notifications()
         
     def rediriger_notification(self, notif):
-        """Redirige vers l'écran adapté au type de notification."""
+        """Redirige vers l'écran adapté à la catégorie et au type."""
         app = self.app
-        root = app.root
         notif_type = notif.get("type")
         payload = notif.get("payload") or {}
-        # Compatibilité avec les notifications déjà enregistrées
-        categorie = ( payload.get("categorie") or notif.get("categorie"))
-        match_id = ( payload.get("match_id") or notif.get("match_id"))
+        # Compatibilité avec les anciennes notifications
+        categorie = (payload.get("categorie") or notif.get("categorie") or "")
+        match_id = (payload.get("match_id") or notif.get("match_id"))
         try:
-            if notif_type in ( "vestiaire", "vestiaire_message", "match", "chat", "message", "messages", "nouveau_message","echange","evenement","événement", "event", "creation_evenement","evenement_creation","validation","convocation"):
-                if not categorie:
-                    print( "[NOTIFICATION] Categorie absente de la notification.")
-                    return False
-                app.executer_redirection_vestiaire( categorie, match_id, notif_type)
-            elif notif_type in ("news", "home", "manual", None):
+            categorie_norm = str(categorie).strip().casefold()
+            nt = str(notif_type or "").strip().casefold()
+            # 1. Bénévoles : priorité à la catégorie
+            if categorie_norm == "benevole":
+                app.executer_redirection_benevoles()
+            # 2. Soirées
+            elif categorie_norm == "tournoivercel":
+                app.executer_redirection_soirees()
+            # 3. Accueil
+            elif (
+                nt in ("news", "home", "manual")
+                or categorie_norm == "generale"
+                or not categorie_norm
+            ):
                 app.executer_redirection_home()
+            # 4. Vestiaire
+            elif nt in (
+                "vestiaire",
+                "vestiaire_message",
+                "match",
+                "chat",
+                "message",
+                "messages",
+                "nouveau_message",
+                "echange",
+                "evenement",
+                "événement",
+                "event",
+                "creation_evenement",
+                "evenement_creation",
+                "validation",
+                "convocation",
+            ):
+                app.executer_redirection_vestiaire(categorie,match_id,notif_type)
             else:
-                print(f"[NOTIFICATION] Type inconnu : {notif_type}")
+                print(
+                    f"[NOTIFICATION] Type inconnu : {notif_type}, "
+                    f"categorie : {categorie}"
+                )
                 return False
             return True
         except Exception as e:
-            print( f"[NOTIFICATION] Erreur de redirection : {e}" )
+            print(f"[NOTIFICATION] Erreur de redirection : {e}")
             return False
     
     def marquer_tout_comme_lu(self):
