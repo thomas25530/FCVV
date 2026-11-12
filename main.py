@@ -1410,6 +1410,24 @@ class MyApp(App):
                 print("[NOTIFICATIONS] Gestionnaire introuvable.")
                 return
             # --------------------------------------------------
+            # FILTRAGE DES NOTIFICATIONS BENEVOLE
+            # --------------------------------------------------
+            authenticated_benevoles = self.config.getboolean("Benevoles","authenticated", fallback=False)
+            if not authenticated_benevoles:
+                avant = len(notifications)
+                notifications = [
+                    item for item in notifications
+                    if str(item.get("categorie") or "").strip().casefold()
+                    != "benevole".casefold()
+                ]
+                print(
+                    "[NOTIFICATIONS] Filtrage Benevole : "
+                    f"{avant - len(notifications)} notification(s) "
+                    "ignoree(s) car utilisateur non authentifie."
+                )
+            else:
+                print("[NOTIFICATIONS] Acces Benevole autorise : utilisateur authentifie.")
+            # --------------------------------------------------
             # DATE LIMITE DE PREMIÈRE SYNCHRONISATION ANONYME
             # --------------------------------------------------
             date_limite = None
