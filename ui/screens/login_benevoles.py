@@ -15,6 +15,7 @@ from kivy.uix.button import Button
 from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.utils import get_color_from_hex
 from kivy.utils import platform
+from datetime import datetime, timezone
 
 class BenevolesLoginScreen(Screen):
     # --------------------------------------------------
@@ -209,6 +210,13 @@ class BenevolesLoginScreen(Screen):
         if authenticated:
             credentials_hash = self.get_current_credentials_hash()
             app.config.set("Benevoles","credentials_hash",credentials_hash)
+            # Date et heure de la connexion bénévole
+            date_connexion = datetime.now(timezone.utc).isoformat()
+            app.config.set( "Benevoles","date_connexion", date_connexion)
+            print(
+                "[BENEVOLES LOGIN] Date de connexion enregistree : "
+                + date_connexion
+            )
         else:
             app.config.set("Benevoles","credentials_hash","")
         app.config.write()
