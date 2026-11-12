@@ -14,6 +14,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
 from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.utils import get_color_from_hex
+from kivy.utils import platform
 
 class BenevolesLoginScreen(Screen):
     # --------------------------------------------------
@@ -232,9 +233,18 @@ class BenevolesLoginScreen(Screen):
         password_ok = hmac.compare_digest(password_hash,configured_hash)
         if login_ok and password_ok:
             self.save_authentication(True)
+            app = App.get_running_app()
+            # ======================================
+            # Abonnement FCM catégorie Bénévole
+            # ======================================
+            try:
+                if (hasattr(app, "notifier") and app.notifier and platform in ("android", "ios")):
+                    print("[FCM BENEVOLES] Abonnement au topic Benevole")
+                    app.notifier.subscribe_to_topic("Benevole")
+            except Exception as e:
+                print(f"[FCM BENEVOLES] Erreur abonnement : {e}")
             self.password_input.text = ""
             self.error_label.text = ""
-            app = App.get_running_app()
             if app.root and hasattr(app.root, "switch_screen"):
                 app.root.switch_screen("benevoles")
         else:
@@ -247,19 +257,31 @@ class BenevolesLoginScreen(Screen):
     def on_pre_enter(self, *args):
         if self.is_authenticated():
             app = App.get_running_app()
+            try:
+                if (hasattr(app, "notifier") and app.notifier and platform in ("android", "ios")):
+                    print("[FCM BENEVOLES] Reabonnement automatique")
+                    app.notifier.subscribe_to_topic("Benevole")
+            except Exception as e:
+                print(f"[FCM BENEVOLES] Erreur : {e}")
             if app.root and hasattr(app.root, "switch_screen"):
                 app.root.switch_screen("benevoles")
 
     def on_enter(self, *args):
         self.password_input.text = ""
         self.error_label.text = ""
-
+        
     # --------------------------------------------------
     # DÉCONNEXION
     # --------------------------------------------------
     def logout(self, *args):
         self.save_authentication(False)
         app = App.get_running_app()
+        try:
+            if (hasattr(app, "notifier") and app.notifier and platform in ("android", "ios")):
+                print("[FCM BENEVOLES] Desabonnement du topic Benevole")
+                app.notifier.unsubscribe_from_topic("Benevole")
+        except Exception as e:
+            print(f"[FCM BENEVOLES] Erreur desabonnement : {e}")
         if app.root and hasattr(app.root, "switch_screen"):
             app.root.switch_screen("login_benevoles")
 
