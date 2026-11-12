@@ -1793,19 +1793,19 @@ class MyApp(App):
             # --------------------------------------------------
             # 6. REDIRECTION
             # --------------------------------------------------
-            if nt in ("manual", "home") or not categorie:
+            categorie_norm = (categorie or "").strip().lower()
+            if nt in ("manual", "home") or categorie_norm == "generale" or not categorie:
                 print("[iOS FCM] Redirection -> HOME")
-                Clock.schedule_once(lambda dt: self.executer_redirection_home(),0.5)
+                Clock.schedule_once(lambda dt: self.executer_redirection_home(), 0.5)
+            elif categorie_norm == "tournoivercel":
+                print("[iOS FCM] Redirection -> SOIREES")
+                Clock.schedule_once(lambda dt: self.executer_redirection_soirees(),0.5)
+            elif categorie_norm == "benevole":
+                print("[iOS FCM] Redirection -> BENEVOLES")
+                Clock.schedule_once(lambda dt: self.executer_redirection_benevoles(), 0.5)
             else:
                 print(f"[iOS FCM] Redirection -> VESTIAIRE ({categorie})")
-                Clock.schedule_once(
-                    lambda dt: self.executer_redirection_vestiaire(
-                        categorie,
-                        match_id if match_id else None,
-                        notif_type if notif_type else None
-                    ),
-                    0.5
-                )
+                Clock.schedule_once(lambda dt: self.executer_redirection_vestiaire(categorie,match_id if match_id else None,notif_type if notif_type else None),0.5)
             # -------------------------------------------------
             # 7. ACTUALISATION MENU
             # --------------------------------------------------
@@ -1886,10 +1886,19 @@ class MyApp(App):
             if android_notif_id != 0 and self.notification_manager:
                 self.notification_manager.annuler_notification_barre({"android_id": android_notif_id})
             # Redirection habituelle, conservée à l'identique
-            if open_page == "home" or notif_type in ("manual", "home"):
-                Clock.schedule_once( lambda dt: self.executer_redirection_home(), 0.5 )
+            categorie_norm = (categorie or "").strip().lower()
+            if (open_page == "home" or notif_type in ("manual", "home") or categorie_norm == "generale"):
+                print("[FCM ANDROID] Redirection -> HOME")
+                Clock.schedule_once(lambda dt: self.executer_redirection_home(),0.5)
+            elif categorie_norm == "tournoivercel":
+                print("[FCM ANDROID] Redirection -> SOIREES")
+                Clock.schedule_once(lambda dt: self.executer_redirection_soirees(),0.5)
+            elif categorie_norm == "benevole":
+                print("[FCM ANDROID] Redirection -> BENEVOLES")
+                Clock.schedule_once(lambda dt: self.executer_redirection_benevoles(),0.5)
             elif open_page == "vestiaire" and categorie:
-                Clock.schedule_once( lambda dt: self.executer_redirection_vestiaire( categorie, match_id, notif_type ), 0.5)
+                print(f"[FCM ANDROID] Redirection -> VESTIAIRE ({categorie})")
+                Clock.schedule_once(lambda dt: self.executer_redirection_vestiaire(categorie,match_id,notif_type),0.5)
             # Actualiser le menu si celui-ci affiche les compteurs
             if ( notif_locale  and self.root and hasattr(self.root, "rebuild_menu")):
                 Clock.schedule_once( lambda dt: self.root.rebuild_menu(), 0)
@@ -1913,6 +1922,30 @@ class MyApp(App):
         except Exception as e:
             print(f"[FCM ERROR] Lecture Intent : {e}")
     
+    def executer_redirection_soirees(self):
+        try:
+            if not self.root:
+                return
+            if hasattr(self.root, "switch_screen"):
+                self.root.switch_screen("soirees")
+            elif hasattr(self.root, "sm"):
+                self.root.sm.current = "soirees"
+            print("[FCM REDIRECT] -> soirees")
+        except Exception as e:
+            print(f"[FCM REDIRECT ERROR] Soirees : {e}")
+    
+    def executer_redirection_benevoles(self):
+        try:
+            if not self.root:
+                return
+            if hasattr(self.root, "switch_screen"):
+                self.root.switch_screen("benevoles")
+            elif hasattr(self.root, "sm"):
+                self.root.sm.current = "benevoles"
+            print("[FCM REDIRECT] -> benevoles")
+        except Exception as e:
+            print(f"[FCM REDIRECT ERROR] Benevoles : {e}")
+        
     def executer_redirection_home(self):
         try:
             if not self.root:
@@ -2131,6 +2164,7 @@ class MyApp(App):
                     Clock.schedule_once(self.lancer_synchronisation_notifications,3)
                     # Tout le monde reçoit les notifications générales
                     Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("TournoiVercel"),5.0)
+                    Clock.schedule_once(lambda dt: self.notifier.subscribe_to_topic("Generale"),5.5)
                     # Synchronisation du token FCM
                     Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),6.0)
                     Clock.schedule_once(lambda dt: self.synchroniser_token_fcm(),12.0)
@@ -2545,7 +2579,8 @@ class MyApp(App):
                         self.notifier.subscribe_to_topic(exclusion_topic)
                 # 4. Global
                 self.notifier.subscribe_to_topic("TournoiVercel")
-                print("[FCM] Synchro terminee via NotificationManager")
+                self.notifier.subscribe_to_topic("Generale")
+                print("[FCM] Abonnement force : TournoiVercel + Generale")
             except Exception as e:
                 print(f"[FCM ERROR] Erreur lors de la synchro FCM : {e}")
         # On déclenche sur le thread principal
