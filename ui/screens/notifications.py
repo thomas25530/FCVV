@@ -101,27 +101,69 @@ class NotificationCard(ButtonBehavior, BoxLayout):
         Clock.schedule_once(lambda dt: self._update_height(), 0)
 
     def _get_destination_text(self, notif):
-        """Traduit le type de notification et la catégorie en destination précise avec sous-onglet."""
+        """Traduit la notification en destination utilisateur."""
         notif_type = notif.get("type")
         payload = notif.get("payload") or {}
-        cat = payload.get("categorie") or notif.get("categorie")
+        cat = (payload.get("categorie") or notif.get("categorie") or "")
         nt = (notif_type or "").strip().lower()
-        if notif_type in ("vestiaire", "vestiaire_message", "match", "chat", "message", "messages", "nouveau_message", "echange", "evenement", "événement", "event", "creation_evenement", "evenement_creation","validation","convocation",):
-            # Déduction exacte du sous-onglet selon ta logique
+        cat_norm = cat.strip().lower()
+        # ==========================================================
+        # DESTINATIONS SPÉCIALES
+        # ==========================================================
+        if cat_norm == "tournoivercel":
+            return "Soirées"
+        if cat_norm == "benevole":
+            return "Espace Bénévoles"
+        if cat_norm == "generale":
+            return "Accueil"
+        # ==========================================================
+        # VESTIAIRES
+        # ==========================================================
+        if nt in (
+            "vestiaire",
+            "vestiaire_message",
+            "match",
+            "chat",
+            "message",
+            "messages",
+            "nouveau_message",
+            "echange",
+            "evenement",
+            "événement",
+            "event",
+            "creation_evenement",
+            "evenement_creation",
+            "validation",
+            "convocation",
+        ):
             if nt == "echange":
                 sous_onglet = "Chat"
-            elif nt in ("chat", "message", "messages", "nouveau_message"):
+            elif nt in (
+                "chat",
+                "message",
+                "messages",
+                "nouveau_message",
+            ):
                 sous_onglet = "Messages"
-            elif nt == "validation":
-                sous_onglet = "Calendrier"
             else:
                 sous_onglet = "Calendrier"
-            base_dest = f"Vestiaire ({cat})" if cat else "Vestiaire"
+            base_dest = (
+                f"Vestiaire ({cat})"
+                if cat
+                else "Vestiaire"
+            )
             return f"{base_dest} > {sous_onglet}"
-        elif notif_type in ("news", "home", "manual", None):
+        # ==========================================================
+        # ACCUEIL
+        # ==========================================================
+        if nt in ("news", "home","manual","",):
             return "Accueil"
-        else:
-            return "Détails"
+        # ==========================================================
+        # PAR DÉFAUT
+        # ==========================================================
+        if cat:
+            return f"Vestiaire ({cat})"
+        return "Détails"
 
     def _update_height(self, *args):
         largeur = max(1, self.width - dp(24))
@@ -219,6 +261,7 @@ class NotificationsScreen(Screen):
         if hasattr(app.root, "rebuild_menu"):
             app.root.rebuild_menu()
         self.refresh()
+    
     
     def vider_notifications(self, *args):
         content = BoxLayout(orientation="vertical",spacing=dp(10), padding=dp(10) )
@@ -402,17 +445,16 @@ class NotificationsScreen(Screen):
         categorie = (payload.get("categorie") or notif.get("categorie") )
         match_id = (payload.get("match_id") or notif.get("match_id"))
         try:
-            if notif_type in ("vestiaire","vestiaire_message", "match","chat", "message","messages", "nouveau_message", "echange", "evenement", "événement","event","creation_evenement", "evenement_creation","validation","convocation",):
-                if not categorie:
-                    print( "[NOTIFICATION] Categorie absente dans la notification." )
-                    return False
-                # Réutilise la logique existante du fichier principal.
-                app.executer_redirection_vestiaire( categorie,match_id,notif_type )
-            elif notif_type in ("news", "home", "manual", None):
+            categorie_norm = (categorie or "").strip().lower()
+            nt = (notif_type or "").strip().lower()
+            if ( nt in ("manual", "home") or categorie_norm == "generale" or not categorie):
                 app.executer_redirection_home()
+            elif categorie_norm == "tournoivercel":
+                app.executer_redirection_soirees()
+            elif categorie_norm == "benevole":
+                app.executer_redirection_benevoles()
             else:
-                print(f"[NOTIFICATION] Type inconnu : {notif_type}")
-                return False
+                app.executer_redirection_vestiaire(categorie,match_id,notif_type)
             return True
         except Exception as e:
             print(f"[NOTIFICATION] Erreur redirection : {e}")
