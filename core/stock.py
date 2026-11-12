@@ -1,21 +1,15 @@
-
 # -*- coding: utf-8 -*-
-
 """
 Écran de consultation des stocks des bénévoles.
-
 Google Sheets attendu :
 - Articles
 - Mouvements
-
 Le classeur doit être partagé en lecture avec toute personne disposant du lien.
-
 Organisation :
 1. Vue d'ensemble : indicateurs et alertes.
 2. Articles : stocks disponibles par catégorie.
 3. Distributions : quantités distribuées par pôle.
 """
-
 import re
 import ssl
 import threading
@@ -39,25 +33,22 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-
+from kivy.utils import platform
 
 # =============================================================
 # LECTEUR XLSX
 # =============================================================
-
 class _XlsxReader:
     """
     Lecteur XLSX minimaliste.
-
     Lit les noms des feuilles, les cellules texte et numériques,
     les chaînes partagées et les valeurs calculées des formules.
     """
-
     NS_REL = (
         "http://schemas.openxmlformats.org/"
         "officeDocument/2006/relationships"
     )
-
+    
     def __init__(self, file_bytes):
         self.archive = zipfile.ZipFile(BytesIO(file_bytes), "r")
         self.shared_strings = self._read_shared_strings()
@@ -75,195 +66,131 @@ class _XlsxReader:
 
     def _read_shared_strings(self):
         path = "xl/sharedStrings.xml"
-
         if path not in self.archive.namelist():
             return []
-
         root = ET.fromstring(self.archive.read(path))
         values = []
-
         for item in root:
             if self._local_name(item.tag) != "si":
                 continue
-
             text_parts = []
-
             for element in item.iter():
                 if self._local_name(element.tag) == "t":
                     text_parts.append(element.text or "")
-
             values.append("".join(text_parts))
-
         return values
 
     def _read_sheet_names(self):
         workbook_path = "xl/workbook.xml"
         rels_path = "xl/_rels/workbook.xml.rels"
-
-        workbook_root = ET.fromstring(
-            self.archive.read(workbook_path)
-        )
-
-        rels_root = ET.fromstring(
-            self.archive.read(rels_path)
-        )
-
+        workbook_root = ET.fromstring(self.archive.read(workbook_path) )
+        rels_root = ET.fromstring( self.archive.read(rels_path))
         relationships = {}
-
         for rel in rels_root:
             if self._local_name(rel.tag) != "Relationship":
                 continue
-
-            relationships[rel.attrib.get("Id")] = (
-                rel.attrib.get("Target")
-            )
-
+            relationships[rel.attrib.get("Id")] = (rel.attrib.get("Target"))
         sheets = {}
-
         for sheet in workbook_root.iter():
             if self._local_name(sheet.tag) != "sheet":
                 continue
-
             name = sheet.attrib.get("name", "")
-
-            rel_id = sheet.attrib.get(
-                "{%s}id" % self.NS_REL
-            )
-
+            rel_id = sheet.attrib.get("{%s}id" % self.NS_REL)
             target = relationships.get(rel_id)
-
             if not target:
                 continue
-
             if target.startswith("/"):
                 path = target.lstrip("/")
             elif target.startswith("xl/"):
                 path = target
             else:
                 path = "xl/" + target
-
             parts = []
-
             for part in path.split("/"):
                 if part == "..":
                     if parts:
                         parts.pop()
                 elif part and part != ".":
                     parts.append(part)
-
             sheets[name] = "/".join(parts)
-
         return sheets
 
     @staticmethod
     def _column_index(cell_reference):
         letters = re.match(r"[A-Z]+", cell_reference or "")
-
         if not letters:
             return None
-
         result = 0
-
         for char in letters.group(0):
             result = (
                 result * 26
                 + ord(char) - ord("A") + 1
             )
-
         return result - 1
 
     def _read_cell_value(self, cell):
         cell_type = cell.attrib.get("t", "")
         value_element = self._find_child(cell, "v")
-
         if cell_type == "inlineStr":
             inline = self._find_child(cell, "is")
-
             if inline is None:
                 return ""
-
             return "".join(
                 element.text or ""
                 for element in inline.iter()
                 if self._local_name(element.tag) == "t"
             )
-
         if value_element is None or value_element.text is None:
             return None
-
         value = value_element.text
-
         if cell_type == "s":
             try:
                 return self.shared_strings[int(value)]
             except (ValueError, IndexError):
                 return ""
-
         if cell_type in ("str", "e"):
             return value
-
         try:
             number = float(value)
-
             if number.is_integer():
                 return int(number)
-
             return number
-
         except (ValueError, TypeError):
             return value
 
     def read_sheet(self, sheet_name):
         path = self.sheets.get(sheet_name)
-
         if not path or path not in self.archive.namelist():
             return []
-
         root = ET.fromstring(self.archive.read(path))
         rows = []
-
         for row_element in root.iter():
             if self._local_name(row_element.tag) != "row":
                 continue
-
             row_values = {}
-
             for cell in row_element:
                 if self._local_name(cell.tag) != "c":
                     continue
-
                 reference = cell.attrib.get("r", "")
                 column = self._column_index(reference)
-
                 if column is None:
                     continue
-
                 row_values[column] = self._read_cell_value(cell)
-
             if not row_values:
                 continue
-
             max_column = max(row_values.keys())
             row = [None] * (max_column + 1)
-
             for column, value in row_values.items():
                 row[column] = value
-
             rows.append(row)
-
         return rows
-
-
 # =============================================================
 # ÉCRAN DE STOCK
 # =============================================================
-
 class StockScreen(BoxLayout):
-
     # ---------------------------------------------------------
     # COULEURS
     # ---------------------------------------------------------
-
     COLOR_PRIMARY = "#1E3A8A"
     COLOR_SECONDARY = "#334B78"
     COLOR_ACCENT = "#F7ED40"
@@ -281,81 +208,32 @@ class StockScreen(BoxLayout):
     COLOR_DANGER = "#DC2626"
 
     COLOR_TAB_INACTIVE = "#EAF0FF"
-
     # ---------------------------------------------------------
     # INITIALISATION
     # ---------------------------------------------------------
-
-    def __init__(
-        self,
-        sheet_url="",
-        fixed_container=None,
-        **kwargs
-    ):
-        super().__init__(
-            orientation="vertical",
-            spacing=dp(10),
-            size_hint_y=None,
-            **kwargs
-        )
-
+    def __init__( self,sheet_url="",fixed_container=None, **kwargs):
+        super().__init__(orientation="vertical",spacing=dp(10),size_hint_y=None,**kwargs)
         self.sheet_url = str(sheet_url or "").strip()
         self.fixed_container = fixed_container
-
         self.is_active = True
         self.is_loading = False
-
         self.articles = []
         self.movements = []
-
         self.last_refresh_success = False
-
         # Onglet sélectionné par défaut.
         self.current_tab = "overview"
-
-        self.bind(
-            minimum_height=self.setter("height")
-        )
-
-        # Barre des trois onglets.
-        self.tabs_bar = BoxLayout(
-            orientation="horizontal",
-            spacing=dp(5),
-            size_hint_y=None,
-            height=dp(44)
-        )
-
-        self.add_widget(self.tabs_bar)
-
-        self._build_tabs()
-
+        self.bind(minimum_height=self.setter("height") )
         # Zone de contenu.
-        self.body = BoxLayout(
-            orientation="vertical",
-            spacing=dp(10),
-            size_hint_y=None
-        )
-
-        self.body.bind(
-            minimum_height=self.body.setter("height")
-        )
-
+        self.body = BoxLayout(orientation="vertical",spacing=dp(10),size_hint_y=None)
+        self.body.bind(minimum_height=self.body.setter("height"))
         self.add_widget(self.body)
-
         # Boutons fixes dans le conteneur parent.
         self._build_fixed_controls()
-
         self._show_loading()
-
-        Clock.schedule_once(
-            lambda dt: self.refresh(),
-            0.2
-        )
-
+        Clock.schedule_once(lambda dt: self.refresh(), 0.2)
     # ---------------------------------------------------------
     # OUTILS GRAPHIQUES
     # ---------------------------------------------------------
-
     @staticmethod
     def _color(value):
         return get_color_from_hex(value)
@@ -363,15 +241,7 @@ class StockScreen(BoxLayout):
     def get_sp(self, value):
         return "{}sp".format(value)
 
-    def make_label(
-        self,
-        text,
-        font_size=14,
-        color=None,
-        bold=False,
-        height=None,
-        halign="left"
-    ):
+    def make_label( self,text,font_size=14,color=None,bold=False,height=None,halign="left"):
         label = Label(
             text=str(text),
             font_size=self.get_sp(font_size),
@@ -381,7 +251,6 @@ class StockScreen(BoxLayout):
             valign="middle",
             size_hint_y=None
         )
-
         label.bind(
             width=lambda instance, width: setattr(
                 instance,
@@ -389,56 +258,23 @@ class StockScreen(BoxLayout):
                 (max(1, width), None)
             )
         )
-
         if height is None:
-
             def update_height(instance, texture_size):
-                instance.height = max(
-                    dp(24),
-                    texture_size[1] + dp(8)
-                )
-
+                instance.height = max(dp(24),texture_size[1] + dp(8))
             label.bind(texture_size=update_height)
             label.texture_update()
-
-            label.height = max(
-                dp(24),
-                label.texture_size[1] + dp(8)
-            )
-
+            label.height = max( dp(24),label.texture_size[1] + dp(8))
         else:
             label.height = dp(height)
-
         return label
 
-    def create_card(
-        self,
-        padding=14,
-        spacing=7,
-        color=None
-    ):
-        card = BoxLayout(
-            orientation="vertical",
-            size_hint_y=None,
-            padding=dp(padding),
-            spacing=dp(spacing)
-        )
-
-        card.bind(
-            minimum_height=card.setter("height")
-        )
-
+    def create_card(self,padding=14,spacing=7, color=None):
+        card = BoxLayout(orientation="vertical",size_hint_y=None, padding=dp(padding),spacing=dp(spacing))
+        card.bind(minimum_height=card.setter("height"))
         with card.canvas.before:
             from kivy.graphics import Color, RoundedRectangle
-
             Color(*self._color(color or self.COLOR_CARD))
-
-            card.background = RoundedRectangle(
-                pos=card.pos,
-                size=card.size,
-                radius=[dp(14)]
-            )
-
+            card.background = RoundedRectangle(pos=card.pos, size=card.size, radius=[dp(14)])
         card.bind(
             pos=lambda instance, value: setattr(
                 instance.background,
@@ -451,59 +287,23 @@ class StockScreen(BoxLayout):
                 value
             )
         )
-
         return card
 
-    def add_to_card(
-        self,
-        card,
-        text,
-        font_size=13,
-        color=None,
-        bold=False
-    ):
-        label = self.make_label(
-            text,
-            font_size=font_size,
-            color=color,
-            bold=bold
-        )
-
+    def add_to_card(self,card,text, font_size=13, color=None,bold=False):
+        label = self.make_label(text, font_size=font_size, color=color, bold=bold)
         card.add_widget(label)
-
         return label
 
     def add_section_title(self, text):
-        self.body.add_widget(
-            self.make_label(
-                text,
-                font_size=16,
-                color=self.COLOR_PRIMARY,
-                bold=True
-            )
-        )
+        self.body.add_widget(self.make_label(text,font_size=16,color=self.COLOR_PRIMARY,bold=True))
 
     def add_category_title(self, category):
         """Ajoute un titre de catégorie bien visible."""
-    
-        title = BoxLayout(
-            orientation="vertical",
-            size_hint_y=None,
-            height=dp(42),
-            padding=[dp(12), dp(5)]
-        )
-    
+        title = BoxLayout(orientation="vertical",size_hint_y=None,height=dp(42),padding=[dp(12), dp(5)])
         with title.canvas.before:
             from kivy.graphics import Color, RoundedRectangle
-    
             Color(*self._color(self.COLOR_PRIMARY))
-    
-            title.background = RoundedRectangle(
-                pos=title.pos,
-                size=title.size,
-                radius=[dp(8)]
-            )
-    
+            title.background = RoundedRectangle( pos=title.pos,size=title.size, radius=[dp(8)])
         title.bind(
             pos=lambda instance, value: setattr(
                 instance.background, "pos", value
@@ -512,51 +312,31 @@ class StockScreen(BoxLayout):
                 instance.background, "size", value
             )
         )
-    
-        label = self.make_label(
-            category.upper(),
-            font_size=15,
-            color=self.COLOR_WHITE,
-            bold=True,
-            height=dp(32)
-        )
-    
+        label = self.make_label(category.upper(),font_size=15,color=self.COLOR_WHITE,bold=True,height=dp(32))
         title.add_widget(label)
         self.body.add_widget(title)
     
     def add_empty_message(self, text):
         card = self.create_card()
-
-        self.add_to_card(
-            card,
-            text,
-            font_size=13,
-            color=self.COLOR_MUTED
-        )
-
+        self.add_to_card( card, text, font_size=13,color=self.COLOR_MUTED )
         self.body.add_widget(card)
-
     # ---------------------------------------------------------
     # NAVIGATION : TROIS ONGLETS
     # ---------------------------------------------------------
 
     def _build_tabs(self):
         self.tabs_bar.clear_widgets()
-
         self.tab_buttons = {}
-
         tabs = [
             ("overview", "Vue d'ensemble"),
             ("articles", "Articles"),
             ("distributions", "Distributions")
         ]
-
         for tab_id, label in tabs:
-
             button = Button(
                 text=label,
                 size_hint_x=1,
-                size_hint_y=None,
+                size_hint_y=1,
                 height=dp(44),
                 font_size=self.get_sp(11),
                 bold=True,
@@ -567,61 +347,37 @@ class StockScreen(BoxLayout):
                 ),
                 color=self._color(self.COLOR_PRIMARY)
             )
-
-            button.bind(
-                on_release=lambda instance, selected=tab_id:
-                    self.change_tab(selected)
-            )
-
+            button.bind( on_release=lambda instance, selected=tab_id: self.change_tab(selected))
             self.tabs_bar.add_widget(button)
             self.tab_buttons[tab_id] = button
-
         self._update_tab_buttons()
 
     def _update_tab_buttons(self):
         for tab_id, button in self.tab_buttons.items():
-
             if tab_id == self.current_tab:
-                button.background_color = self._color(
-                    self.COLOR_PRIMARY
-                )
-                button.color = self._color(
-                    self.COLOR_WHITE
-                )
+                button.background_color = self._color(self.COLOR_PRIMARY)
+                button.color = self._color(self.COLOR_WHITE)
             else:
-                button.background_color = self._color(
-                    self.COLOR_TAB_INACTIVE
-                )
-                button.color = self._color(
-                    self.COLOR_PRIMARY
-                )
+                button.background_color = self._color( self.COLOR_TAB_INACTIVE)
+                button.color = self._color(self.COLOR_PRIMARY)
 
     def change_tab(self, tab):
-        if tab not in (
-            "overview",
-            "articles",
-            "distributions"
-        ):
+        if tab not in ("overview","articles","distributions"):
             return
-    
         self.current_tab = tab
         self._update_tab_buttons()
-    
         if self.last_refresh_success:
             self.display_stock()
-
     # ---------------------------------------------------------
     # BOUTONS FIXES
     # ---------------------------------------------------------
-
     def _build_fixed_controls(self):
         if self.fixed_container is None:
             return
-
+        buttons_row = BoxLayout(orientation="horizontal",size_hint_y=None,height=dp(42),spacing=dp(8))
         manage_button = Button(
             text="Gérer le stock",
-            size_hint_y=None,
-            height=dp(42),
+            size_hint=(0.5, 1),
             background_normal="",
             background_down="",
             background_color=self._color(self.COLOR_ACCENT),
@@ -629,15 +385,10 @@ class StockScreen(BoxLayout):
             font_size=self.get_sp(13),
             bold=True
         )
-
-        manage_button.bind(
-            on_release=lambda instance: self.open_google_sheet()
-        )
-
+        manage_button.bind(on_release=lambda instance: self.open_google_sheet())
         refresh_button = Button(
             text="Actualiser",
-            size_hint_y=None,
-            height=dp(42),
+            size_hint=(0.5, 1),
             background_normal="",
             background_down="",
             background_color=self._color(self.COLOR_LIGHT_BLUE),
@@ -645,36 +396,37 @@ class StockScreen(BoxLayout):
             font_size=self.get_sp(13),
             bold=True
         )
-
-        refresh_button.bind(
-            on_release=lambda instance: self.refresh()
+        refresh_button.bind(on_release=lambda instance: self.refresh())
+        buttons_row.add_widget(manage_button)
+        buttons_row.add_widget(refresh_button)
+    
+        self.fixed_container.add_widget(buttons_row)
+    
+        self.tabs_bar = BoxLayout(
+            orientation="horizontal",
+            spacing=dp(5),
+            size_hint_y=None,
+            height=dp(44)
         )
-
-        self.fixed_container.add_widget(manage_button)
-        self.fixed_container.add_widget(refresh_button)
-
+    
+        self._build_tabs()
+    
+        self.fixed_container.add_widget(self.tabs_bar)
+    
         self.manage_button = manage_button
         self.refresh_button = refresh_button
 
     def open_google_sheet(self):
         if not self.sheet_url:
-            self._set_status(
-                "L'adresse du Google Sheet n'est pas renseignée."
-            )
+            self._set_status( "L'adresse du Google Sheet n'est pas renseignée." )
             return
-
         try:
             webbrowser.open(self.sheet_url)
         except Exception as error:
-            print(
-                "[STOCK] Impossible d'ouvrir le Google Sheet :",
-                error
-            )
-
+            print("[STOCK] Impossible d'ouvrir le Google Sheet :", error)
     # ---------------------------------------------------------
     # ÉTATS DE L'ÉCRAN
     # ---------------------------------------------------------
-
     def _clear_body(self):
         self.body.clear_widgets()
         self.body.height = 0
@@ -683,14 +435,7 @@ class StockScreen(BoxLayout):
     def _show_loading(self):
         self._clear_body()
     
-        loading_container = BoxLayout(
-            orientation="vertical",
-            size_hint_y=None,
-            height=dp(90),
-            padding=[dp(10), dp(15)],
-            spacing=dp(5)
-        )
-    
+        loading_container = BoxLayout( orientation="vertical",size_hint_y=None, height=dp(90), padding=[dp(10), dp(15)],spacing=dp(5))
         loading_label = self.make_label(
             "Chargement des données du stock...",
             font_size=14,
@@ -699,23 +444,13 @@ class StockScreen(BoxLayout):
             halign="center",
             height=dp(35)
         )
-    
         loading_container.add_widget(loading_label)
-    
         self.body.add_widget(loading_container)
 
     def _set_status(self, message):
         self._clear_body()
-
         card = self.create_card()
-
-        self.add_to_card(
-            card,
-            message,
-            font_size=13,
-            color=self.COLOR_MUTED
-        )
-
+        self.add_to_card(card,message, font_size=13,color=self.COLOR_MUTED)
         self.body.add_widget(card)
 
     def deactivate(self):
@@ -728,67 +463,36 @@ class StockScreen(BoxLayout):
     # ---------------------------------------------------------
     # TÉLÉCHARGEMENT GOOGLE SHEETS
     # ---------------------------------------------------------
-
     def _extract_sheet_id(self):
-        match = re.search(
-            r"/spreadsheets/d/([a-zA-Z0-9_-]+)",
-            self.sheet_url
-        )
-
+        match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)",self.sheet_url)
         if match:
             return match.group(1)
-
         return None
 
     def _download_xlsx(self):
         sheet_id = self._extract_sheet_id()
-
         if not sheet_id:
-            raise ValueError(
-                "L'adresse du Google Sheet semble incorrecte."
-            )
-
+            raise ValueError("L'adresse du Google Sheet semble incorrecte.")
         url = (
             "https://docs.google.com/spreadsheets/d/"
             + sheet_id
             + "/export?format=xlsx"
         )
-
-        request = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0"
-            }
-        )
-
-        if certifi:
-            ssl_context = ssl.create_default_context(
-                cafile=certifi.where()
-            )
-        else:
+        request = urllib.request.Request( url,headers={"User-Agent": "Mozilla/5.0" })
+        if platform == "win":
             ssl_context = ssl.create_default_context()
-
-        with urllib.request.urlopen(
-            request,
-            timeout=30,
-            context=ssl_context
-        ) as response:
-
+        else:
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(request,timeout=30, context=ssl_context) as response:
             data = response.read()
-
         if not data:
-            raise ValueError(
-                "Le fichier téléchargé est vide."
-            )
-
+            raise ValueError("Le fichier téléchargé est vide.")
         if not data.startswith(b"PK"):
             raise ValueError(
                 "Google n'a pas renvoyé un fichier XLSX. "
                 "Vérifie le partage du document."
             )
-
         return data
-
     # ---------------------------------------------------------
     # ACTUALISATION
     # ---------------------------------------------------------
@@ -796,113 +500,73 @@ class StockScreen(BoxLayout):
     def refresh(self):
         if self.is_loading:
             return
-
         if not self.sheet_url:
-            self._set_status(
-                "Aucun Google Sheet de stock n'est configuré."
-            )
+            self._set_status("Aucun Google Sheet de stock n'est configuré." )
             return
-
         self.is_loading = True
-
         if hasattr(self, "refresh_button"):
             self.refresh_button.text = "Chargement..."
-
         self._show_loading()
-
-        thread = threading.Thread(
-            target=self._refresh_worker,
-            daemon=True
-        )
-
+        thread = threading.Thread(target=self._refresh_worker,daemon=True)
         thread.start()
 
     def _refresh_worker(self):
         try:
             file_bytes = self._download_xlsx()
-
             reader = _XlsxReader(file_bytes)
-
             articles_rows = reader.read_sheet("Articles")
             movements_rows = reader.read_sheet("Mouvements")
-
             articles = self._parse_articles(articles_rows)
             movements = self._parse_movements(movements_rows)
-
-            result = {
-                "articles": articles,
-                "movements": movements,
-                "error": None
-            }
-
+            result = {"articles": articles,"movements": movements,"error": None }
         except Exception as error:
             print("[STOCK] Erreur de chargement :", error)
-
             result = {
                 "articles": [],
                 "movements": [],
                 "error": str(error)
             }
-
-        Clock.schedule_once(
-            lambda dt: self._finish_refresh(result),
-            0
-        )
+        Clock.schedule_once(lambda dt: self._finish_refresh(result), 0)
 
     def _finish_refresh(self, result):
         self.is_loading = False
-
         if hasattr(self, "refresh_button"):
             self.refresh_button.text = "Actualiser"
-
         if not self.is_active:
             return
-
         if result["error"]:
             self.last_refresh_success = False
-
             self._set_status(
                 "Impossible de charger le stock.\n\n"
                 + result["error"]
                 + "\n\nVérifie que le Google Sheet est partagé "
                 "en lecture avec toute personne disposant du lien."
             )
-
             return
-
         self.articles = result["articles"]
         self.movements = result["movements"]
-
         self.last_refresh_success = True
-
         self.display_stock()
-
     # ---------------------------------------------------------
     # OUTILS DE LECTURE
     # ---------------------------------------------------------
-
     @staticmethod
     def _get_cell(row, index, default=None):
         if index < len(row):
             value = row[index]
-
             if value is not None:
                 return value
-
         return default
 
     @staticmethod
     def _to_float(value, default=0):
         if value is None or value == "":
             return default
-
         if isinstance(value, (int, float)):
             return float(value)
-
         text = str(value).strip()
         text = text.replace("\u00a0", "").replace(" ", "")
         text = text.replace(",", ".")
-
         try:
             return float(text)
         except (ValueError, TypeError):
@@ -912,58 +576,34 @@ class StockScreen(BoxLayout):
     def _to_text(value, default=""):
         if value is None:
             return default
-
         return str(value).strip()
-
     # ---------------------------------------------------------
     # LECTURE DES ARTICLES
     # ---------------------------------------------------------
-
     def _parse_articles(self, rows):
         if not rows:
             return []
-
         articles = []
-
         for row in rows[1:]:
-
-            reference = self._to_text(
-                self._get_cell(row, 0)
-            )
-
-            designation = self._to_text(
-                self._get_cell(row, 1)
-            )
-
+            reference = self._to_text(self._get_cell(row, 0))
+            designation = self._to_text(self._get_cell(row, 1))
             if not reference and not designation:
                 continue
-
             article = {
                 "reference": reference,
                 "designation": designation or "Article sans nom",
-
                 "categorie": self._to_text(
                     self._get_cell(row, 2),
                     "Autre"
                 ) or "Autre",
-
                 "unite": self._to_text(
                     self._get_cell(row, 3),
                     "unité"
                 ) or "unité",
+                "stock_initial": self._to_float(self._get_cell(row, 4)),
 
-                "stock_initial": self._to_float(
-                    self._get_cell(row, 4)
-                ),
-
-                "seuil_alerte": self._to_float(
-                    self._get_cell(row, 8)
-                ),
-
-                "emplacement": self._to_text(
-                    self._get_cell(row, 9)
-                ),
-
+                "seuil_alerte": self._to_float(self._get_cell(row, 8)),
+                "emplacement": self._to_text( self._get_cell(row, 9)),
                 "entrees": 0,
                 "sorties": 0,
                 "stock_disponible": 0
