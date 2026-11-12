@@ -209,10 +209,24 @@ class StockScreen(BoxLayout):
 
     COLOR_TAB_INACTIVE = "#EAF0FF"
     # ---------------------------------------------------------
+    # ADAPTATION DE L'INTERFACE SELON LA PLATEFORME
+    # ---------------------------------------------------------
+    IS_IOS = platform == "ios"
+    UI_SCALE = 1.25 if IS_IOS else 1.0
+    FONT_SCALE = 1.30 if IS_IOS else 1.0
+
+    def _dp(self, value):
+        """Adapte les dimensions de l'interface selon la plateforme."""
+        return dp(value * self.UI_SCALE)
+
+    def _sp(self, value):
+        """Adapte la taille des textes selon la plateforme."""
+        return "{}sp".format(value * self.FONT_SCALE)
+    # ---------------------------------------------------------
     # INITIALISATION
     # ---------------------------------------------------------
-    def __init__( self,sheet_url="",fixed_container=None, **kwargs):
-        super().__init__(orientation="vertical",spacing=dp(10),size_hint_y=None,**kwargs)
+    def __init__(self, sheet_url="", fixed_container=None, **kwargs):
+        super().__init__(orientation="vertical",spacing=self._dp(10),size_hint_y=None,**kwargs)
         self.sheet_url = str(sheet_url or "").strip()
         self.fixed_container = fixed_container
         self.is_active = True
@@ -220,14 +234,11 @@ class StockScreen(BoxLayout):
         self.articles = []
         self.movements = []
         self.last_refresh_success = False
-        # Onglet sélectionné par défaut.
         self.current_tab = "overview"
-        self.bind(minimum_height=self.setter("height") )
-        # Zone de contenu.
-        self.body = BoxLayout(orientation="vertical",spacing=dp(10),size_hint_y=None)
+        self.bind(minimum_height=self.setter("height"))
+        self.body = BoxLayout(orientation="vertical",spacing=self._dp(10), size_hint_y=None)
         self.body.bind(minimum_height=self.body.setter("height"))
         self.add_widget(self.body)
-        # Boutons fixes dans le conteneur parent.
         self._build_fixed_controls()
         self._show_loading()
         Clock.schedule_once(lambda dt: self.refresh(), 0.2)
@@ -239,18 +250,10 @@ class StockScreen(BoxLayout):
         return get_color_from_hex(value)
 
     def get_sp(self, value):
-        return "{}sp".format(value)
+        return self._sp(value)
 
-    def make_label( self,text,font_size=14,color=None,bold=False,height=None,halign="left"):
-        label = Label(
-            text=str(text),
-            font_size=self.get_sp(font_size),
-            color=self._color(color or self.COLOR_TEXT),
-            bold=bold,
-            halign=halign,
-            valign="middle",
-            size_hint_y=None
-        )
+    def make_label(self,text,font_size=14,color=None,bold=False, height=None, halign="left"):
+        label = Label(text=str(text),font_size=self._sp(font_size),color=self._color(color or self.COLOR_TEXT),bold=bold,halign=halign,valign="middle",size_hint_y=None)
         label.bind(
             width=lambda instance, width: setattr(
                 instance,
@@ -260,21 +263,21 @@ class StockScreen(BoxLayout):
         )
         if height is None:
             def update_height(instance, texture_size):
-                instance.height = max(dp(24),texture_size[1] + dp(8))
+                instance.height = max(self._dp(24),texture_size[1] + self._dp(8))
             label.bind(texture_size=update_height)
             label.texture_update()
-            label.height = max( dp(24),label.texture_size[1] + dp(8))
+            label.height = max(self._dp(24),label.texture_size[1] + self._dp(8))
         else:
-            label.height = dp(height)
+            label.height = self._dp(height)
         return label
 
-    def create_card(self,padding=14,spacing=7, color=None):
-        card = BoxLayout(orientation="vertical",size_hint_y=None, padding=dp(padding),spacing=dp(spacing))
+    def create_card(self, padding=14, spacing=7, color=None):
+        card = BoxLayout(orientation="vertical",size_hint_y=None,padding=self._dp(padding),spacing=self._dp(spacing))
         card.bind(minimum_height=card.setter("height"))
         with card.canvas.before:
             from kivy.graphics import Color, RoundedRectangle
             Color(*self._color(color or self.COLOR_CARD))
-            card.background = RoundedRectangle(pos=card.pos, size=card.size, radius=[dp(14)])
+            card.background = RoundedRectangle(pos=card.pos,size=card.size,radius=[self._dp(14)])
         card.bind(
             pos=lambda instance, value: setattr(
                 instance.background,
@@ -299,20 +302,24 @@ class StockScreen(BoxLayout):
 
     def add_category_title(self, category):
         """Ajoute un titre de catégorie bien visible."""
-        title = BoxLayout(orientation="vertical",size_hint_y=None,height=dp(42),padding=[dp(12), dp(5)])
+        title = BoxLayout( orientation="vertical",size_hint_y=None,height=self._dp(42),padding=[self._dp(12), self._dp(5)] )
         with title.canvas.before:
             from kivy.graphics import Color, RoundedRectangle
             Color(*self._color(self.COLOR_PRIMARY))
-            title.background = RoundedRectangle( pos=title.pos,size=title.size, radius=[dp(8)])
+            title.background = RoundedRectangle(pos=title.pos,size=title.size,radius=[self._dp(8)])
         title.bind(
             pos=lambda instance, value: setattr(
-                instance.background, "pos", value
+                instance.background,
+                "pos",
+                value
             ),
             size=lambda instance, value: setattr(
-                instance.background, "size", value
+                instance.background,
+                "size",
+                value
             )
         )
-        label = self.make_label(category.upper(),font_size=15,color=self.COLOR_WHITE,bold=True,height=dp(32))
+        label = self.make_label(category.upper(),font_size=15, color=self.COLOR_WHITE, bold=True,height=32)
         title.add_widget(label)
         self.body.add_widget(title)
     
@@ -337,17 +344,13 @@ class StockScreen(BoxLayout):
                 text=label,
                 size_hint_x=1,
                 size_hint_y=1,
-                height=dp(44),
-                font_size=self.get_sp(11),
+                height=self._dp(44),
+                font_size=self._sp(11),
                 bold=True,
                 background_normal="",
                 background_down="",
-                background_color=self._color(
-                    self.COLOR_TAB_INACTIVE
-                ),
-                color=self._color(self.COLOR_PRIMARY)
-            )
-            button.bind( on_release=lambda instance, selected=tab_id: self.change_tab(selected))
+                background_color=self._color(self.COLOR_TAB_INACTIVE),color=self._color(self.COLOR_PRIMARY))
+            button.bind(on_release=lambda instance, selected=tab_id:self.change_tab(selected) )
             self.tabs_bar.add_widget(button)
             self.tab_buttons[tab_id] = button
         self._update_tab_buttons()
@@ -374,7 +377,7 @@ class StockScreen(BoxLayout):
     def _build_fixed_controls(self):
         if self.fixed_container is None:
             return
-        buttons_row = BoxLayout(orientation="horizontal",size_hint_y=None,height=dp(42),spacing=dp(8))
+        buttons_row = BoxLayout(orientation="horizontal",size_hint_y=None,height=self._dp(42),spacing=self._dp(8))
         manage_button = Button(
             text="Gérer le stock",
             size_hint=(0.5, 1),
@@ -382,7 +385,7 @@ class StockScreen(BoxLayout):
             background_down="",
             background_color=self._color(self.COLOR_ACCENT),
             color=self._color(self.COLOR_PRIMARY),
-            font_size=self.get_sp(13),
+            font_size=self._sp(13),
             bold=True
         )
         manage_button.bind(on_release=lambda instance: self.open_google_sheet())
@@ -393,26 +396,16 @@ class StockScreen(BoxLayout):
             background_down="",
             background_color=self._color(self.COLOR_LIGHT_BLUE),
             color=self._color(self.COLOR_PRIMARY),
-            font_size=self.get_sp(13),
+            font_size=self._sp(13),
             bold=True
         )
         refresh_button.bind(on_release=lambda instance: self.refresh())
         buttons_row.add_widget(manage_button)
         buttons_row.add_widget(refresh_button)
-    
         self.fixed_container.add_widget(buttons_row)
-    
-        self.tabs_bar = BoxLayout(
-            orientation="horizontal",
-            spacing=dp(5),
-            size_hint_y=None,
-            height=dp(44)
-        )
-    
+        self.tabs_bar = BoxLayout(orientation="horizontal", spacing=self._dp(5),size_hint_y=None,height=self._dp(44))
         self._build_tabs()
-    
         self.fixed_container.add_widget(self.tabs_bar)
-    
         self.manage_button = manage_button
         self.refresh_button = refresh_button
 
@@ -434,15 +427,20 @@ class StockScreen(BoxLayout):
 
     def _show_loading(self):
         self._clear_body()
-    
-        loading_container = BoxLayout( orientation="vertical",size_hint_y=None, height=dp(90), padding=[dp(10), dp(15)],spacing=dp(5))
+        loading_container = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            height=self._dp(90),
+            padding=[self._dp(10), self._dp(15)],
+            spacing=self._dp(5)
+        )
         loading_label = self.make_label(
             "Chargement des données du stock...",
             font_size=14,
             color=self.COLOR_MUTED,
             bold=True,
             halign="center",
-            height=dp(35)
+            height=35
         )
         loading_container.add_widget(loading_label)
         self.body.add_widget(loading_container)
@@ -719,7 +717,7 @@ class StockScreen(BoxLayout):
         elif self.current_tab == "distributions":
             self.display_pole_distributions()
         # Espacement en bas de l'écran.
-        self.body.add_widget(Widget(size_hint_y=None, height=dp(25)))
+        self.body.add_widget(Widget(size_hint_y=None, height=self._dp(25)))
     # ---------------------------------------------------------
     # ONGLET 1 : VUE D'ENSEMBLE
     # ---------------------------------------------------------
