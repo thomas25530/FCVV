@@ -1428,6 +1428,47 @@ class MyApp(App):
             else:
                 print("[NOTIFICATIONS] Acces Benevole autorise : utilisateur authentifie.")
             # --------------------------------------------------
+            # FILTRAGE DES ANCIENNES NOTIFICATIONS BENEVOLE
+            # --------------------------------------------------
+            if authenticated_benevoles:
+                date_connexion = self.config.get("Benevoles","date_connexion",fallback="").strip()
+                if date_connexion:
+                    try:
+                        date_connexion = datetime.fromisoformat(date_connexion.replace("Z", "+00:00"))
+                        if date_connexion.tzinfo is None:
+                            date_connexion = date_connexion.replace(tzinfo=timezone.utc)
+                        date_connexion = date_connexion.astimezone(timezone.utc)
+                        notifications_filtrees = []
+                        for item in notifications:
+                            categorie = str(item.get("categorie") or "").strip().casefold()
+                            # Les autres catégories ne sont pas concernées
+                            if categorie != "benevole":
+                                notifications_filtrees.append(item)
+                                continue
+                            date_notification = item.get("date")
+                            if not date_notification:
+                                continue
+                            try:
+                                date_notif = datetime.fromisoformat(str(date_notification).replace("Z", "+00:00"))
+                                if date_notif.tzinfo is None:
+                                    date_notif = date_notif.replace(tzinfo=timezone.utc)
+                                date_notif = date_notif.astimezone(timezone.utc)
+                                if date_notif >= date_connexion:
+                                    notifications_filtrees.append(item)
+                            except (ValueError, TypeError):
+                                print(
+                                    "[NOTIFICATIONS] Date Benevole invalide : "
+                                    f"{date_notification}"
+                                )
+                        print(
+                            "[NOTIFICATIONS] Filtrage connexion Benevole : "
+                            f"{len(notifications) - len(notifications_filtrees)} "
+                            "ancienne(s) notification(s) ignoree(s)."
+                        )
+                        notifications = notifications_filtrees
+                    except (ValueError, TypeError):
+                        print("[NOTIFICATIONS] Date de connexion Benevole invalide.")
+            # --------------------------------------------------
             # DATE LIMITE DE PREMIÈRE SYNCHRONISATION ANONYME
             # --------------------------------------------------
             date_limite = None
