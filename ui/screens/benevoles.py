@@ -213,7 +213,7 @@ class BenevolesScreen(Screen):
                 label.texture_size[1] + self.get_dp(8)
             )
         else:
-            label.height = dp(height)
+            label.height = self.get_dp(height)
         return label
 
     def add_spacer(self, height=5):
@@ -753,26 +753,26 @@ class BenevolesScreen(Screen):
         card = self.create_card(padding=12, spacing=7)
         card.size_hint = (1, None)
         card.pole_labels = {}
-        card.pole_labels["nom"] = self.add_to_card(card, pole.get("nom", "Pôle"), font_size="16sp", bold=True, color=self.COLOR_PRIMARY)
+        card.pole_labels["nom"] = self.add_to_card(card, pole.get("nom", "Pôle"), font_size="18sp", bold=True, color=self.COLOR_PRIMARY)
         description = pole.get("description", "")
         if description:
-            card.pole_labels["description"] = self.add_to_card(card, description, font_size="12sp", color=self.COLOR_MUTED)
+            card.pole_labels["description"] = self.add_to_card(card, description, font_size="15sp", color=self.COLOR_MUTED)
         referents = pole.get("referents", []) or pole.get("referent", [])
         if isinstance(referents, (dict, str)):
             referents = [referents]
         noms = [r.get("nom", "") if isinstance(r, dict) else str(r) for r in referents]
         noms = [nom for nom in noms if nom]
         if noms:
-            card.pole_labels["referents"] = self.add_to_card(card, "Référent(s) : " + ", ".join(noms), font_size="11sp", color=self.COLOR_SECONDARY)
+            card.pole_labels["referents"] = self.add_to_card(card, "Référent(s) : " + ", ".join(noms), font_size="14sp", color=self.COLOR_SECONDARY)
         missions = pole.get("missions", []) or []
         if missions:
-            card.pole_labels["missions"] = self.add_to_card(card, "{} mission(s)".format(len(missions)), font_size="11sp", color=self.COLOR_MUTED)
+            card.pole_labels["missions"] = self.add_to_card(card, "{} mission(s)".format(len(missions)), font_size="14sp", color=self.COLOR_MUTED)
         taches = pole.get("taches", []) or []
         if taches:
             terminees = sum(1 for t in taches if isinstance(t, dict) and str(t.get("statut", "")).strip().lower() in ("terminee", "terminée", "termine", "terminé", "faite", "fait", "completed", "done", "true", "1"))
             restantes = len(taches) - terminees
-            card.pole_labels["taches"] = self.add_to_card(card, "Tâches : {} terminée(s) / {} à faire".format(terminees, restantes), font_size=self.get_sp(11), color=self.COLOR_MUTED)
-        button = Button(text="Voir la fiche", size_hint_y=None, height=self.get_dp(38), background_normal="", background_down="", background_color=get_color_from_hex(self.COLOR_ACCENT), color=get_color_from_hex(self.COLOR_PRIMARY), font_size="11sp", bold=True)
+            card.pole_labels["taches"] = self.add_to_card(card, "Tâches : {} terminée(s) / {} à faire".format(terminees, restantes), font_size=self.get_sp(14), color=self.COLOR_MUTED)
+        button = Button(text="Voir la fiche", size_hint_y=None, height=self.get_dp(38), background_normal="", background_down="", background_color=get_color_from_hex(self.COLOR_ACCENT), color=get_color_from_hex(self.COLOR_PRIMARY), font_size="14sp", bold=True)
         button.bind(on_release=lambda instance, selected=pole: self.open_pole(selected))
         card.add_widget(button)
         return card
@@ -799,8 +799,8 @@ class BenevolesScreen(Screen):
         self.content.add_widget(back_button)
         # Présentation du pôle
         card = self.create_card(padding=18,spacing=8, color=self.COLOR_SECONDARY )
-        self.add_to_card(card, pole.get("nom", "Pôle"),font_size="21sp", bold=True,color=self.COLOR_WHITE)
-        self.add_to_card(card,pole.get("description", ""),font_size="13sp",color=self.COLOR_PALE_BLUE )
+        self.add_to_card(card, pole.get("nom", "Pôle"),font_size="24sp", bold=True,color=self.COLOR_WHITE)
+        self.add_to_card(card,pole.get("description", ""),font_size="16sp",color=self.COLOR_PALE_BLUE )
         self.content.add_widget(card)
         # ---------------------------------------------------------
         # RÉFÉRENTS DU PÔLE
@@ -826,7 +826,7 @@ class BenevolesScreen(Screen):
                     self.add_to_card(
                         referent_card,
                         nom,
-                        font_size="16sp",
+                        font_size="18sp",
                         bold=True,
                         color=self.COLOR_PRIMARY
                     )
@@ -843,7 +843,7 @@ class BenevolesScreen(Screen):
                             "mailto:" + str(email),color="#6B7280"
                         )
                 else:
-                    self.add_to_card(referent_card,str(referent),font_size="14sp")
+                    self.add_to_card(referent_card,str(referent),font_size="16sp")
                 # Ajout une seule fois dans le contenu
                 self.content.add_widget(referent_card)
         else:
@@ -863,7 +863,7 @@ class BenevolesScreen(Screen):
                 self.add_to_card(
                     mission_card,
                     "• " + mission_text,
-                    font_size="13sp"
+                    font_size="15sp"
                 )
             self.content.add_widget(mission_card)
         else:
@@ -887,7 +887,7 @@ class BenevolesScreen(Screen):
                 self.add_to_card(
                     members_card,
                     "• " + text,
-                    font_size="13sp"
+                    font_size="15sp"
                 )
             self.content.add_widget(members_card)
         # --------------------------------------------------------
@@ -908,7 +908,7 @@ class BenevolesScreen(Screen):
                     is_completed = False
                     completion_date = ""
                 task_row = BoxLayout(orientation="horizontal",size_hint_y=None,spacing=self.get_dp(8),padding=[ 0, self.get_dp(4),0,self.get_dp(4)])
-                task_label = self.make_label(task_title, font_size="13sp", color=self.COLOR_TEXT)
+                task_label = self.make_label(task_title, font_size="15sp", color=self.COLOR_TEXT)
                 task_label.size_hint_x = 1
                 task_label.halign = "left"
                 task_label.valign = "middle"
@@ -917,7 +917,7 @@ class BenevolesScreen(Screen):
                     status_text = "✓ Terminée"
                     if completion_date:
                         status_text += " (" + str(completion_date) + ")"
-                    status_label = self.make_label(status_text, font_size="10sp", color="#16A34A", bold=True)
+                    status_label = self.make_label(status_text, font_size="13sp", color="#16A34A", bold=True)
                     status_label.font_name = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets", "fonts", "DejaVuSans.ttf")
                     status_label.size_hint_x = None
                     status_label.width = self.get_dp(150)
@@ -944,7 +944,7 @@ class BenevolesScreen(Screen):
         if next_meeting:
             self.add_section_title("Prochaine réunion")
             meeting_card = self.create_card()
-            self.add_to_card( meeting_card,str(next_meeting), font_size="14sp")
+            self.add_to_card( meeting_card,str(next_meeting), font_size="16sp")
             self.content.add_widget(meeting_card)
         # Espace de sécurité en bas de page
         self.add_bottom_safe_spacing()
@@ -986,39 +986,30 @@ class BenevolesScreen(Screen):
             self.add_empty_message("Aucun document associé aux pôles.")
         self.add_bottom_safe_spacing()
 
+    
     def display_document_list(self, documents):
         for document in documents:
             if isinstance(document, str):
-                document = {"nom": document,"url": ""}
+                document = {"nom": document, "url": ""}
             card = self.create_card(padding=12, spacing=5)
             # Nom du document
-            nom_document = (
-                document.get("nom")
-                or document.get("titre")
-                or "Document"
-            )
-            self.add_to_card( card, nom_document, font_size="14sp",bold=True,color=self.COLOR_PRIMARY)
+            nom_document = (document.get("nom") or document.get("titre") or "Document" )
+            self.add_to_card( card, nom_document,font_size="16sp",bold=True, color=self.COLOR_PRIMARY)
             # Description
             if document.get("description"):
-                self.add_to_card(card,document.get("description"),font_size="12sp",color=self.COLOR_MUTED)
+                self.add_to_card( card,document.get("description"),font_size="15sp", color=self.COLOR_MUTED )
             # Catégorie
             if document.get("categorie"):
-                self.add_to_card(card,"Catégorie : " + str(document.get("categorie")),font_size="11sp",color=self.COLOR_MUTED )
+                self.add_to_card(card,"Catégorie : " + str(document.get("categorie")),font_size="14sp",color=self.COLOR_MUTED)
             # Document important en rouge
             if document.get("important", False):
-                self.add_to_card(
-                    card,
-                    "Document important",
-                    font_size="11sp",
-                    bold=True,
-                    color="#DC2626"
-                )
+                self.add_to_card(card,"Document important",font_size="14sp",bold=True,color="#DC2626" )
             # Lien
             url = document.get("url", "")
             if url:
-                self.add_card_button(card,"Ouvrir le document",url)
+                self.add_card_button(card, "Ouvrir le document", url)
             else:
-                self.add_to_card(card,"Lien à renseigner",font_size="11sp",color=self.COLOR_MUTED)
+                self.add_to_card(card,"Lien à renseigner", font_size="14sp",color=self.COLOR_MUTED)
             self.content.add_widget(card)
     # ---------------------------------------------------------
     # NAVIGATION RETOUR
@@ -1050,9 +1041,7 @@ class BenevolesScreen(Screen):
         pour éviter que les éléments soient masqués
         par les zones tactiles Android.
         """
-        self.content.add_widget(
-            Widget(size_hint_y=None, height=dp(50))
-        )
+        self.content.add_widget(Widget(size_hint_y=None, height=self.get_dp(50)))
     
     def logout(self, instance=None):
         app = App.get_running_app()
@@ -1183,7 +1172,7 @@ class BenevolesScreen(Screen):
         # -------------------------------------------------
         # Liste SCROLLABLE
         # -------------------------------------------------
-        self.annuaire_results = BoxLayout(orientation="vertical", size_hint_y=None,spacing=dp(10))
+        self.annuaire_results = BoxLayout(orientation="vertical", size_hint_y=None,spacing=self.get_dp(10))
         self.annuaire_results.bind( minimum_height=self.annuaire_results.setter( "height"))
         self.content.add_widget(self.annuaire_results)
         self.annuaire_search_input.bind(text=self.filter_annuaire)
@@ -1235,6 +1224,7 @@ class BenevolesScreen(Screen):
             )
         self.annuaire_results.do_layout()
     
+    
     def display_contact_card(self, contact, parent=None):
         """Affiche une fiche de contact."""
         if parent is None:
@@ -1242,11 +1232,11 @@ class BenevolesScreen(Screen):
         card = self.create_card(padding=14, spacing=7)
         # Fonction
         fonction = contact.get("fonction", "Contact")
-        self.add_to_card(card, fonction, font_size="16sp", bold=True,color=self.COLOR_PRIMARY)
+        self.add_to_card(card,fonction,font_size="18sp",bold=True,color=self.COLOR_PRIMARY)
         # Entreprise
         entreprise = contact.get("entreprise", "")
         if entreprise:
-            self.add_to_card( card, entreprise, font_size="13sp",bold=True,color=self.COLOR_SECONDARY)
+            self.add_to_card(card,entreprise, font_size="16sp",bold=True,color=self.COLOR_SECONDARY)
         # Nom et prénom
         nom = " ".join(
             str(value).strip()
@@ -1257,19 +1247,19 @@ class BenevolesScreen(Screen):
             if value
         )
         if nom:
-            self.add_to_card( card, "Contact : {}".format(nom),font_size="13sp" )
+            self.add_to_card( card,"Contact : {}".format(nom),font_size="16sp")
         # Adresse
         adresse = contact.get("adresse", "")
         if adresse:
-            self.add_to_card( card,"Adresse : {}".format(adresse),font_size="12sp", color=self.COLOR_MUTED)
+            self.add_to_card( card, "Adresse : {}".format(adresse), font_size="15sp",color=self.COLOR_MUTED)
         # Téléphone
         telephone = contact.get("telephone", "")
         if telephone:
-            self.add_card_button(card,"Appeler : {}".format(telephone),"tel:" + str(telephone).replace(" ", ""),color="#16A34A" )
+            self.add_card_button(card,"Appeler : {}".format(telephone),"tel:" + str(telephone).replace(" ", ""),color="#16A34A")
         # Email
         email = contact.get("email", "")
         if email:
-            self.add_card_button( card,"Envoyer un email","mailto:" + str(email),color="#6B7280")
+            self.add_card_button(card,"Envoyer un email","mailto:" + str(email),color="#6B7280")
         parent.add_widget(card)
     # ---------------------------------------------------------
     # PLANNING
