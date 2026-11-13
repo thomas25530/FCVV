@@ -1410,65 +1410,6 @@ class MyApp(App):
                 print("[NOTIFICATIONS] Gestionnaire introuvable.")
                 return
             # --------------------------------------------------
-            # FILTRAGE DES NOTIFICATIONS BENEVOLE
-            # --------------------------------------------------
-            authenticated_benevoles = self.config.getboolean("Benevoles","authenticated", fallback=False)
-            if not authenticated_benevoles:
-                avant = len(notifications)
-                notifications = [
-                    item for item in notifications
-                    if str(item.get("categorie") or "").strip().casefold()
-                    != "benevole".casefold()
-                ]
-                print(
-                    "[NOTIFICATIONS] Filtrage Benevole : "
-                    f"{avant - len(notifications)} notification(s) "
-                    "ignoree(s) car utilisateur non authentifie."
-                )
-            else:
-                print("[NOTIFICATIONS] Acces Benevole autorise : utilisateur authentifie.")
-            # --------------------------------------------------
-            # FILTRAGE DES ANCIENNES NOTIFICATIONS BENEVOLE
-            # --------------------------------------------------
-            if authenticated_benevoles:
-                date_connexion = self.config.get("Benevoles","date_connexion",fallback="").strip()
-                if date_connexion:
-                    try:
-                        date_connexion = datetime.fromisoformat(date_connexion.replace("Z", "+00:00"))
-                        if date_connexion.tzinfo is None:
-                            date_connexion = date_connexion.replace(tzinfo=timezone.utc)
-                        date_connexion = date_connexion.astimezone(timezone.utc)
-                        notifications_filtrees = []
-                        for item in notifications:
-                            categorie = str(item.get("categorie") or "").strip().casefold()
-                            # Les autres catégories ne sont pas concernées
-                            if categorie != "benevole":
-                                notifications_filtrees.append(item)
-                                continue
-                            date_notification = item.get("date")
-                            if not date_notification:
-                                continue
-                            try:
-                                date_notif = datetime.fromisoformat(str(date_notification).replace("Z", "+00:00"))
-                                if date_notif.tzinfo is None:
-                                    date_notif = date_notif.replace(tzinfo=timezone.utc)
-                                date_notif = date_notif.astimezone(timezone.utc)
-                                if date_notif >= date_connexion:
-                                    notifications_filtrees.append(item)
-                            except (ValueError, TypeError):
-                                print(
-                                    "[NOTIFICATIONS] Date Benevole invalide : "
-                                    f"{date_notification}"
-                                )
-                        print(
-                            "[NOTIFICATIONS] Filtrage connexion Benevole : "
-                            f"{len(notifications) - len(notifications_filtrees)} "
-                            "ancienne(s) notification(s) ignoree(s)."
-                        )
-                        notifications = notifications_filtrees
-                    except (ValueError, TypeError):
-                        print("[NOTIFICATIONS] Date de connexion Benevole invalide.")
-            # --------------------------------------------------
             # DATE LIMITE DE PREMIÈRE SYNCHRONISATION ANONYME
             # --------------------------------------------------
             date_limite = None
@@ -1531,6 +1472,84 @@ class MyApp(App):
                     f"conservee(s) sur {len(notifications)}."
                 )
                 notifications = notifications_filtrees
+            # --------------------------------------------------
+            # FILTRAGE DES NOTIFICATIONS BENEVOLE
+            # --------------------------------------------------
+            authenticated_benevoles = self.config.getboolean("Benevoles","authenticated", fallback=False)
+            if not authenticated_benevoles:
+                avant = len(notifications)
+                notifications = [
+                    item for item in notifications
+                    if str(item.get("categorie") or "").strip().casefold()
+                    != "benevole".casefold()
+                ]
+                print(
+                    "[NOTIFICATIONS] Filtrage Benevole : "
+                    f"{avant - len(notifications)} notification(s) "
+                    "ignoree(s) car utilisateur non authentifie."
+                )
+            else:
+                print("[NOTIFICATIONS] Acces Benevole autorise : utilisateur authentifie.")
+            # --------------------------------------------------
+            # FILTRAGE DES ANCIENNES NOTIFICATIONS BENEVOLE
+            # --------------------------------------------------
+            if authenticated_benevoles:
+                date_connexion = self.config.get("Benevoles","date_connexion",fallback="").strip()
+                if date_connexion:
+                    try:
+                        date_connexion = datetime.fromisoformat(date_connexion.replace("Z", "+00:00"))
+                        if date_connexion.tzinfo is None:
+                            date_connexion = date_connexion.replace(tzinfo=timezone.utc)
+                        date_connexion = date_connexion.astimezone(timezone.utc)
+                        notifications_filtrees = []
+                        for item in notifications:
+                            categorie = str(item.get("categorie") or "").strip().casefold()
+                            # Les autres catégories ne sont pas concernées
+                            if categorie != "benevole":
+                                notifications_filtrees.append(item)
+                                continue
+                            date_notification = item.get("date")
+                            if not date_notification:
+                                continue
+                            try:
+                                date_notif = datetime.fromisoformat(str(date_notification).replace("Z", "+00:00"))
+                                if date_notif.tzinfo is None:
+                                    date_notif = date_notif.replace(tzinfo=timezone.utc)
+                                date_notif = date_notif.astimezone(timezone.utc)
+                                if date_notif >= date_connexion:
+                                    notifications_filtrees.append(item)
+                            except (ValueError, TypeError):
+                                print(
+                                    "[NOTIFICATIONS] Date Benevole invalide : "
+                                    f"{date_notification}"
+                                )
+                        print(
+                            "[NOTIFICATIONS] Filtrage connexion Benevole : "
+                            f"{len(notifications) - len(notifications_filtrees)} "
+                            "ancienne(s) notification(s) ignoree(s)."
+                        )
+                        notifications = notifications_filtrees
+                    except (ValueError, TypeError):
+                        print("[NOTIFICATIONS] Date de connexion Benevole invalide.")
+            # --------------------------------------------------
+            # NOUVEAU FILTRE : EXCLUSION DE SES PROPRES MESSAGES BÉNÉVOLES
+            # --------------------------------------------------
+            prenom_chat = self.config.get("Benevoles", "prenom_chat", fallback="").strip().casefold()
+            if prenom_chat:
+                avant_excl = len(notifications)
+                notifications_filtrees = []
+                for item in notifications:
+                    categorie = str(item.get("categorie") or "").strip().casefold()
+                    if categorie == "benevole":
+                        corps_notif = str(item.get("corps") or "").strip().casefold()
+                        # Si le corps commence par le prénom de l'utilisateur suivi de ":" (ex: "thomas: ...")
+                        if corps_notif.startswith(f"{prenom_chat}:"):
+                            continue  # On ignore notre propre message
+                    notifications_filtrees.append(item)
+                notifications = notifications_filtrees
+                exclus_count = avant_excl - len(notifications)
+                if exclus_count > 0:
+                    print(f"[NOTIFICATIONS] Auto-exclusion : {exclus_count} propre(s) message(s) ignore(s).")
             # --------------------------------------------------
             # LECTURE DES ASSOCIATIONS ANDROID
             # --------------------------------------------------
@@ -1660,7 +1679,6 @@ class MyApp(App):
                 Clock.schedule_once(actualiser_menu, 0)
         except Exception as e:
             print(f"[NOTIFICATIONS] Erreur de synchronisation : {e}")
-
             
     def lancer_synchronisation_notifications(self, dt=0):
         import threading
