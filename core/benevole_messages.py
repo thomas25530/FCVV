@@ -164,21 +164,36 @@ class BenevoleMessagesView(BoxLayout):
     # ============================================================
     def build_prenom_view(self):
         self.clear_widgets()
-        card = BoxLayout(orientation="vertical", spacing=dp(10), size_hint_y=None, height=dp(180), padding=dp(15))
-        card.add_widget(
-            Label(
-                text="Entrez votre prénom pour discuter avec les bénévoles",
-                size_hint_y=None,
-                height=dp(60),
-            )
+        
+        # Conteneur principal pour tout aligner en haut
+        main_layout = BoxLayout(orientation="vertical", size_hint=(1, 1))
+        
+        card = BoxLayout(orientation="vertical", spacing=dp(12), size_hint_y=None, height=dp(200), padding=dp(15))
+        
+        # Label ajusté pour tenir sur 2 lignes et centré
+        lbl = Label(
+            text="Entrez votre prénom pour discuter avec les bénévoles",
+            size_hint_y=None,
+            height=dp(70),
+            halign="center",
+            valign="middle"
         )
+        lbl.bind(size=lambda *_: setattr(lbl, 'text_size', lbl.size))
+        card.add_widget(lbl)
+
         self.prenom_input = TextInput(hint_text="Prénom", multiline=False, size_hint_y=None, height=dp(45))
         self.prenom_input.bind(on_text_validate=lambda *_: self.save_prenom())
         card.add_widget(self.prenom_input)
+
         btn = Button(text="Continuer", size_hint_y=None, height=dp(45))
         btn.bind(on_release=self.save_prenom)
         card.add_widget(btn)
-        self.add_widget(card)
+
+        main_layout.add_widget(card)
+        # Espace vide en dessous pour repousser la carte tout en haut
+        main_layout.add_widget(Widget()) 
+        
+        self.add_widget(main_layout)
 
     def save_prenom(self, *_):
         prenom = self.prenom_input.text.strip().title()
@@ -192,11 +207,10 @@ class BenevoleMessagesView(BoxLayout):
         app.config.write()
         self.prenom = prenom
         # ======================================================
-        # ABONNEMENT FCM :  Topic d'exclusion
+        # ABONNEMENT FCM : Topic d'exclusion
         # ======================================================
         try:
             if hasattr(app, "notifier") and app.notifier and platform in ("android", "ios"):
-                # 2. Abonnement au topic d'exclusion dynamique (ex: Benevole_exclure_thomas)
                 prenom_clean = prenom.strip().replace(" ", "_").lower()
                 topic_exclusion = f"Benevole_exclure_{prenom_clean}"
                 print(f"[FCM BENEVOLES] Abonnement au topic d'exclusion : {topic_exclusion}")
@@ -226,39 +240,32 @@ class BenevoleMessagesView(BoxLayout):
             valign="middle"
         )
         header.bind(size=lambda *_: setattr(header, 'text_size', header.size))
-        # 2. SCROLLVIEW DES MESSAGES (au milieu, size_hint_y=1 pour occuper tout l'espace libre)
-        self.scroll = ScrollView( do_scroll_x=False,size_hint=(1, 1))
-        self.msg_container = BoxLayout( orientation="vertical",size_hint_y=None,spacing=dp(8),padding=[dp(10), dp(10)])
+        # 2. SCROLLVIEW DES MESSAGES
+        self.scroll = ScrollView(do_scroll_x=False, size_hint=(1, 1))
+        self.msg_container = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(8), padding=[dp(10), dp(10)])
         self.msg_container.bind(minimum_height=self.msg_container.setter("height"))
         self.scroll.add_widget(self.msg_container)
         # 3. CONTENEUR DU BAS : Barre de saisie + Espace de sécurité Android en dessous
-        bottom_container = BoxLayout( orientation="vertical", size_hint=(1, None),height=dp(55) + dp(50), spacing=dp(0), padding=[dp(5), dp(5), dp(5), dp(0)])
-        # La boîte contenant le champ texte et le bouton envoyer
-        self.input_box = BoxLayout(orientation="horizontal",size_hint=(1, None),height=dp(55), spacing=dp(5))
-        self.input_field = TextInput( hint_text="Votre message...", multiline=False, size_hint_x=0.75)
+        bottom_container = BoxLayout(orientation="vertical", size_hint=(1, None), height=dp(55) + dp(50), spacing=dp(0), padding=[dp(5), dp(5), dp(5), dp(0)])
+        self.input_box = BoxLayout(orientation="horizontal", size_hint=(1, None), height=dp(55), spacing=dp(5))
+        self.input_field = TextInput(hint_text="Votre message...", multiline=False, size_hint_x=0.75)
         self.input_field.bind(on_text_validate=lambda *_: self.send_message())
-        send_btn = Button(text="Envoyer",size_hint_x=0.25)
+        send_btn = Button(text="Envoyer", size_hint_x=0.25)
         send_btn.bind(on_release=self.send_message)
         self.input_box.add_widget(self.input_field)
         self.input_box.add_widget(send_btn)
-        # Ajout de l'input box dans le conteneur du bas
         bottom_container.add_widget(self.input_box)
-        # Ajout du spacer de sécurité invisible en dessous de la case entry (similaire à add_bottom_safe_spacing)
         bottom_container.add_widget(Widget(size_hint_y=None, height=dp(50)))
-        # ============================================================
-        # ORDRE D'AJOUT KIVY (Du haut vers le bas) :
-        # ============================================================
-        # - 1. Le header (tout en haut)
+        
         self.add_widget(header)
-        # - 2. Le scrollview (au milieu)
         self.add_widget(self.scroll)
-        # - 3. Le conteneur du bas (case entry + spacer de sécurité)
         self.add_widget(bottom_container)
         self.load_cache()
         self.fetch_messages()
         if hasattr(self, "refresh_event") and self.refresh_event:
             self.refresh_event.cancel()
         self.refresh_event = Clock.schedule_interval(self.fetch_messages, 5)
+
     # ============================================================
     # AFFICHAGE
     # ============================================================
@@ -285,21 +292,18 @@ class BenevoleMessagesView(BoxLayout):
             )
             bubble = BenevoleMessageBubble(msg, is_me=is_me, delete_callback=self.delete_message if is_me else None)
             self.msg_container.add_widget(bubble)
-        # On décale légèrement le timing pour laisser Kivy finir de peindre le layout, puis on initialise le scroll en haut (1) ou en bas (0)
         Clock.schedule_once(self.fix_initial_scroll, 0.1)
 
     def fix_initial_scroll(self, *_):
         try:
             self.msg_container.do_layout()
             self.do_layout()
-            # Si vous voulez que la vue démarre tout en haut de la liste au chargement :
             self.scroll.scroll_y = 1  
         except Exception as e:
             print(f"[DEBUG] Erreur fix_initial_scroll : {e}")
 
     def force_layout_and_scroll(self, *_):
         try:
-            # On actualise le conteneur de messages et la vue principale (on supprime l'appel à scroll.do_layout)
             self.msg_container.do_layout()
             self.do_layout()
         except Exception as e:
@@ -308,10 +312,11 @@ class BenevoleMessagesView(BoxLayout):
     def scroll_to_bottom(self, *_):
         try:
             self.msg_container.do_layout()
-            self.scroll.scroll_y = 0  # Pour rester calé en bas (style chat)
+            self.scroll.scroll_y = 0  
             self.do_layout()
         except Exception as e:
             print(f"[DEBUG] Erreur scroll_to_bottom : {e}")
+
     # ============================================================
     # RECEPTION
     # ============================================================
@@ -367,7 +372,7 @@ class BenevoleMessagesView(BoxLayout):
                 self.force_refresh = True
                 Clock.schedule_once(lambda dt: self.fetch_messages())
             else:
-                print(f"[MESSAGES_BENEVOLES] Erreur API : {response.status_code} - {response.text}")
+                print(f"[MESSAGES_BENEVOLES] Erreur API : {response.status_code} {response.text}")
         except Exception as e:
             print(f"[MESSAGES_BENEVOLES] Erreur envoi : {e}")
 
@@ -375,7 +380,7 @@ class BenevoleMessagesView(BoxLayout):
     # SUPPRESSION
     # ============================================================
     def delete_message(self, msg_data):
-        threading.Thread(target=self._delete_message_thread,args=(msg_data,), daemon=True).start()
+        threading.Thread(target=self._delete_message_thread, args=(msg_data,), daemon=True).start()
 
     def _delete_message_thread(self, msg_data):
         try:
@@ -390,6 +395,7 @@ class BenevoleMessagesView(BoxLayout):
                 Clock.schedule_once(lambda dt: self.fetch_messages())
         except Exception as e:
             print(f"[MESSAGES_BENEVOLES] Erreur suppression : {e}")
+
     # ============================================================
     # CACHE
     # ============================================================
