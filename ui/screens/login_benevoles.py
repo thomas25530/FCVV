@@ -285,9 +285,18 @@ class BenevolesLoginScreen(Screen):
         self.save_authentication(False)
         app = App.get_running_app()
         try:
-            if (hasattr(app, "notifier") and app.notifier and platform in ("android", "ios")):
+            if hasattr(app, "notifier") and app.notifier and platform in ("android", "ios"):
+                # 1. Désabonnement du topic global des bénévoles
                 print("[FCM BENEVOLES] Desabonnement du topic Benevole")
                 app.notifier.unsubscribe_from_topic("Benevole")
+                # 2. Vérification et désabonnement du topic d'exclusion si un prénom était enregistré
+                if app.config.has_section("Benevoles") and app.config.has_option("Benevoles", "prenom_chat"):
+                    prenom = app.config.get("Benevoles", "prenom_chat").strip()
+                    if prenom:
+                        prenom_clean = prenom.strip().replace(" ", "_").lower()
+                        topic_exclusion = f"Benevole_exclure_{prenom_clean}"
+                        print(f"[FCM BENEVOLES] Desabonnement du topic d'exclusion : {topic_exclusion}")
+                        app.notifier.unsubscribe_from_topic(topic_exclusion)
         except Exception as e:
             print(f"[FCM BENEVOLES] Erreur desabonnement : {e}")
         if app.root and hasattr(app.root, "switch_screen"):
