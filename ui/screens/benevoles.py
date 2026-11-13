@@ -24,6 +24,7 @@ from kivy.uix.textinput import TextInput
 
 from core.planning import PlanningScreen
 from core.stock import StockScreen
+from core.benevole_messages import BenevoleMessagesView
 
 class BenevolesScreen(Screen):
     # ---------------------------------------------------------
@@ -113,6 +114,7 @@ class BenevolesScreen(Screen):
             ("poles", "Pôles"),
             ("planning", "Planning"),
             ("stock", "Stock"),
+            ("messages", "Messages"),
             ("reunions", "Réunions"),
             ("annuaire", "Annuaire"),
             ("documents", "Documents")
@@ -304,8 +306,19 @@ class BenevolesScreen(Screen):
         self.display_current_tab()
 
     def display_current_tab(self):
-        self.clear_content()
         self.update_tab_buttons()
+        # 1. Nettoyage total de la page avant d'afficher le nouvel onglet
+        self.clear_content()
+        if hasattr(self, "benevole_messages_view") and self.benevole_messages_view in self.page_container.children:
+            self.page_container.remove_widget(self.benevole_messages_view)
+        if self.scroll_view in self.page_container.children:
+            self.page_container.remove_widget(self.scroll_view)
+        # 2. Gestion spécifique selon l'onglet actif
+        if self.current_tab == "messages":
+            self.display_messages()
+            return
+        # Pour tous les autres onglets, on remet le ScrollView standard de l'application
+        self.page_container.add_widget(self.scroll_view)
         if self.current_tab == "accueil":
             self.display_home()
         elif self.current_tab == "reunions":
@@ -1275,7 +1288,7 @@ class BenevolesScreen(Screen):
         self.planning_view = planning_view
         self.content.add_widget(planning_view)
         self.add_bottom_safe_spacing()
-        # ---------------------------------------------------------
+    # ---------------------------------------------------------
     # STOCK
     # ---------------------------------------------------------
     def display_stock(self):
@@ -1292,3 +1305,14 @@ class BenevolesScreen(Screen):
         self.stock_view = stock_view
         self.content.add_widget(stock_view)
         self.add_bottom_safe_spacing()
+    # ---------------------------------------------------------
+    # MESSAGE
+    # ---------------------------------------------------------
+    def display_messages(self):
+        # On s'assure que le ScrollView général est bien absent
+        if self.scroll_view in self.page_container.children:
+            self.page_container.remove_widget(self.scroll_view)
+            
+        # On instancie et ajoute la vue des messages en plein écran sous les onglets
+        self.benevole_messages_view = BenevoleMessagesView()
+        self.page_container.add_widget(self.benevole_messages_view)
