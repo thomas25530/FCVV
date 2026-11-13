@@ -202,23 +202,31 @@ class BenevolesLoginScreen(Screen):
         app = App.get_running_app()
         if not app.config.has_section("Benevoles"):
             app.config.add_section("Benevoles")
+        
         app.config.set(
             "Benevoles",
             "authenticated",
             "1" if authenticated else "0"
         )
+        
         if authenticated:
             credentials_hash = self.get_current_credentials_hash()
-            app.config.set("Benevoles","credentials_hash",credentials_hash)
+            app.config.set("Benevoles", "credentials_hash", credentials_hash)
+            
             # Date et heure de la connexion bénévole
             date_connexion = datetime.now(timezone.utc).isoformat()
-            app.config.set( "Benevoles","date_connexion", date_connexion)
+            app.config.set("Benevoles", "date_connexion", date_connexion)
             print(
                 "[BENEVOLES LOGIN] Date de connexion enregistree : "
                 + date_connexion
             )
         else:
-            app.config.set("Benevoles","credentials_hash","")
+            # Nettoyage des données sensibles / de session lors de la déconnexion
+            app.config.set("Benevoles", "credentials_hash", "")
+            app.config.set("Benevoles", "date_connexion", "")
+            app.config.set("Benevoles", "prenom_chat", "")
+            print("[BENEVOLES LOGOUT] Donnees de session effacees du .ini")
+            
         app.config.write()
     # --------------------------------------------------
     # AUTHENTIFICATION
