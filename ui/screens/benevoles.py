@@ -19,6 +19,7 @@ from kivy.uix.gridlayout import GridLayout
 
 from kivy.graphics import Color, RoundedRectangle
 from kivy.utils import platform
+from kivy.core.window import Window
 
 from kivy.uix.textinput import TextInput
 
@@ -289,6 +290,10 @@ class BenevolesScreen(Screen):
     def on_enter(self, *args):
         self.update_ui_from_config()
 
+    def on_leave(self, *args):
+        if platform == "ios":
+            Window.softinput_mode = ""
+    
     def get_benevoles_data(self):
         try:
             app = App.get_running_app()
@@ -307,6 +312,12 @@ class BenevolesScreen(Screen):
 
     def display_current_tab(self):
         self.update_tab_buttons()
+        # Gestion du clavier iOS
+        if platform == "ios":
+            if self.current_tab == "messages":
+                Window.softinput_mode = "below_target"
+            else:
+                Window.softinput_mode = ""
         # 1. Nettoyage total de la page avant d'afficher le nouvel onglet
         self.clear_content()
         if hasattr(self, "benevole_messages_view") and self.benevole_messages_view in self.page_container.children:
