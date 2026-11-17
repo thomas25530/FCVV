@@ -1269,6 +1269,11 @@ class SoireesScreen(Screen):
         tournoi.poules_terminees = all(m.get("SA") is not None and m.get("SB") is not None for m in tournoi.matchs)
         poules_terminees = tournoi.poules_terminees
         phases_cfg = config_dict.get("phases_finales", {})
+        # Temps optionnel de vérification des qualifiés
+        try:
+            heure_courante += timedelta(minutes=int(phases_cfg.get("attente_phase_finale", 0)))
+        except (TypeError, ValueError):
+            pass
         if isinstance(phases_cfg, dict) and phases_cfg.get("actif", False):
             add_row(_("title_final_phase"), bg_hex="#000000", is_bold=True, force_white=True)
             debut_yaml = phases_cfg.get("debut", "huitieme").lower()
