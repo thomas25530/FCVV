@@ -216,6 +216,7 @@ class TournoiLogic:
         mode = data.get("phases_finales_mode", {})
         instance.automatique = mode.get("automatique", True)
         instance.debut_phase = mode.get("debut", "huitieme")
+        instance.attente_phase_finale = mode.get("attente_phase_finale",0)
         instance.phases = data.get("phases_finales", [])
 
         # Sécurité structure matchs
@@ -238,6 +239,7 @@ class TournoiLogic:
                 "actif": bool(instance.phases),
                 "automatique": instance.automatique,
                 "debut": instance.debut_phase,
+                "attente_phase_finale": instance.attente_phase_finale,
                 "options": {
                     "classement_final": phases_options.get("classement_final", False),
                     "match_classement": phases_options.get("match_classement", True),
