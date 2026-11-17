@@ -298,7 +298,38 @@ class StockScreen(BoxLayout):
         return label
 
     def add_section_title(self, text):
-        self.body.add_widget(self.make_label(text,font_size=16,color=self.COLOR_PRIMARY,bold=True))
+        title = BoxLayout(
+            orientation="vertical",
+            size_hint_y=None,
+            height=self._dp(44),
+            padding=[self._dp(12), self._dp(5)]
+        )
+    
+        with title.canvas.before:
+            from kivy.graphics import Color, RoundedRectangle
+            Color(*self._color(self.COLOR_DANGER))
+            title.background = RoundedRectangle(
+                pos=title.pos,
+                size=title.size,
+                radius=[self._dp(8)]
+            )
+    
+        title.bind(
+            pos=lambda i, v: setattr(i.background, "pos", v),
+            size=lambda i, v: setattr(i.background, "size", v)
+        )
+    
+        title.add_widget(
+            self.make_label(
+                text,
+                font_size=15,
+                color=self.COLOR_WHITE,
+                bold=True,
+                height=32
+            )
+        )
+    
+        self.body.add_widget(title)
 
     def add_category_title(self, category):
         """Ajoute un titre de catégorie bien visible."""
@@ -337,7 +368,7 @@ class StockScreen(BoxLayout):
         tabs = [
             ("overview", "Vue d'ensemble"),
             ("articles", "Articles"),
-            ("distributions", "Distributions")
+            ("distributions", "Ventes")
         ]
         for tab_id, label in tabs:
             button = Button(
@@ -798,7 +829,7 @@ class StockScreen(BoxLayout):
     # ONGLET 2 : ARTICLES PAR CATÉGORIE
     # ---------------------------------------------------------
     def display_articles_by_category(self, movements_by_reference):
-        self.add_section_title("STOCK DISPONIBLE PAR CATÉGORIE")
+        #self.add_section_title("STOCK DISPONIBLE PAR CATÉGORIE")
         # Texte explicatif en blanc et en gras.
         self.body.add_widget(
             self.make_label(
@@ -897,25 +928,24 @@ class StockScreen(BoxLayout):
             pole = movement["pole"]
             reference = movement["reference"]
             distributions[pole][reference] += ( movement["quantite"])
-        self.add_section_title("RÉPARTITION DES DISTRIBUTIONS PAR PÔLE")
+        #self.add_section_title("VENTES PAR PÔLE")
         self.body.add_widget(
             self.make_label(
-                "Retrouvez les quantités d'articles distribuées "
-                "à chaque pôle.",
+                "Retrouvez les quantités consommées ou vendues par chaque pôle.",
                 font_size=14,
                 bold=True,
                 color=self.COLOR_WHITE
             )
         )
         if not distributions:
-            self.add_empty_message( "Aucune distribution n'a encore été enregistrée.")
+            self.add_empty_message( "Aucune vente n'a encore été enregistrée.")
             return
         for pole in sorted(
             distributions.keys(),
             key=lambda value: value.casefold()
         ):
             card = self.create_card(padding=13,spacing=7)
-            self.add_to_card( card,"Pôle bénéficiaire : " + pole, font_size=15,color=self.COLOR_PRIMARY,bold=True)
+            self.add_to_card( card,"Ventes : " + pole, font_size=15,color=self.COLOR_PRIMARY,bold=True)
             for reference in sorted(
                 distributions[pole].keys(),
                 key=lambda value: names_by_reference.get(
