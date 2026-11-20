@@ -352,41 +352,71 @@ class SoireesScreen(Screen):
         return tournoi.matchs.index(match) + 1
     
     def get_match_real_time(self, target_match):
-        """Recalcule l'heure réelle du match en tenant compte des pauses."""
+        """Recalcule l'heure réelle du match avec pauses et synchronisations."""
         if not self.current_tournoi:
             return ""
         tournoi = self.current_tournoi
-        config_dict = getattr(tournoi, 'config', {}) or {}
+        config_dict = getattr(tournoi, "config", {}) or {}
         param = config_dict.get("parametres", {}) or {}
         def parse_duree(d):
-            if isinstance(d, int):
+            if isinstance(d, (int, float)):
                 return timedelta(minutes=d)
             if isinstance(d, str) and ":" in d:
-                mm, ss = map(int, d.split(":"))
-                return timedelta(minutes=mm, seconds=ss)
+                parties = list(map(int, d.split(":")))
+                if len(parties) == 2:
+                    mm, ss = parties
+                    return timedelta(minutes=mm, seconds=ss)
             return timedelta(minutes=5)
         pause_td = parse_duree(param.get("pause", 0))
         duree_match_td = parse_duree(param.get("duree_match", 5))
-        heure_courante = datetime.strptime(
-            param.get("heure_debut", "09:00"),
-            "%H:%M"
-        )
+        heure_courante = datetime.strptime(param.get("heure_debut", "09:00"),"%H:%M")
+        # -----------------------------------------
+        # Récupération des synchronisations
+        # -----------------------------------------
+        synchronisations = param.get("horaires_synchronisations",getattr(tournoi, "horaires_synchronisations", []))
+        if not isinstance(synchronisations, list):
+            synchronisations = []
+        decalages_par_match = {}
+        for sync in synchronisations:
+            try:
+                numero = int(sync.get("match"))
+                decalage = int(sync.get("decalage_minutes", 0))
+                decalages_par_match.setdefault(numero, []).append(decalage)
+            except (TypeError, ValueError, AttributeError):
+                continue
+        def appliquer_synchronisation(numero_match, heure):
+            for decalage in decalages_par_match.get(numero_match, []):
+                heure += timedelta(minutes=decalage)
+            return heure
+        # -----------------------------------------
+        # Récupération des pauses fixes
+        # -----------------------------------------
         pauses = config_dict.get("pauses", {}).get("liste", [])
+        if not isinstance(pauses, list):
+            pauses = []
         pause_index = 0
-        for match in tournoi.matchs:
-            # Injection pauses
+        # -----------------------------------------
+        # Parcours des matchs dans l'ordre
+        # -----------------------------------------
+        for numero_match, match in enumerate(tournoi.matchs, start=1):
+            # Appliquer le décalage AVANT les pauses
+            heure_courante = appliquer_synchronisation(numero_match,heure_courante)
+            # Décaler les horaires des pauses en fonction
+            # des synchronisations déjà effectuées
             while pause_index < len(pauses):
                 p = pauses[pause_index]
                 try:
-                    p_debut = datetime.strptime(
-                        p.get("from", "00:00"),
-                        "%H:%M"
+                    p_debut = datetime.strptime(p.get("from", "00:00"),"%H:%M")
+                    p_fin = datetime.strptime( p.get("to", "00:00"),"%H:%M")
+                    decalage_pause = sum(
+                        decalage
+                        for numero, decalages in decalages_par_match.items()
+                        if numero <= numero_match
+                        for decalage in decalages
                     )
-                    p_fin = datetime.strptime(
-                        p.get("to", "00:00"),
-                        "%H:%M"
-                    )
-                except:
+                    p_debut += timedelta(minutes=decalage_pause)
+                    p_fin += timedelta(minutes=decalage_pause)
+                except (TypeError, ValueError, AttributeError):
                     pause_index += 1
                     continue
                 if p_debut <= heure_courante < p_fin:
@@ -394,9 +424,10 @@ class SoireesScreen(Screen):
                     pause_index += 1
                 else:
                     break
-            # Match trouvé
+            # Le match recherché est atteint
             if match is target_match:
                 return heure_courante.strftime("%H:%M")
+            # Passage au match suivant
             heure_courante += duree_match_td + pause_td
         return ""
     
@@ -1068,12 +1099,19 @@ class SoireesScreen(Screen):
         for m in getattr(tournoi, 'matchs', []):
             structure_matchs.append((m.get("A"), m.get("B"), m.get("groupe"), m.get("type")))
             
+        config = getattr(tournoi, "config", {}) or {}
+        param = config.get("parametres", {}) or {}
         data = {
             "matchs": structure_matchs,
             "phases": getattr(tournoi, "phases_finales", []),
             "groupes": getattr(tournoi, "groupes", {}),
             "departages_tab": getattr(tournoi, "departages_tab", {}),
             "ordres_forces": getattr(tournoi, "ordres_forces", {}),
+            # Nouveaux paramètres horaires
+            "horaires_synchronisations": param.get("horaires_synchronisations", []),
+            "heure_debut": param.get("heure_debut"),
+            "duree_match": param.get("duree_match"),
+            "pause": param.get("pause"),
             "debug": is_debug
         }
         return hashlib.md5(str(data).encode()).hexdigest()
@@ -1236,6 +1274,25 @@ class SoireesScreen(Screen):
         pause_td = parse_duree(param.get("pause", 0))
         duree_match_td = parse_duree(param.get("duree_match", 5))
         heure_courante = datetime.strptime(param.get("heure_debut", "09:00"), "%H:%M")
+        # ==================================================
+        # Synchronisations horaires
+        # ==================================================
+        synchronisations = param.get("horaires_synchronisations",getattr(tournoi, "horaires_synchronisations", []))
+        if not isinstance(synchronisations, list):
+            synchronisations = []
+        decalages_par_match = {}
+        for sync in synchronisations:
+            try:
+                numero = int(sync.get("match"))
+                decalage = int(sync.get("decalage_minutes", 0))
+                decalages_par_match.setdefault(numero, []).append(decalage)
+            except (TypeError, ValueError, AttributeError):
+                continue
+        def appliquer_synchronisation(numero_match, heure):
+            """Applique les décalages enregistrés pour un match."""
+            for decalage in decalages_par_match.get(numero_match, []):
+                heure += timedelta(minutes=decalage)
+            return heure
         if not group_color:
             group_color = build_group_colors(tournoi.groupes)
         tournoi.recalc_all()
@@ -1245,18 +1302,46 @@ class SoireesScreen(Screen):
         pause_index = 0
         # Remplissage des Matchs de Poule
         for m in tournoi.matchs:
+            # Appliquer la synchronisation AVANT de vérifier les pauses
+            heure_courante = appliquer_synchronisation(match_counter,heure_courante)
             while pause_index < len(pauses):
                 p = pauses[pause_index]
                 try:
-                    p_debut = datetime.strptime(p.get("from", "00:00"), "%H:%M")
-                    p_fin = datetime.strptime(p.get("to", "00:00"), "%H:%M")
-                except: pause_index += 1; continue
+                    p_debut = datetime.strptime(p.get("from", "00:00"),"%H:%M")
+                    p_fin = datetime.strptime(p.get("to", "00:00"),"%H:%M")
+                    # Décaler les pauses selon les synchronisations
+                    # effectuées jusqu'au match courant inclus
+                    decalage_pause = sum(
+                        decalage
+                        for numero, decalages in decalages_par_match.items()
+                        if numero <= match_counter
+                        for decalage in decalages
+                    )
+                    p_debut += timedelta(minutes=decalage_pause)
+                    p_fin += timedelta(minutes=decalage_pause)
+                except Exception as e:
+                    print("Erreur lecture pause :", e)
+                    pause_index += 1
+                    continue
                 if p_debut <= heure_courante < p_fin:
-                    add_row(["", heure_courante.strftime("%H:%M"), "", p.get("nom") or _("label_pause"), f"{p_fin.strftime('%H:%M')}", ""], bg_hex="#FFFF00", is_bold=True)
+                    add_row(
+                        [
+                            "",
+                            heure_courante.strftime("%H:%M"),
+                            "",
+                            p.get("nom") or _("label_pause"),
+                            p_fin.strftime("%H:%M"),
+                            ""
+                        ],
+                        bg_hex="#FFFF00",
+                        is_bold=True
+                    )
                     heure_courante = p_fin
                     pause_index += 1
-                else: break
-
+        
+                else:
+                    break
+            # Heure du match après synchronisation et pause
             m["heure"] = heure_courante.strftime("%H:%M")
             g_color = group_color.get(m['groupe'], "#1E3A8A")
             sa = "" if m.get("SA") is None else m["SA"]
@@ -1266,6 +1351,7 @@ class SoireesScreen(Screen):
             match_counter += 1
             total_match_idx += 1
             heure_courante += duree_match_td + pause_td
+        
         tournoi.poules_terminees = all(m.get("SA") is not None and m.get("SB") is not None for m in tournoi.matchs)
         poules_terminees = tournoi.poules_terminees
         phases_cfg = config_dict.get("phases_finales", {})
@@ -1289,8 +1375,10 @@ class SoireesScreen(Screen):
                 for i, equipe in enumerate(eqs):
                     team_to_pos[equipe] = f"{i+1}{'er' if i==0 else 'e'} G{g}"
             automatique = phases_cfg.get("automatique", True)
-            def add_pf_match(h_courante, A, B, tag, duree_td, match_data=None, m_global_idx=None, is_pf_match=False):
+            def add_pf_match(h_courante, A, B,tag,duree_td,match_data=None,m_global_idx=None,is_pf_match=False):
                 nonlocal match_counter
+                # Appliquer la synchronisation du match de phase finale
+                h_courante = appliquer_synchronisation(match_counter,h_courante)
                 start_str = h_courante.strftime("%H:%M")
                 bg_hex = cp.get(tag, "#EEEEEE")
                 score_display = "-"
@@ -1518,8 +1606,7 @@ class SoireesScreen(Screen):
         if hasattr(self.current_tournoi, 'recalc_all'):
             self.current_tournoi.recalc_all()
         self.current_tournoi.recalculer_classement(preserve_tab=True)
-        classement_groupes = self.current_tournoi.classement_par_groupe()
-        
+        classement_groupes = self.current_tournoi.classement_par_groupe()    
         cols_config = [
             (_("pos"), 0.06),
             (_("team"), 0.30),
@@ -1550,8 +1637,11 @@ class SoireesScreen(Screen):
             bg_rgb = hex_to_rgb(group_colors.get(g, "#FFFFFF"))
             for i, (equipe, d) in enumerate(data, 1):
                 row = BoxLayout(orientation='horizontal', size_hint_y=None, height=dp(35), spacing=1)
+                
                 penalites = getattr(self.current_tournoi, "penalites", {}) or {}
+                
                 penalite = penalites.get(equipe, 0)
+                
                 row_values = [
                     str(i),
                     str(equipe),
@@ -1569,6 +1659,7 @@ class SoireesScreen(Screen):
                     str(d.get("bc", 0)),
                     str(d.get("diff", 0))
                 ]
+
 
                 for idx, val in enumerate(row_values):
                     row.add_widget(StyledLabel(
