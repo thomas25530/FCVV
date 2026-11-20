@@ -12,7 +12,7 @@ jobs:
     env:
       IOS_DEPLOYMENT_TARGET: "15.0"
       APP_BUNDLE_ID: "org.fcvv.fcvv"
-      APP_VERSION: "1.1.1"
+      APP_VERSION: "1.1.2"
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       PURE_PYTHON: "1"
 
