@@ -107,7 +107,9 @@ class TournoiLogic:
         parametres = self.config.get("parametres", {})
         self.date = parametres.get("date", "Non définie")
         self.annee = parametres.get("annee", "default")
-        
+        self.horaires_synchronisations = parametres.get("horaires_synchronisations", [])
+        if not isinstance(self.horaires_synchronisations, list):
+            self.horaires_synchronisations = []
         # 3. Initialisation des Groupes (CORRECTION NOM : _initiaux)
         groupes_cfg = self.config.get("groupes", {})
         self.groupes_initiaux = {str(g): [str(e) for e in eqs] for g, eqs in groupes_cfg.items()}
